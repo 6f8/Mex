@@ -22,7 +22,7 @@ public class InvoiceForm : BaseForm
                    lblInfo = new() { Dock = DockStyle.Fill, Padding = new Padding(2), Font = Theme.F(10), ForeColor = Theme.Text2 };
     DataTable items;
     bool busy;
-    long editId, lastId;
+    long editId, lastId, guarantorId;
     double oldEffect;   // أثر الفاتورة القديمة على رصيد الجهة (عند التعديل)
 
     bool IsOut => InvoiceOps.IsOut(type);
@@ -32,6 +32,7 @@ public class InvoiceForm : BaseForm
     bool HasParty => type is not ("Damage" or "StockIn" or "StockOut");
     bool CostDoc => !HasParty;
     DataTable serials;   // الأرقام التسلسلية (IMEI) للبحث بالمسح
+    Dictionary<string, long> barcodeMap = new();   // كل باركودات المواد (الباركودات المتعددة)
 
     record Line(long ItemId, string Name, double Len, double Wid, double Qty, double Price, string Expiry, string Serials);
 
@@ -61,6 +62,7 @@ public class InvoiceForm : BaseForm
             head.Controls.Add(Ui.Labeled(SaleSide ? "العميل" : "المورد", cbParty));
         }
         Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id");
+        Ui.SelectId(cbWh, Ui.DefaultWarehouse());
         head.Controls.Add(Ui.Labeled("المخزن", cbWh));
         if (SaleSide)
         {
@@ -217,9 +219,11 @@ public class InvoiceForm : BaseForm
     {
         items = Db.Query(@"SELECT id,code,barcode,name,unit,price_retail,price_wholesale,price_special,price_installment,price_buy,
             IFNULL(buy_currency,'IQD') AS buy_currency, IFNULL(sell_currency,'IQD') AS sell_currency, IFNULL(item_type,'اعتيادية') AS item_type,
-            IFNULL(cost_method,'كلفة الوجبة') AS cost_method, by_measure,medical_info,alert_note FROM items
+            IFNULL(cost_method,'كلفة الوجبة') AS cost_method, by_measure,medical_info,alert_note,IFNULL(use_scale,0) AS use_scale FROM items
             WHERE active=1 OR id IN (SELECT item_id FROM invoice_lines WHERE invoice_id=@p0)", editId);
         serials = Db.Query("SELECT serial, item_id, invoice_id FROM item_serials");
+        barcodeMap = Db.Query("SELECT barcode, item_id FROM item_barcodes").Rows.Cast<DataRow>()
+            .GroupBy(x => Db.S(x["barcode"])).ToDictionary(g => g.Key, g => Db.L(g.First()["item_id"]));
         var src = new AutoCompleteStringCollection();
         foreach (DataRow r in items.Rows)
         {
@@ -250,8 +254,25 @@ public class InvoiceForm : BaseForm
             var ir = ItemRow(Db.L(sr["item_id"]));
             if (ir != null) { AddItem(ir, Db.S(sr["serial"])); txtFind.Clear(); txtFind.Focus(); return; }
         }
-        var r = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t || Db.S(x["code"]) == t || Db.S(x["name"]) == t)
-             ?? rows.FirstOrDefault(x => Db.S(x["name"]).Contains(t, StringComparison.OrdinalIgnoreCase));
+        var r = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t)
+             ?? (barcodeMap.TryGetValue(t, out var bid) ? ItemRow(bid) : null)
+             ?? rows.FirstOrDefault(x => Db.S(x["code"]) == t || Db.S(x["name"]) == t);
+        // باركود الميزان: رمز المادة + الوزن
+        if (r == null && ScaleCode.TryParse(t, out long plu, out double weight))
+        {
+            var sr2 = rows.FirstOrDefault(x => Db.L(x["use_scale"]) == 1 && long.TryParse(Db.S(x["code"]), out var c) && c == plu);
+            if (sr2 != null)
+            {
+                var g = AddLine(sr2, 0.0, 0.0, weight, PriceFor(sr2), "");
+                Totals();
+                grid.CurrentCell = g.Cells["qty"];
+                ShowInfo(sr2, true);
+                txtFind.Clear();
+                txtFind.Focus();
+                return;
+            }
+        }
+        r ??= rows.FirstOrDefault(x => Db.S(x["name"]).Contains(t, StringComparison.OrdinalIgnoreCase));
         if (r == null) { Ui.Warn("لم يتم العثور على المادة: " + t); return; }
         AddItem(r);
         txtFind.Clear();
@@ -316,6 +337,7 @@ public class InvoiceForm : BaseForm
         Text = $"تعديل {Ui.DocTitle(type)} رقم {id}";
         if (HasParty) Ui.SelectId(cbParty, Db.L(v["party_id"]));
         Ui.SelectId(cbWh, Db.L(v["warehouse_id"]));
+        guarantorId = Db.L(v["guarantor_id"]);
         if (SaleSide) { int li = cbLevel.Items.IndexOf(Db.S(v["price_level"])); if (li >= 0) cbLevel.SelectedIndex = li; }
         if (HasParty)
         {
@@ -507,9 +529,10 @@ public class InvoiceForm : BaseForm
         if (pay == "أقساط")
         {
             if (net - paid <= 0) { Ui.Warn("لا يوجد مبلغ متبقٍ للتقسيط."); return; }
-            using var dlg = new InstallmentDialog(net - paid);
+            using var dlg = new InstallmentDialog(net - paid, guarantorId);
             if (dlg.ShowModal() != DialogResult.OK) return;
             plan = dlg.Plan;
+            guarantorId = dlg.GuarantorId;
         }
 
         long inv;
@@ -572,9 +595,12 @@ public class InvoiceForm : BaseForm
                             IsOut ? (object)inv : null, l.ItemId, sn);
 
                 if (plan != null)
+                {
                     foreach (var p in plan)
                         tx.Exec("INSERT INTO installments(invoice_id,party_id,seq,due_date,amount) VALUES(@p0,@p1,@p2,@p3,@p4)",
                             inv, party, p.Seq, p.Due.ToString(Ui.DFmt), p.Amount);
+                    tx.Exec("UPDATE invoices SET guarantor_id=@p0 WHERE id=@p1", Db.N(guarantorId), inv);
+                }
 
                 tx.Commit();
             }
@@ -608,6 +634,7 @@ public class InvoiceForm : BaseForm
 
     void Reset()
     {
+        guarantorId = 0;
         grid.Rows.Clear();
         nDisc.Value = 0; nFee.Value = 0; nPaid.Value = 0;
         if (cbDel.Items.Count > 0) cbDel.SelectedIndex = 0;
@@ -625,9 +652,17 @@ public class InvoiceForm : BaseForm
 public class InstallmentDialog : DialogShell
 {
     public List<(int Seq, DateTime Due, double Amount)> Plan = new();
+    public long GuarantorId { get; private set; }
 
-    public InstallmentDialog(double remaining) : base("تقسيط المبلغ المتبقي", 460, 400, "calendar-clock")
+    public InstallmentDialog(double remaining, long guarantor = 0) : base("تقسيط المبلغ المتبقي", 460, 470, "calendar-clock")
     {
+        var cbG = Ui.Combo(340);
+        void FillG() => Ui.FillCombo(cbG, "SELECT id,name,phone FROM guarantors ORDER BY name", true, "— بدون كفيل —");
+        FillG();
+        Ui.SelectId(cbG, guarantor);
+        var addG = new ModernButton { Kind = BtnKind.Success, IconName = "circle-plus", Size = new Size(40, 40), Margin = new Padding(4, 27, 4, 0) };
+        new ToolTip().SetToolTip(addG, "إضافة كفيل جديد");
+        addG.Click += (s, e) => { long nid = QuickAdd.Ask("كفيل جديد", "اسم الكفيل", "guarantors"); if (nid > 0) { FillG(); Ui.SelectId(cbG, nid); } };
         var nCount = Ui.Num(190); nCount.Minimum = 1; nCount.Maximum = 120; nCount.Value = 6;
         var nEvery = Ui.Num(190); nEvery.Minimum = 1; nEvery.Maximum = 12; nEvery.Value = 1;
         var dFirst = new DateTimePicker { Width = 190, Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddMonths(1) };
@@ -640,6 +675,8 @@ public class InstallmentDialog : DialogShell
         flow.Controls.Add(Ui.Labeled("عدد الأقساط", nCount));
         flow.Controls.Add(Ui.Labeled("كل (شهر)", nEvery));
         flow.Controls.Add(Ui.Labeled("تاريخ أول قسط", dFirst));
+        flow.Controls.Add(Ui.Labeled("الكفيل", cbG));
+        flow.Controls.Add(addG);
         flow.Controls.Add(lbl);
         Body.Controls.Add(flow);
 
@@ -653,6 +690,7 @@ public class InstallmentDialog : DialogShell
             Plan.Clear();
             for (int i = 1; i <= c; i++)
                 Plan.Add((i, dFirst.Value.Date.AddMonths((i - 1) * every), i == c ? remaining - each * (c - 1) : each));
+            GuarantorId = Ui.GetId(cbG);
             DialogResult = DialogResult.OK;
         };
     }

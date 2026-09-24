@@ -76,12 +76,32 @@ public static class Db
             ("items", "price_buy", "REAL DEFAULT 0"),
             ("items", "price_installment", "REAL DEFAULT 0"),
             ("items", "track_serial", "INTEGER DEFAULT 0"),
+            // الإصدار 5: الميزان، المصدر، التنبيهات، المخزن الافتراضي، الكفلاء، أنواع المصاريف
+            ("items", "use_scale", "INTEGER DEFAULT 0"),
+            ("items", "origin", "TEXT"),
+            ("items", "warehouse_id", "INTEGER"),
+            ("items", "max_qty", "REAL DEFAULT 0"),
+            ("items", "safety_qty", "REAL DEFAULT 0"),
+            ("items", "stagnant_days", "INTEGER DEFAULT 0"),
+            ("items", "sales_target", "REAL DEFAULT 0"),
+            ("items", "expiry_alert_days", "INTEGER DEFAULT 0"),
+            ("warehouses", "is_default", "INTEGER DEFAULT 0"),
+            ("parties", "email", "TEXT"),
+            ("parties", "city", "TEXT"),
+            ("invoices", "guarantor_id", "INTEGER"),
+            ("cash_moves", "expense_type_id", "INTEGER"),
         };
         foreach (var (table, col, def) in cols)
         {
             bool exists = t.Query($"PRAGMA table_info({table})").Rows.Cast<DataRow>().Any(r => S(r["name"]) == col);
             if (!exists) t.Exec($"ALTER TABLE {table} ADD COLUMN {col} {def}");
         }
+        // الباركود الأساسي للمادة يُنسخ إلى جدول الباركودات المتعددة (مرة واحدة لكل باركود)
+        t.Exec("INSERT OR IGNORE INTO item_barcodes(item_id, barcode) SELECT id, barcode FROM items WHERE IFNULL(barcode,'')<>''");
+        // مخزن افتراضي واحد دائمًا
+        t.Exec("UPDATE warehouses SET is_default=1 WHERE id=(SELECT MIN(id) FROM warehouses) AND NOT EXISTS(SELECT 1 FROM warehouses WHERE is_default=1)");
+        if (L(t.Scalar("SELECT COUNT(*) FROM expense_types")) == 0)
+            t.Exec("INSERT INTO expense_types(name) VALUES('إيجار'),('كهرباء ومولدة'),('نقل وشحن'),('ضيافة'),('صيانة المحل'),('مصاريف أخرى')");
     }
 
     /// <summary>سجل العمليات الحساسة (حذف، تعديل فاتورة ...)</summary>
@@ -105,7 +125,7 @@ FROM parties p;";
     static void Seed(Tx t)
     {
         t.Exec("INSERT INTO users(username,pass_hash,full_name,is_admin) VALUES('admin',@p0,'المدير',1)", Session.HashPassword("admin"));
-        t.Exec("INSERT INTO warehouses(name) VALUES('المخزن الرئيسي')");
+        t.Exec("INSERT INTO warehouses(name,is_default) VALUES('المخزن الرئيسي',1)");
         t.Exec("INSERT INTO cashboxes(name,kind,currency) VALUES('الصندوق الرئيسي','صندوق','IQD'),('خزينة الدولار','خزينة','USD')");
         t.Exec("INSERT INTO cost_centers(name) VALUES('عام')");
         var d = DateTime.Today;
@@ -176,6 +196,12 @@ CREATE TABLE IF NOT EXISTS transfers(id INTEGER PRIMARY KEY, date TEXT NOT NULL,
 CREATE TABLE IF NOT EXISTS transfer_lines(id INTEGER PRIMARY KEY, transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
     item_id INTEGER NOT NULL REFERENCES items(id), qty REAL NOT NULL, src_batch INTEGER, dst_batch INTEGER, expiry TEXT, cost REAL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_tlines_transfer ON transfer_lines(transfer_id);
+
+-- الإصدار 5: باركودات متعددة للمادة، الكفلاء، أنواع المصاريف
+CREATE TABLE IF NOT EXISTS item_barcodes(id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, barcode TEXT NOT NULL UNIQUE);
+CREATE INDEX IF NOT EXISTS ix_item_barcodes_item ON item_barcodes(item_id);
+CREATE TABLE IF NOT EXISTS guarantors(id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, address TEXT, id_number TEXT, work TEXT, notes TEXT);
+CREATE TABLE IF NOT EXISTS expense_types(id INTEGER PRIMARY KEY, name TEXT NOT NULL, notes TEXT);
 
 -- فهارس الأداء: رصيد الجهات وكشوف الحساب والتقارير تبحث بهذه الأعمدة باستمرار
 CREATE INDEX IF NOT EXISTS ix_invoices_party ON invoices(party_id);

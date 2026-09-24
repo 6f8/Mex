@@ -34,6 +34,13 @@ public class SettingsForm : BaseForm
         Number("expiry_days", 240);
         Number("reminder_days", 240);
 
+        Section("الميزان", "scan-barcode", "قراءة الوزن من باركود الميزان للمواد التي فُعّل لها «استخدام الميزان»");
+        TextField("scale_prefix", 175);
+        Number("scale_code_len", 175);
+        Number("scale_value_len", 175);
+        Number("scale_divisor", 175);
+        Hint("مثال بالإعدادات الافتراضية: 2 000123 01250 ك ← المادة ذات الرمز 123 بوزن 1.250 كغم");
+
         Section("الصيانة", "wrench", "نصوص وصل الصيانة ورسالة الجاهزية");
         Memo("repair_terms");
         Memo("repair_ready_msg");
