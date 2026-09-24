@@ -121,8 +121,27 @@ public static class Backup
             try { File.Delete(f); } catch { }
     }
 
+    /// <summary>يتحقق أن الملف نسخة سليمة من قاعدة بيانات رصيد قبل استبدال البيانات الحالية</summary>
+    public static bool IsValidBackup(string file, out string error)
+    {
+        error = "";
+        try
+        {
+            using var c = new SqliteConnection($"Data Source={file};Mode=ReadOnly;Pooling=False");
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "PRAGMA quick_check";
+            if (Convert.ToString(cmd.ExecuteScalar()) != "ok") { error = "الملف تالف ولا يمكن استعادته."; return false; }
+            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('invoices','items','parties','users')";
+            if (Convert.ToInt64(cmd.ExecuteScalar()) < 4) { error = "هذا الملف ليس نسخة احتياطية من برنامج رصيد."; return false; }
+            return true;
+        }
+        catch (Exception ex) { error = "تعذر قراءة الملف: " + ex.Message; return false; }
+    }
+
     public static void Restore(string file)
     {
+        if (!IsValidBackup(file, out var err)) throw new InvalidOperationException(err);
         try { Run(); } catch { }           // نسخة أمان قبل الاستعادة
         SqliteConnection.ClearAllPools();
         File.Copy(file, Db.FilePath, true);
@@ -307,7 +326,8 @@ public static class MobileApi
                     "/api/parties" => Rows(Db.Query(@"SELECT p.id,p.name,p.phone,p.kind,b.balance FROM parties p
                         JOIN v_party_balance b ON b.id=p.id WHERE p.name LIKE @p0 OR p.phone LIKE @p0 LIMIT 200", like)),
                     "/api/installments" => Rows(Db.Query(@"SELECT t.id,p.name,p.phone,t.seq,t.due_date,t.amount,t.paid
-                        FROM installments t JOIN parties p ON p.id=t.party_id WHERE t.amount-t.paid>0.001 ORDER BY t.due_date LIMIT 300")),
+                        FROM installments t JOIN parties p ON p.id=t.party_id WHERE t.amount-t.paid>0.001
+                        AND (p.name LIKE @p0 OR IFNULL(p.phone,'') LIKE @p0) ORDER BY t.due_date LIMIT 300", like)),
                     "/api/repairs" => Rows(Db.Query(@"SELECT r.id,r.date_in,r.customer,r.phone,r.device,r.fault,r.status,r.estimate,
                         IFNULL((SELECT SUM(amount*rate) FROM cash_moves m WHERE m.repair_id=r.id),0) AS paid
                         FROM repairs r WHERE (r.status NOT IN ('تم التسليم','ملغي') OR @p1<>'') AND

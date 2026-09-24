@@ -7,14 +7,14 @@ public class HrForm : BaseForm
 {
     public HrForm()
     {
-        var tabs = new TabControl { Dock = DockStyle.Fill, RightToLeftLayout = true, Font = Theme.F(10, FontStyle.Bold) };
-        var emp = new TabPage("الموظفون") { BackColor = Theme.Bg };
+        var tabs = new ModernTabs { Dock = DockStyle.Fill };
+        var emp = new Panel { BackColor = Theme.Bg };
         var crud = new CrudForm(Defs.Employees()) { TopLevel = false, FormBorderStyle = FormBorderStyle.None, Dock = DockStyle.Fill };
         emp.Controls.Add(crud); crud.Show();
-        tabs.TabPages.Add(emp);
-        tabs.TabPages.Add(Attendance());
-        tabs.TabPages.Add(Moves());
-        tabs.TabPages.Add(Payroll());
+        tabs.Add("الموظفون", emp, "users");
+        tabs.Add(Attendance(), "calendar-days");
+        tabs.Add(Moves(), "coins");
+        tabs.Add(Payroll(), "banknote");
         Controls.Add(tabs);
     }
 
@@ -118,7 +118,7 @@ public class HrForm : BaseForm
                 {
                     if (box == 0) { Ui.Warn("اختر الصندوق."); return; }
                     rf = "ADV:" + Guid.NewGuid().ToString("N")[..10];
-                    double rate = Ui.BoxRate(box);
+                    double rate = Ui.BoxRate(box);   // قراءة آمنة الآن (القراءة لا تحجز قفل الكتابة)
                     tx.Exec(@"INSERT INTO cash_moves(date,kind,cashbox_id,amount,rate,employee_id,ref,note,user_id) VALUES(@p0,'سلفة',@p1,@p2,@p3,@p4,@p5,@p6,@p7)",
                         date + DateTime.Now.ToString(" HH:mm:ss"), box, -amt / rate, rate, emp, rf, "سلفة موظف — " + tNote.Text.Trim(), Session.UserId);
                 }
@@ -159,7 +159,7 @@ public class HrForm : BaseForm
         top.Controls.Add(Ui.Labeled("صندوق الصرف", cbBox));
         top.Controls.AddRange(new Control[] { bCalc, bPay, bPayAll });
         Ui.GridTools(top, grid, () => "مسير رواتب " + month.Value.ToString("yyyy-MM"));
-        var lbl = new Label { Dock = DockStyle.Bottom, Height = 34, Font = Theme.F(11, FontStyle.Bold), ForeColor = Theme.Accent, BackColor = Color.White, TextAlign = ContentAlignment.MiddleLeft,
+        var lbl = new Label { Dock = DockStyle.Bottom, Height = 44, Font = Theme.FS(10.5f), ForeColor = Theme.BrandDark, BackColor = Theme.BrandSoft, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 12, 0),
             Text = "   الصافي = الراتب + المكافآت − الخصومات − السلف − (أيام الغياب × الراتب ÷ 30)" };
 
         string M() => month.Value.ToString("yyyy-MM");
@@ -190,19 +190,22 @@ public class HrForm : BaseForm
         {
             if (grid.CurrentRow == null || !Session.Guard("hr")) return;
             long box = Ui.GetId(cbBox);
+            if (box == 0) { Ui.Warn("اختر صندوق الصرف."); return; }
             if (!Ui.Confirm($"صرف {Ui.M(Db.D(grid.CurrentRow.Cells["المتبقي"].Value))} للموظف {grid.CurrentRow.Cells["الموظف"].Value}؟")) return;
-            using (var tx = new Tx()) { PayRow(tx, grid.CurrentRow, box, Ui.BoxRate(box)); tx.Commit(); }
+            double rate = Ui.BoxRate(box);
+            using (var tx = new Tx()) { PayRow(tx, grid.CurrentRow, box, rate); tx.Commit(); }
             Calc();
         };
         bPayAll.Click += (s, e) =>
         {
             if (!Session.Guard("hr") || grid.Rows.Count == 0) return;
             long box = Ui.GetId(cbBox);
+            if (box == 0) { Ui.Warn("اختر صندوق الصرف."); return; }
             double total = grid.Rows.Cast<DataGridViewRow>().Sum(r => Math.Max(0, Db.D(r.Cells["المتبقي"].Value)));
             if (!Ui.Confirm($"صرف رواتب شهر {M()} بمجموع {Ui.M(total)}؟")) return;
+            double rate = Ui.BoxRate(box);
             using (var tx = new Tx())
             {
-                double rate = Ui.BoxRate(box);
                 foreach (DataGridViewRow r in grid.Rows) PayRow(tx, r, box, rate);
                 tx.Commit();
             }

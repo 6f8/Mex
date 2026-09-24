@@ -8,7 +8,7 @@ public class LabelsForm : BaseForm
     readonly DataGridView grid = Ui.NewGrid(false);
     readonly TextBox search = new() { Width = 240, PlaceholderText = "بحث بالاسم أو الباركود" };
     readonly ComboBox cbLevel = Ui.Combo(110);
-    readonly PictureBox preview = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
+    readonly PictureBox preview = new() { Dock = DockStyle.Top, Height = 150, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Theme.Surface };
 
     public LabelsForm()
     {
@@ -24,14 +24,13 @@ public class LabelsForm : BaseForm
         var bPrint = Theme.Btn("طباعة", Theme.Success, 90);
         bar.Controls.AddRange(new Control[] { bGen, bStock, bClear, bPrev, bPrint });
 
-        var side = new Panel { Dock = DockStyle.Right, Width = 300, BackColor = Color.White, Padding = new Padding(10) };
+        var side = new CardPanel { Dock = DockStyle.Right, Width = 320, Title = "معاينة الباركود", Subtitle = "اختر مادة من الجدول", IconName = "scan-barcode" };
+        side.Controls.Add(new Label { Dock = DockStyle.Fill, ForeColor = Theme.Muted, Font = Theme.F(9.5f), Padding = new Padding(0, 12, 0, 0),
+            Text = $"مقاس الملصق: {Settings.Get("label_w")}×{Settings.Get("label_h")} ملم\nيمكن تغييره من الإعدادات ← ملصقات الباركود.\n\nاكتب عدد الملصقات لكل مادة في عمود «العدد» ثم اضغط معاينة أو طباعة." });
         side.Controls.Add(preview);
-        side.Controls.Add(new Label { Dock = DockStyle.Bottom, Height = 60, ForeColor = Theme.Muted,
-            Text = $"مقاس الملصق: {Settings.Get("label_w")}×{Settings.Get("label_h")} ملم — يُغيَّر من الإعدادات" });
-        side.Controls.Add(new Label { Text = "معاينة الباركود", Dock = DockStyle.Top, Height = 30, Font = Theme.F(10, FontStyle.Bold) });
 
         Controls.Add(grid);
-        Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
+        Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
         Controls.Add(side);
         Controls.Add(bar);
         Controls.Add(Theme.Title("ملصقات الباركود"));
@@ -93,7 +92,7 @@ public class LabelsForm : BaseForm
             long n = Db.L(r.Cells["العدد"].Value);
             var code = Convert.ToString(r.Cells["الباركود"].Value);
             if (n <= 0) continue;
-            if (string.IsNullOrWhiteSpace(code)) { Ui.Warn($"المادة «{r.Cells["المادة"].Value}» بدون باركود. استخدم زر التوليد أولاً."); return; }
+            if (string.IsNullOrWhiteSpace(code)) { Ui.Warn($"المادة «{r.Cells["المادة"].Value}» بدون باركود. استخدم زر التوليد أولًا."); return; }
             for (int i = 0; i < n && list.Count < 5000; i++)
                 list.Add(new LabelPrinter.Label(Convert.ToString(r.Cells["المادة"].Value), code, Db.D(r.Cells[col].Value)));
         }
@@ -102,13 +101,13 @@ public class LabelsForm : BaseForm
     }
 }
 
-/// <summary>جرد المخزون: مقارنة الرصيد الدفتري بالفعلي وإنشاء قيود التسوية تلقائياً</summary>
+/// <summary>جرد المخزون: مقارنة الرصيد الدفتري بالفعلي وإنشاء قيود التسوية تلقائيًا</summary>
 public class StockCountForm : BaseForm
 {
     readonly DataGridView grid = Ui.NewGrid(false);
     readonly ComboBox cbWh = Ui.Combo(200);
     readonly TextBox search = new() { Width = 220, PlaceholderText = "بحث..." };
-    readonly Label lbl = new() { Dock = DockStyle.Bottom, Height = 34, Font = Theme.F(11, FontStyle.Bold), BackColor = Color.White, TextAlign = ContentAlignment.MiddleLeft };
+    readonly Label lbl = new() { Dock = DockStyle.Bottom, Height = 44, Font = Theme.FS(10.5f), BackColor = Theme.SurfaceAlt, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 12, 0) };
 
     public StockCountForm()
     {
@@ -199,7 +198,7 @@ public class StockCountForm : BaseForm
                     else
                     {
                         if (inInv == 0) inInv = tx.Insert("INSERT INTO invoices(type,date,warehouse_id,pay_type,total,net,paid,notes,user_id) VALUES('Purchase',@p0,@p1,'آجل',0,0,0,'تسوية جرد — زيادة',@p2)", now, wh, Session.UserId);
-                        double cost = StockOps.AvgCost(item);
+                        double cost = StockOps.AvgCost(tx, item);
                         long bid = tx.Insert("INSERT INTO batches(item_id,warehouse_id,qty,cost,created) VALUES(@p0,@p1,@p2,@p3,@p4)", item, wh, d, cost, now);
                         tx.Exec("INSERT INTO invoice_lines(invoice_id,item_id,batch_id,qty,price,cost) VALUES(@p0,@p1,@p2,@p3,@p4,@p4)", inInv, item, bid, d, cost);
                         inTotal += d * cost;
@@ -219,34 +218,32 @@ public class StockCountForm : BaseForm
 }
 
 /// <summary>تغيير كلمة مرور المستخدم الحالي</summary>
-public class PasswordDialog : BaseForm
+public class PasswordDialog : DialogShell
 {
-    public PasswordDialog()
+    public PasswordDialog() : base("تغيير كلمة المرور", 440, 420, "key-round")
     {
-        Text = "تغيير كلمة المرور";
-        Width = 380; Height = 330;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
-        var old = new TextBox { Width = 320, UseSystemPasswordChar = true };
-        var p1 = new TextBox { Width = 320, UseSystemPasswordChar = true };
-        var p2 = new TextBox { Width = 320, UseSystemPasswordChar = true };
-        var ok = Theme.Btn("حفظ", Theme.Success, 120);
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12) };
+        var old = new TextBox { Width = 380, UseSystemPasswordChar = true };
+        var p1 = new TextBox { Width = 380, UseSystemPasswordChar = true };
+        var p2 = new TextBox { Width = 380, UseSystemPasswordChar = true };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface };
         flow.Controls.Add(Ui.Labeled("كلمة المرور الحالية", old));
         flow.Controls.Add(Ui.Labeled("كلمة المرور الجديدة", p1));
         flow.Controls.Add(Ui.Labeled("تأكيد كلمة المرور", p2));
-        flow.Controls.Add(ok);
-        Controls.Add(flow);
+        Body.Controls.Add(flow);
+        AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
+        var ok = AddButton("حفظ", DialogResult.None);
         AcceptButton = ok;
         ok.Click += (s, e) =>
         {
             var u = Db.Query("SELECT username, pass_hash FROM users WHERE id=@p0", Session.UserId).Rows[0];
-            string user = Db.S(u["username"]);
-            if (Session.Hash(user, old.Text) != Db.S(u["pass_hash"])) { Ui.Warn("كلمة المرور الحالية غير صحيحة."); return; }
-            if (p1.Text.Length < 4) { Ui.Warn("كلمة المرور قصيرة جداً (4 أحرف على الأقل)."); return; }
+            if (!Session.Verify(Db.S(u["username"]), old.Text, Db.S(u["pass_hash"]), out _)) { Ui.Warn("كلمة المرور الحالية غير صحيحة."); return; }
+            if (p1.Text.Length < 4) { Ui.Warn("كلمة المرور قصيرة جدًا (4 أحرف على الأقل)."); return; }
             if (p1.Text != p2.Text) { Ui.Warn("التأكيد غير مطابق."); return; }
-            Db.Exec("UPDATE users SET pass_hash=@p0 WHERE id=@p1", Session.Hash(user, p1.Text), Session.UserId);
-            Ui.Info("تم تغيير كلمة المرور.");
+            Db.Exec("UPDATE users SET pass_hash=@p0 WHERE id=@p1", Session.HashPassword(p1.Text), Session.UserId);
+            Session.UsingDefaultPassword = false;
+            Toast.Show("تم تغيير كلمة المرور");
             DialogResult = DialogResult.OK;
         };
+        Shown += (s, e) => old.Focus();
     }
 }

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -30,28 +31,92 @@ public static class Session
     public static bool Guard(string perm)
     {
         if (Can(perm)) return true;
-        MessageBox.Show("ليس لديك صلاحية لتنفيذ هذه العملية.", "الصلاحيات", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        Dialogs.Warn("ليس لديك صلاحية لتنفيذ هذه العملية. اطلب من مدير النظام منحك الصلاحية.", "لا توجد صلاحية");
         return false;
     }
 
-    public static string Hash(string user, string pass)
+    /// <summary>كلمة المرور الافتراضية ما زالت مستخدمة؟ (تُطلب إعادة تعيينها عند أول دخول)</summary>
+    public static bool UsingDefaultPassword;
+
+    // PBKDF2-SHA256 مع ملح عشوائي لكل مستخدم: pbkdf2$التكرارات$الملح$الناتج
+    const int Iterations = 120_000;
+
+    public static string HashPassword(string pass)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("raseed|" + user.Trim().ToLowerInvariant() + "|" + pass));
-        return Convert.ToHexString(bytes);
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var hash = Pbkdf2(pass, salt, Iterations, 32);
+        return $"pbkdf2${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    static byte[] Pbkdf2(string pass, byte[] salt, int iterations, int length)
+    {
+        try { return Rfc2898DeriveBytes.Pbkdf2(pass, salt, iterations, HashAlgorithmName.SHA256, length); }
+        catch (CryptographicException) { return Pbkdf2Managed(pass, salt, iterations, length); }
+    }
+
+    /// <summary>نفس خوارزمية PBKDF2-HMAC-SHA256 (RFC 8018) بتنفيذ داخلي، احتياطًا إن لم يدعمها النظام</summary>
+    static byte[] Pbkdf2Managed(string pass, byte[] salt, int iterations, int length)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(pass));
+        var result = new byte[length];
+        var block = new byte[salt.Length + 4];
+        salt.CopyTo(block, 0);
+        for (int i = 1, offset = 0; offset < length; i++, offset += 32)
+        {
+            block[^4] = (byte)(i >> 24); block[^3] = (byte)(i >> 16); block[^2] = (byte)(i >> 8); block[^1] = (byte)i;
+            var u = hmac.ComputeHash(block);
+            var t = (byte[])u.Clone();
+            for (int j = 1; j < iterations; j++)
+            {
+                u = hmac.ComputeHash(u);
+                for (int k = 0; k < t.Length; k++) t[k] ^= u[k];
+            }
+            Array.Copy(t, 0, result, offset, Math.Min(t.Length, length - offset));
+        }
+        return result;
+    }
+
+    /// <summary>التحقق من كلمة المرور (يدعم الصيغة القديمة SHA-256 للترقية التلقائية)</summary>
+    public static bool Verify(string user, string pass, string stored, out bool legacy)
+    {
+        legacy = false;
+        stored ??= "";
+        var parts = stored.Split('$');
+        if (parts.Length == 4 && parts[0] == "pbkdf2" && int.TryParse(parts[1], out int it))
+        {
+            try
+            {
+                var salt = Convert.FromBase64String(parts[2]);
+                var expected = Convert.FromBase64String(parts[3]);
+                var actual = Pbkdf2(pass, salt, it, expected.Length);
+                return CryptographicOperations.FixedTimeEquals(actual, expected);
+            }
+            catch (FormatException) { return false; }
+        }
+        legacy = true;
+        var old = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("raseed|" + user.Trim().ToLowerInvariant() + "|" + pass)));
+        return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(old), Encoding.ASCII.GetBytes(stored));
     }
 
     public static bool Login(string user, string pass)
     {
-        var dt = Db.Query("SELECT id,full_name,is_admin,pass_hash FROM users WHERE username=@p0 AND active=1", user.Trim());
+        var dt = Db.Query("SELECT id,username,full_name,is_admin,pass_hash FROM users WHERE username=@p0 COLLATE NOCASE AND active=1", user.Trim());
         if (dt.Rows.Count == 0) return false;
         var r = dt.Rows[0];
-        if (Db.S(r["pass_hash"]) != Hash(user, pass)) return false;
+        if (!Verify(Db.S(r["username"]), pass, Db.S(r["pass_hash"]), out bool legacy)) return false;
         UserId = Db.L(r["id"]);
-        UserName = Db.S(r["full_name"]);
+        UserName = Db.S(r["full_name"]) != "" ? Db.S(r["full_name"]) : Db.S(r["username"]);
         IsAdmin = Db.L(r["is_admin"]) == 1;
         Perms = Db.Query("SELECT perm FROM user_perms WHERE user_id=@p0", UserId)
                   .Rows.Cast<DataRow>().Select(x => Db.S(x["perm"])).ToHashSet();
+        if (legacy) Db.Exec("UPDATE users SET pass_hash=@p0 WHERE id=@p1", HashPassword(pass), UserId);
+        UsingDefaultPassword = pass == "admin" || string.Equals(pass, Db.S(r["username"]), StringComparison.OrdinalIgnoreCase);
         return true;
+    }
+
+    public static void Logout()
+    {
+        UserId = 0; UserName = ""; IsAdmin = false; Perms = new(); UsingDefaultPassword = false;
     }
 }
 
@@ -63,18 +128,18 @@ public static class Settings
         ("shop_name", "اسم المحل", "محلي"),
         ("shop_phone", "هاتف المحل", ""),
         ("shop_address", "عنوان المحل (يظهر في الطباعة)", ""),
-        ("invoice_footer", "تذييل الفاتورة المطبوعة", "شكراً لتعاملكم معنا"),
-        ("print_mode", "حجم ورق الفاتورة (A4 أو 80mm)", "A4"),
-        ("print_preview", "معاينة قبل الطباعة (1 = نعم، 0 = طباعة مباشرة)", "1"),
-        ("print_after_save", "طباعة الفاتورة بعد الحفظ (0 = لا، 1 = نعم، 2 = اسأل)", "2"),
-        ("printer_name", "طابعة الفواتير (فارغ = الافتراضية)", ""),
-        ("label_printer", "طابعة الملصقات (فارغ = الافتراضية)", ""),
+        ("invoice_footer", "تذييل الفاتورة المطبوعة", "شكرًا لتعاملكم معنا"),
+        ("print_mode", "حجم ورق الفاتورة", "A4"),
+        ("print_preview", "معاينة قبل الطباعة", "1"),
+        ("print_after_save", "طباعة الفاتورة بعد الحفظ", "2"),
+        ("printer_name", "طابعة الفواتير", ""),
+        ("label_printer", "طابعة الملصقات", ""),
         ("label_w", "عرض الملصق (ملم)", "40"),
         ("label_h", "ارتفاع الملصق (ملم)", "25"),
-        ("label_mode", "نمط الملصقات (roll = طابعة ملصقات / A4 = ورقة)", "roll"),
-        ("label_price", "إظهار السعر على الملصق (1 = نعم)", "1"),
-        ("repair_terms", "شروط وصل الصيانة", "الجهاز الذي لا يُستلم خلال 30 يوماً من إشعار الجاهزية لا يتحمل المحل مسؤوليته. البيانات مسؤولية الزبون."),
-        ("repair_ready_msg", "رسالة جاهزية الجهاز ({name} {device} {id} {price} {shop})",
+        ("label_mode", "نوع ورق الملصقات", "roll"),
+        ("label_price", "إظهار السعر على الملصق", "1"),
+        ("repair_terms", "شروط وصل الصيانة", "الجهاز الذي لا يُستلم خلال 30 يومًا من إشعار الجاهزية لا يتحمل المحل مسؤوليته. البيانات مسؤولية الزبون."),
+        ("repair_ready_msg", "رسالة جاهزية الجهاز",
             "عزيزي {name}، جهازكم {device} (وصل رقم {id}) جاهز للاستلام. المبلغ المطلوب: {price} د.ع. مع التحية — {shop}"),
         ("usd_rate", "سعر صرف الدولار (دينار)", "1500"),
         ("expiry_days", "التنبيه قبل انتهاء الصلاحية بـ (يوم)", "30"),
@@ -82,15 +147,15 @@ public static class Settings
         ("backup_dir", "مجلد النسخ الاحتياطي المحلي", ""),
         ("cloud_dir", "مجلد النسخ السحابي (Google Drive / OneDrive)", ""),
         ("backup_keep", "عدد النسخ المحتفظ بها", "30"),
-        ("backup_on_exit", "نسخة تلقائية عند الإغلاق (1 = نعم)", "1"),
-        ("wa_mode", "طريقة واتساب (link = رابط يدوي / cloud = إرسال تلقائي)", "link"),
-        ("wa_token", "WhatsApp Cloud API — Access Token", ""),
-        ("wa_phone_id", "WhatsApp Cloud API — Phone Number ID", ""),
-        ("wa_template", "نص تذكير القسط ({name} {seq} {amount} {due} {shop})",
+        ("backup_on_exit", "نسخة تلقائية عند إغلاق البرنامج", "1"),
+        ("wa_mode", "طريقة الإرسال", "link"),
+        ("wa_token", "رمز الوصول (Access Token)", ""),
+        ("wa_phone_id", "معرّف الرقم (Phone Number ID)", ""),
+        ("wa_template", "نص تذكير القسط",
             "عزيزي {name}، نذكّركم بموعد القسط رقم {seq} بمبلغ {amount} د.ع المستحق بتاريخ {due}. مع التحية — {shop}"),
-        ("api_enabled", "تفعيل ربط تطبيق الهاتف (1 = نعم)", "0"),
+        ("api_enabled", "تفعيل ربط تطبيق الهاتف", "0"),
         ("api_port", "منفذ ربط الهاتف", "8085"),
-        ("api_token", "رمز الربط (Token)", ""),
+        ("api_token", "رمز الربط", ""),
     };
 
     public static string Get(string key, string def = "")
@@ -100,6 +165,6 @@ public static class Settings
     }
 
     public static int Int(string key, int def) => int.TryParse(Get(key), out var v) ? v : def;
-    public static double Dbl(string key, double def) => double.TryParse(Get(key), out var v) ? v : def;
+    public static double Dbl(string key, double def) => double.TryParse(Get(key), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : def;
     public static void Set(string key, string value) => Db.Exec("INSERT OR REPLACE INTO settings(key,value) VALUES(@p0,@p1)", key, value);
 }

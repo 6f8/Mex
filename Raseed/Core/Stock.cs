@@ -10,7 +10,7 @@ public static class StockOps
     public static double Available(Tx tx, long itemId, long whId) =>
         Db.D(tx.Scalar("SELECT IFNULL(SUM(qty),0) FROM batches WHERE item_id=@p0 AND warehouse_id=@p1", itemId, whId));
 
-    /// <summary>صرف كمية بطريقة FEFO (الأقرب انتهاءً أولاً). يرمي استثناء إذا لم تكفِ الكمية.</summary>
+    /// <summary>صرف كمية بطريقة FEFO (الأقرب انتهاءً أولًا). يرمي استثناء إذا لم تكفِ الكمية.</summary>
     public static List<Take> TakeFefo(Tx tx, long itemId, long whId, double qty)
     {
         if (Available(tx, itemId, whId) + 1e-9 < qty)
@@ -34,8 +34,15 @@ public static class StockOps
 
     public static double AvgCost(long itemId)
     {
-        var avg = Db.D(Db.Scalar("SELECT SUM(qty*cost)/NULLIF(SUM(qty),0) FROM batches WHERE item_id=@p0 AND qty>0", itemId));
-        return avg > 0 ? avg : Db.D(Db.Scalar("SELECT cost FROM batches WHERE item_id=@p0 ORDER BY id DESC LIMIT 1", itemId));
+        using var tx = new Tx(write: false);
+        return AvgCost(tx, itemId);
+    }
+
+    /// <summary>متوسط الكلفة ضمن المعاملة الحالية (يرى تعديلاتها غير المحفوظة بعد)</summary>
+    public static double AvgCost(Tx tx, long itemId)
+    {
+        var avg = Db.D(tx.Scalar("SELECT SUM(qty*cost)/NULLIF(SUM(qty),0) FROM batches WHERE item_id=@p0 AND qty>0", itemId));
+        return avg > 0 ? avg : Db.D(tx.Scalar("SELECT cost FROM batches WHERE item_id=@p0 ORDER BY id DESC LIMIT 1", itemId));
     }
 }
 
@@ -127,4 +134,23 @@ public static class InvoiceOps
         doc.Barcode("INV" + id);
         return doc;
     }
+}
+
+/// <summary>الحسابات: حركات الجهات</summary>
+public static class Ledger
+{
+    /// <summary>حركات الجهة (مدين/دائن) — يجب أن يطابق مجموعها رصيد v_party_balance</summary>
+    public static DataTable StatementRows(long pid) => Db.Query(@"
+        SELECT date AS d, 'INV:'||type AS kind, id AS ref,
+               CASE type WHEN 'Sale' THEN net WHEN 'PurchaseReturn' THEN net ELSE 0 END AS debit,
+               CASE type WHEN 'Purchase' THEN net WHEN 'SaleReturn' THEN net ELSE 0 END AS credit, notes
+        FROM invoices WHERE party_id=@p0
+        UNION ALL
+        SELECT date, kind, id, CASE WHEN amount<0 THEN -amount*rate ELSE 0 END,
+               CASE WHEN amount>0 THEN amount*rate ELSE 0 END, note
+        FROM cash_moves WHERE party_id=@p0
+        UNION ALL
+        SELECT date_out, 'صيانة — وصل رقم '||id, id, final_price, 0, device
+        FROM repairs WHERE party_id=@p0 AND status='تم التسليم'
+        ORDER BY d", pid);
 }

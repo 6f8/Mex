@@ -18,7 +18,7 @@ public static class Excel
         };
         if (sfd.ShowDialog() != DialogResult.OK) return;
         var rows = new List<object[]>();
-        foreach (DataGridViewRow r in grid.Rows) rows.Add(cols.Select(c => r.Cells[c.Index].Value).ToArray());
+        foreach (DataGridViewRow r in grid.Rows) if (r.Visible) rows.Add(cols.Select(c => r.Cells[c.Index].Value).ToArray());
         try
         {
             Write(sfd.FileName, title, cols.Select(c => c.HeaderText).ToArray(), rows);

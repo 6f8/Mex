@@ -5,7 +5,7 @@ public static class MobileWeb
 {
     public static string Manifest(string shop) =>
         "{\"name\":\"رصيد — " + (shop ?? "").Replace("\"", "") + "\",\"short_name\":\"رصيد\",\"start_url\":\"/\",\"display\":\"standalone\"," +
-        "\"background_color\":\"#f1f5f9\",\"theme_color\":\"#0f2847\",\"dir\":\"rtl\",\"lang\":\"ar\"}";
+        "\"background_color\":\"#f3f5f9\",\"theme_color\":\"#0b1324\",\"dir\":\"rtl\",\"lang\":\"ar\"}";
 
     public const string Html = """
 <!DOCTYPE html>
@@ -13,12 +13,12 @@ public static class MobileWeb
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f2847">
+<meta name="theme-color" content="#0b1324">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.json">
 <title>رصيد</title>
 <style>
-:root{--p:#0f2847;--a:#0e84d6;--g:#16964a;--r:#d22d2d;--o:#de6e14;--bg:#f1f5f9;--ink:#1e293b;--mut:#64748b}
+:root{--p:#0b1324;--a:#0f8f83;--g:#16a34a;--r:#dc2626;--o:#d97706;--bg:#f3f5f9;--ink:#0f172a;--mut:#64748b}
 *{box-sizing:border-box}body{margin:0;font-family:Tahoma,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:70px}
 header{background:var(--p);color:#fff;padding:14px 16px calc(14px) ;padding-top:calc(14px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
 header b{font-size:20px}header small{opacity:.75}
@@ -80,7 +80,7 @@ const views={
    <div class="d"><span class="tag">الرصيد: ${fmt(r.stock)} ${esc(r.unit)}</span><span>مفرد ${fmt(r.price_retail)}</span><span>جملة ${fmt(r.price_wholesale)}</span><span>خاص ${fmt(r.price_special)}</span><span>${esc(r.barcode)}</span></div></div>`);},
  async parties(q){const rows=await api('parties',q);return list(rows,r=>`<div class="row"><div class="n">${esc(r.name)} <span class="tag">${esc(r.kind)}</span></div>
    <div class="d"><a href="tel:${esc(r.phone)}">${esc(r.phone)}</a><b class="${r.balance>0?'pos':'neg'}">${fmt(Math.abs(r.balance))} ${r.balance>0?'(عليه)':r.balance<0?'(له)':''}</b></div></div>`);},
- async inst(q){const rows=await api('installments',q);const today=new Date().toISOString().slice(0,10);
+ async inst(q){const rows=await api('installments',q);const d0=new Date(),today=new Date(d0-d0.getTimezoneOffset()*6e4).toISOString().slice(0,10);
    return list(rows,r=>`<div class="row"><div class="n">${esc(r.name)} — القسط ${r.seq}</div><div class="d"><span class="${r.due_date<=today?'pos':''}">الاستحقاق: ${esc(r.due_date)}</span>
    <span>المتبقي: ${fmt(r.amount-r.paid)}</span><a href="https://wa.me/${esc((r.phone||'').replace(/^0/,'964'))}">واتساب</a></div></div>`);},
  async rep(q){const rows=await api('repairs',q);return list(rows,r=>`<div class="row"><div class="n">#${r.id} — ${esc(r.device)} <span class="tag">${esc(r.status)}</span></div>

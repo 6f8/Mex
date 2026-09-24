@@ -10,7 +10,7 @@ public class VoucherForm : BaseForm
     readonly NumericUpDown nAmt = Ui.Num(160, 2), nAmt2 = Ui.Num(160, 2);
     readonly DateTimePicker dt = new() { Width = 170, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm" };
     readonly TextBox txtNote = new() { Width = 330 };
-    readonly Label lblInfo = new() { AutoSize = true, ForeColor = Theme.Accent, Font = Theme.F(10, FontStyle.Bold), Margin = new Padding(10, 18, 10, 0) };
+    readonly Label lblInfo = new() { AutoSize = true, ForeColor = Theme.BrandDark, Font = Theme.FS(10), Margin = new Padding(10, 36, 10, 0) };
     readonly DataGridView grid = Ui.NewGrid();
     readonly Control pBox2, pParty, pEmp, pAmt2, pCC;
 
@@ -93,6 +93,7 @@ public class VoucherForm : BaseForm
         string k = cbKind.Text, date = dt.Value.ToString(Ui.DtFmt), note = txtNote.Text.Trim();
         long box = Ui.GetId(cbBox), box2 = Ui.GetId(cbBox2), party = Ui.GetId(cbParty), emp = Ui.GetId(cbEmp), cc = Ui.GetId(cbCC);
         double amt = (double)nAmt.Value, amt2 = (double)nAmt2.Value, r1 = Ui.BoxRate(box), r2 = Ui.BoxRate(box2);
+        string cur1 = Ui.BoxCurrency(box), cur2 = Ui.BoxCurrency(box2);
         if (amt <= 0 || box == 0) { Ui.Warn("أدخل المبلغ واختر الصندوق."); return; }
 
         const string ins = @"INSERT INTO cash_moves(date,kind,cashbox_id,amount,rate,party_id,employee_id,cost_center_id,ref,note,user_id)
@@ -113,8 +114,8 @@ public class VoucherForm : BaseForm
                     if (emp == 0) { Ui.Warn("اختر الموظف."); return; }
                     tx.Exec(ins, date, k, box, -amt, r1, null, emp, Db.N(cc), null, note, Session.UserId); break;
                 case "تحويل":
-                    if (box2 == 0 || box2 == box) { Ui.Warn("اختر صندوقاً مختلفاً للتحويل."); return; }
-                    if (Ui.BoxCurrency(box) != Ui.BoxCurrency(box2)) { Ui.Warn("عملتا الصندوقين مختلفتان — استخدم سند «صيرفة»."); return; }
+                    if (box2 == 0 || box2 == box) { Ui.Warn("اختر صندوقًا مختلفًا للتحويل."); return; }
+                    if (cur1 != cur2) { Ui.Warn("عملتا الصندوقين مختلفتان — استخدم سند «صيرفة»."); return; }
                     tx.Exec(ins, date, k, box, -amt, r1, null, null, null, rf, note, Session.UserId);
                     tx.Exec(ins, date, k, box2, amt, r2, null, null, null, rf, note, Session.UserId); break;
                 case "صيرفة":
@@ -129,7 +130,7 @@ public class VoucherForm : BaseForm
         {
             var phone = Db.S(Ui.GetRow(cbParty)?["phone"]);
             if (phone != "" && Ui.Confirm("تم الحفظ. إرسال وصل القبض للعميل عبر واتساب؟"))
-                _ = WhatsApp.Send(phone, $"{Settings.Get("shop_name")}\nتم استلام مبلغ {Ui.M(amt)} {Ui.BoxCurrency(box)} بتاريخ {dt.Value:yyyy/MM/dd}.\nرصيدكم المتبقي: {Ui.M(Ui.PartyBalance(party))}\nشكراً لكم.");
+                _ = WhatsApp.Send(phone, $"{Settings.Get("shop_name")}\nتم استلام مبلغ {Ui.M(amt)} {Ui.BoxCurrency(box)} بتاريخ {dt.Value:yyyy/MM/dd}.\nرصيدكم المتبقي: {Ui.M(Ui.PartyBalance(party))}\nشكرًا لكم.");
         }
         nAmt.Value = 0; nAmt2.Value = 0; txtNote.Clear();
         LoadGrid();
@@ -190,7 +191,7 @@ public class InstallmentsForm : BaseForm
 
     public InstallmentsForm()
     {
-        cbFilter.Items.AddRange(new object[] { "غير المسددة", "المستحقة قريباً", "المتأخرة", "الكل" });
+        cbFilter.Items.AddRange(new object[] { "غير المسددة", "المستحقة قريبًا", "المتأخرة", "الكل" });
         Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
 
         var bar = Theme.Bar();
@@ -252,6 +253,7 @@ public class InstallmentsForm : BaseForm
         if (rem <= 0) { Ui.Info("القسط مسدد بالكامل."); return; }
         if (!Ui.AskNumber("تسديد قسط", "المبلغ المستلم", rem, out var amt) || amt <= 0) return;
         if (amt > rem + 0.001) { Ui.Warn("المبلغ أكبر من المتبقي على القسط."); return; }
+        if (box == 0) { Ui.Warn("اختر صندوق التسديد."); return; }
         long party = Db.L(Db.Scalar("SELECT party_id FROM installments WHERE id=@p0", id));
         double rate = Ui.BoxRate(box);
         using (var tx = new Tx())

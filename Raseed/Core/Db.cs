@@ -31,8 +31,10 @@ public static class Db
 
     public static int Exec(string sql, params object[] p) { using var t = new Tx(); var r = t.Exec(sql, p); t.Commit(); return r; }
     public static long Insert(string sql, params object[] p) { using var t = new Tx(); var id = t.Insert(sql, p); t.Commit(); return id; }
-    public static object Scalar(string sql, params object[] p) { using var t = new Tx(); return t.Scalar(sql, p); }
-    public static DataTable Query(string sql, params object[] p) { using var t = new Tx(); return t.Query(sql, p); }
+    // القراءة تتم بلا معاملة كتابة: لا تحجز قفل الكتابة، فتعمل حتى أثناء معاملة مفتوحة على اتصال آخر
+    // (سابقًا كانت كل قراءة داخل معاملة تنتظر 30 ثانية ثم تفشل بخطأ database is locked)
+    public static object Scalar(string sql, params object[] p) { using var t = new Tx(write: false); return t.Scalar(sql, p); }
+    public static DataTable Query(string sql, params object[] p) { using var t = new Tx(write: false); return t.Query(sql, p); }
 
     // تحويلات آمنة
     public static double D(object o) => o == null || o is DBNull ? 0 : Convert.ToDouble(o, CultureInfo.InvariantCulture);
@@ -49,6 +51,7 @@ public static class Db
             foreach (var s in Settings.All)
                 t.Exec("INSERT OR IGNORE INTO settings(key,value) VALUES(@p0,@p1)", s.Key, s.Def);
             Migrate(t);
+            t.Exec("CREATE INDEX IF NOT EXISTS ix_cash_repair ON cash_moves(repair_id)");
             t.Exec(BalanceView);
             if (L(t.Scalar("SELECT COUNT(*) FROM users")) == 0) Seed(t);
             t.Commit();
@@ -92,7 +95,7 @@ FROM parties p;";
 
     static void Seed(Tx t)
     {
-        t.Exec("INSERT INTO users(username,pass_hash,full_name,is_admin) VALUES('admin',@p0,'المدير',1)", Session.Hash("admin", "admin"));
+        t.Exec("INSERT INTO users(username,pass_hash,full_name,is_admin) VALUES('admin',@p0,'المدير',1)", Session.HashPassword("admin"));
         t.Exec("INSERT INTO warehouses(name) VALUES('المخزن الرئيسي')");
         t.Exec("INSERT INTO cashboxes(name,kind,currency) VALUES('الصندوق الرئيسي','صندوق','IQD'),('خزينة الدولار','خزينة','USD')");
         t.Exec("INSERT INTO cost_centers(name) VALUES('عام')");
@@ -154,6 +157,23 @@ CREATE TABLE IF NOT EXISTS hr_moves(id INTEGER PRIMARY KEY, employee_id INTEGER 
     kind TEXT NOT NULL, amount REAL NOT NULL, note TEXT, cash_ref TEXT, user_id INTEGER);
 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY, date TEXT, user_id INTEGER, action TEXT, details TEXT);
 
+-- فهارس الأداء: رصيد الجهات وكشوف الحساب والتقارير تبحث بهذه الأعمدة باستمرار
+CREATE INDEX IF NOT EXISTS ix_invoices_party ON invoices(party_id);
+CREATE INDEX IF NOT EXISTS ix_invoices_date ON invoices(date);
+CREATE INDEX IF NOT EXISTS ix_lines_invoice ON invoice_lines(invoice_id);
+CREATE INDEX IF NOT EXISTS ix_lines_item ON invoice_lines(item_id);
+CREATE INDEX IF NOT EXISTS ix_lines_batch ON invoice_lines(batch_id);
+CREATE INDEX IF NOT EXISTS ix_cash_party ON cash_moves(party_id);
+CREATE INDEX IF NOT EXISTS ix_cash_invoice ON cash_moves(invoice_id);
+CREATE INDEX IF NOT EXISTS ix_cash_box_date ON cash_moves(cashbox_id, date);
+CREATE INDEX IF NOT EXISTS ix_cash_employee ON cash_moves(employee_id);
+CREATE INDEX IF NOT EXISTS ix_inst_invoice ON installments(invoice_id);
+CREATE INDEX IF NOT EXISTS ix_inst_party ON installments(party_id);
+CREATE INDEX IF NOT EXISTS ix_repairs_party ON repairs(party_id);
+CREATE INDEX IF NOT EXISTS ix_repair_parts_repair ON repair_parts(repair_id);
+CREATE INDEX IF NOT EXISTS ix_repair_parts_batch ON repair_parts(batch_id);
+CREATE INDEX IF NOT EXISTS ix_hr_employee ON hr_moves(employee_id);
+
 ";
 }
 
@@ -163,7 +183,8 @@ public sealed class Tx : IDisposable
     readonly SqliteConnection c;
     readonly SqliteTransaction t;
 
-    public Tx() { c = Db.Open(); t = c.BeginTransaction(); }
+    /// <param name="write">false = اتصال للقراءة فقط بلا معاملة (لا يحجز قفل الكتابة)</param>
+    public Tx(bool write = true) { c = Db.Open(); if (write) t = c.BeginTransaction(); }
 
     SqliteCommand Cmd(string sql, object[] p)
     {
@@ -222,6 +243,6 @@ public sealed class Tx : IDisposable
         return dt;
     }
 
-    public void Commit() => t.Commit();
-    public void Dispose() { t.Dispose(); c.Dispose(); }
+    public void Commit() => t?.Commit();
+    public void Dispose() { t?.Dispose(); c.Dispose(); }
 }

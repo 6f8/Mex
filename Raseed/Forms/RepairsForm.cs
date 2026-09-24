@@ -13,8 +13,8 @@ public class RepairsForm : BaseForm
     readonly TextBox tName = T(), tPhone = T(), tDevice = T(), tSerial = T(), tAcc = T(), tLock = T(),
                      tFault = T(true), tReport = T(true), tNotes = T(true);
     readonly NumericUpDown nEst = Ui.Num(300), nAdv = Ui.Num(300), nWarranty = Ui.Num(300);
-    readonly Label lblMode = new() { AutoSize = true, ForeColor = Theme.Accent, Font = Theme.F(10, FontStyle.Bold), Margin = new Padding(8, 16, 8, 0) };
-    readonly Label lblSum = new() { Dock = DockStyle.Bottom, Height = 30, ForeColor = Theme.Ink, Font = Theme.F(10, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.White };
+    readonly Label lblMode = new() { AutoSize = true, ForeColor = Theme.BrandDark, Font = Theme.FS(10), Margin = new Padding(8, 16, 8, 0) };
+    readonly Label lblSum = new() { Dock = DockStyle.Bottom, Height = 40, ForeColor = Theme.BrandDark, Font = Theme.FS(10), TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.BrandSoft, Padding = new Padding(10, 0, 10, 0) };
     readonly Control pAdv, pBox;
     long id;
 
@@ -52,7 +52,9 @@ public class RepairsForm : BaseForm
         bar.Controls.AddRange(new Control[] { bSetStatus, bNew, bSave, bPart, bUnpart, bDeliver, bPrint, bWa, bDel, lblMode });
 
         // ---------- المحرر ----------
-        var ed = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 340, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Color.White, Padding = new Padding(8) };
+        var edCard = new CardPanel { Dock = DockStyle.Right, Width = 376, Title = "بيانات الجهاز", IconName = "smartphone" };
+        var ed = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Surface };
+        edCard.Controls.Add(ed);
         ed.Controls.Add(Ui.Labeled("حساب الزبون (اختياري)", cbParty));
         ed.Controls.Add(Ui.Labeled("اسم الزبون", tName));
         ed.Controls.Add(Ui.Labeled("الهاتف (واتساب)", tPhone));
@@ -72,14 +74,14 @@ public class RepairsForm : BaseForm
 
         parts.Dock = DockStyle.Bottom;
         parts.Height = 150;
-        var partsTitle = new Label { Text = "قطع الغيار المصروفة لهذا الجهاز", Dock = DockStyle.Bottom, Height = 26, ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft };
+        var partsTitle = new Label { Text = "قطع الغيار المصروفة لهذا الجهاز", Dock = DockStyle.Bottom, Height = 34, ForeColor = Theme.Text2, Font = Theme.FS(10), TextAlign = ContentAlignment.BottomLeft };
 
         Controls.Add(grid);
         Controls.Add(partsTitle);
         Controls.Add(parts);
         Controls.Add(lblSum);
-        Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
-        Controls.Add(ed);
+        Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
+        Controls.Add(edCard);
         Controls.Add(bar);
         Controls.Add(Theme.Title("الصيانة — استلام وتسليم الأجهزة"));
 
@@ -200,11 +202,12 @@ public class RepairsForm : BaseForm
         object[] vals = { Db.N(party), tName.Text.Trim(), tPhone.Text.Trim(), tDevice.Text.Trim(), tSerial.Text.Trim(), tFault.Text.Trim(),
             tAcc.Text.Trim(), tLock.Text.Trim(), Db.N(tech), (double)nEst.Value, Db.N(wh), (long)nWarranty.Value, tReport.Text.Trim(), tNotes.Text.Trim() };
         bool isNew = id == 0;
+        long rid = id;
         using (var tx = new Tx())
         {
             if (isNew)
             {
-                id = tx.Insert(@"INSERT INTO repairs(party_id,customer,phone,device,serial,fault,accessories,lock_code,technician_id,estimate,
+                rid = tx.Insert(@"INSERT INTO repairs(party_id,customer,phone,device,serial,fault,accessories,lock_code,technician_id,estimate,
                     warehouse_id,warranty_days,report,notes,date_in,status,user_id)
                     VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,@p11,@p12,@p13,@p14,'مستلم',@p15)",
                     vals.Concat(new object[] { Ui.Now, Session.UserId }).ToArray());
@@ -213,15 +216,16 @@ public class RepairsForm : BaseForm
                     double rate = Ui.BoxRate(box);
                     tx.Exec(@"INSERT INTO cash_moves(date,kind,cashbox_id,amount,rate,party_id,repair_id,note,user_id)
                               VALUES(@p0,'عربون صيانة',@p1,@p2,@p3,@p4,@p5,@p6,@p7)",
-                        Ui.Now, box, adv / rate, rate, Db.N(party), id, $"عربون صيانة — وصل {id} — {tDevice.Text.Trim()}", Session.UserId);
+                        Ui.Now, box, adv / rate, rate, Db.N(party), rid, $"عربون صيانة — وصل {rid} — {tDevice.Text.Trim()}", Session.UserId);
                 }
             }
             else
                 tx.Exec(@"UPDATE repairs SET party_id=@p0,customer=@p1,phone=@p2,device=@p3,serial=@p4,fault=@p5,accessories=@p6,lock_code=@p7,
                     technician_id=@p8,estimate=@p9,warehouse_id=@p10,warranty_days=@p11,report=@p12,notes=@p13 WHERE id=@p14",
-                    vals.Concat(new object[] { id }).ToArray());
+                    vals.Concat(new object[] { rid }).ToArray());
             tx.Commit();
         }
+        id = rid;
         LoadGrid();
         long saved = id;
         if (isNew && Session.Can("print") && Ui.Confirm($"تم استلام الجهاز بوصل رقم {saved}.\nهل تريد طباعة وصل الاستلام؟"))
@@ -238,10 +242,10 @@ public class RepairsForm : BaseForm
 
     void SetStatus()
     {
-        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازاً من القائمة."); return; }
+        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازًا من القائمة."); return; }
         var st = cbStatus.Text;
         if (st == "تم التسليم") { Deliver(); return; }
-        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقاً."); return; }
+        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقًا."); return; }
         Db.Exec("UPDATE repairs SET status=@p0, date_ready=CASE WHEN @p0='جاهز' THEN @p1 ELSE date_ready END WHERE id=@p2", st, Ui.Now, id);
         long rid = id;
         LoadGrid();
@@ -264,23 +268,22 @@ public class RepairsForm : BaseForm
 
     void AddPart()
     {
-        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازاً من القائمة."); return; }
-        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقاً."); return; }
+        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازًا من القائمة."); return; }
+        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقًا."); return; }
         long wh = Ui.GetId(cbWh);
-        using var dlg = new BaseForm { Text = "صرف قطعة غيار", Width = 460, Height = 230, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
-        var cb = Ui.Combo(400);
+        using var dlg = new DialogShell("صرف قطعة غيار", 470, 330, "package-minus");
+        var cb = Ui.Combo(410);
         Ui.FillCombo(cb, @"SELECT i.id, i.name||'  (المتوفر: '||SUM(b.qty)||')' FROM items i JOIN batches b ON b.item_id=i.id
             WHERE b.warehouse_id=@p0 AND b.qty>0 GROUP BY i.id ORDER BY i.name", false, "", wh);
         Ui.MakeSearchable(cb);
         var n = Ui.Num(150, 2); n.Value = 1;
-        var ok = Theme.Btn("صرف", Theme.Success, 110); ok.DialogResult = DialogResult.OK;
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(10) };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface };
         flow.Controls.Add(Ui.Labeled("القطعة", cb));
         flow.Controls.Add(Ui.Labeled("الكمية", n));
-        flow.Controls.Add(ok);
-        dlg.Controls.Add(flow);
-        dlg.AcceptButton = ok;
-        if (dlg.ShowDialog() != DialogResult.OK) return;
+        dlg.Body.Controls.Add(flow);
+        dlg.AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
+        dlg.AddButton("صرف القطعة", DialogResult.OK, BtnKind.Primary, "package-minus");
+        if (dlg.ShowModal() != DialogResult.OK) return;
         long item = Ui.GetId(cb);
         double q = (double)n.Value;
         if (item == 0 || q <= 0) return;
@@ -302,7 +305,7 @@ public class RepairsForm : BaseForm
     void RemovePart()
     {
         if (parts.CurrentRow == null || !Session.Guard("repairs")) return;
-        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقاً."); return; }
+        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقًا."); return; }
         long pid = Db.L(parts.CurrentRow.Cells["id"].Value);
         if (!Ui.Confirm("إرجاع القطعة المحددة إلى المخزن؟")) return;
         using (var tx = new Tx())
@@ -318,37 +321,38 @@ public class RepairsForm : BaseForm
 
     void Deliver()
     {
-        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازاً من القائمة."); return; }
-        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقاً."); return; }
+        if (id == 0 || !Session.Guard("repairs")) { if (id == 0) Ui.Warn("اختر جهازًا من القائمة."); return; }
+        if (Status == "تم التسليم") { Ui.Warn("الجهاز مُسلَّم مسبقًا."); return; }
         long party = Ui.GetId(cbParty);
         double paidBefore = Db.D(Db.Scalar("SELECT IFNULL(SUM(amount*rate),0) FROM cash_moves WHERE repair_id=@p0", id));
 
-        using var dlg = new BaseForm { Text = $"تسليم الجهاز — وصل {id}", Width = 430, Height = 360, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
+        using var dlg = new DialogShell($"تسليم الجهاز — وصل {id}", 450, 470, "handshake");
         var nPrice = Ui.Num(360, 2); nPrice.Value = nEst.Value;
         var nPay = Ui.Num(360, 2);
         var cb = Ui.Combo(360); Ui.FillCombo(cb, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
-        var lbl = new Label { Width = 360, Height = 40, ForeColor = Theme.Accent, Font = Theme.F(10, FontStyle.Bold) };
+        var lbl = new Label { Width = 364, Height = 34, ForeColor = Theme.BrandDark, Font = Theme.FS(10), TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(6, 2, 6, 2) };
         void Upd()
         {
             nPay.Value = (decimal)((double)nPrice.Value - paidBefore);
-            lbl.Text = $"المدفوع سابقاً (عربون): {Ui.M(paidBefore)}";
+            lbl.Text = $"المدفوع سابقًا (عربون): {Ui.M(paidBefore)}";
         }
         nPrice.ValueChanged += (s, e) => Upd();
         Upd();
-        var ok = Theme.Btn("تأكيد التسليم", Theme.Success, 150); ok.DialogResult = DialogResult.OK;
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(10) };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface };
         flow.Controls.Add(Ui.Labeled("السعر النهائي للتصليح", nPrice));
         flow.Controls.Add(lbl);
         flow.Controls.Add(Ui.Labeled("المبلغ المستلم الآن (سالب = إرجاع للزبون)", nPay));
         flow.Controls.Add(Ui.Labeled("الصندوق", cb));
-        flow.Controls.Add(ok);
-        dlg.Controls.Add(flow);
-        if (dlg.ShowDialog() != DialogResult.OK) return;
+        dlg.Body.Controls.Add(flow);
+        dlg.AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
+        dlg.AddButton("تأكيد التسليم", DialogResult.OK);
+        if (dlg.ShowModal() != DialogResult.OK) return;
 
         double price = (double)nPrice.Value, pay = (double)nPay.Value;
         long box = Ui.GetId(cb);
+        if (Math.Abs(pay) > 0.001 && box == 0) { Ui.Warn("اختر الصندوق."); return; }
         if (party == 0 && Math.Abs(price - paidBefore - pay) > 0.01)
-        { Ui.Warn("الزبون العابر يجب أن يسدد المبلغ كاملاً. لتسجيل المتبقي ديناً اختر حساب الزبون أولاً ثم احفظ."); return; }
+        { Ui.Warn("الزبون العابر يجب أن يسدد المبلغ كاملًا. لتسجيل المتبقي دينًا اختر حساب الزبون أولًا ثم احفظ."); return; }
         using (var tx = new Tx())
         {
             tx.Exec("UPDATE repairs SET status='تم التسليم', final_price=@p0, date_out=@p1, party_id=@p2 WHERE id=@p3", price, Ui.Now, Db.N(party), id);
@@ -371,9 +375,9 @@ public class RepairsForm : BaseForm
     void Delete()
     {
         if (id == 0 || !Session.Guard("delete")) return;
-        if (Db.L(Db.Scalar("SELECT COUNT(*) FROM repair_parts WHERE repair_id=@p0", id)) > 0) { Ui.Warn("أرجع قطع الغيار المصروفة أولاً."); return; }
+        if (Db.L(Db.Scalar("SELECT COUNT(*) FROM repair_parts WHERE repair_id=@p0", id)) > 0) { Ui.Warn("أرجع قطع الغيار المصروفة أولًا."); return; }
         bool hasCash = Db.L(Db.Scalar("SELECT COUNT(*) FROM cash_moves WHERE repair_id=@p0", id)) > 0;
-        if (!Ui.Confirm(hasCash ? "لهذا الوصل مبالغ مقبوضة وسيتم حذفها أيضاً. متابعة؟" : "حذف الوصل المحدد؟")) return;
+        if (!Ui.Confirm(hasCash ? "لهذا الوصل مبالغ مقبوضة وسيتم حذفها أيضًا. متابعة؟" : "حذف الوصل المحدد؟")) return;
         using (var tx = new Tx())
         {
             tx.Exec("DELETE FROM cash_moves WHERE repair_id=@p0", id);

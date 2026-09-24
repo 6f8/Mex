@@ -16,7 +16,7 @@ public class Field
 
 public class EntityDef
 {
-    public string Table, Title, ListSql, Perm;
+    public string Table, Title, ListSql, Perm, Icon = "file-text";
     public string SearchWhere = "[الاسم] LIKE @p0";
     public List<Field> Fields = new();
 }
@@ -26,7 +26,7 @@ public class CrudForm : BaseForm
 {
     readonly EntityDef def;
     readonly DataGridView grid = Ui.NewGrid();
-    readonly TextBox search = new() { Width = 260, PlaceholderText = "بحث..." };
+    readonly TextBox search = new() { Width = 280, PlaceholderText = "بحث..." };
     readonly Dictionary<string, Control> inputs = new();
     readonly Label lblMode = new() { AutoSize = true, ForeColor = Theme.Accent, Font = Theme.F(10, FontStyle.Bold), Margin = new Padding(8, 14, 8, 0) };
     long currentId;
@@ -37,30 +37,33 @@ public class CrudForm : BaseForm
         Text = d.Title;
 
         var tool = Theme.Bar();
-        tool.Controls.Add(search);
-        var bNew = Theme.Btn("جديد", Theme.Gray, 100);
+        var sb = Ui.SearchBox(search);
+        sb.Margin = new Padding(6, 5, 6, 4);
+        tool.Controls.Add(sb);
         var bSave = Theme.Btn("حفظ", Theme.Success, 100);
+        var bNew = Theme.Btn("جديد", Theme.Gray, 100);
         var bDel = Theme.Btn("حذف", Theme.Danger, 100);
-        tool.Controls.AddRange(new Control[] { bNew, bSave, bDel });
+        tool.Controls.AddRange(new Control[] { bSave, bNew, bDel });
         Ui.GridTools(tool, grid, () => def.Title);
-        tool.Controls.Add(lblMode);
-        search.Margin = new Padding(6, 10, 6, 4);
         search.TextChanged += (s, e) => LoadList();
         bNew.Click += (s, e) => NewRecord();
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
 
+        var card = new CardPanel { Dock = DockStyle.Right, Width = 462, Title = "تفاصيل السجل", Subtitle = "سجل جديد", IconName = d.Icon };
         var editor = new FlowLayoutPanel
         {
-            Dock = DockStyle.Right, Width = 450, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, BackColor = Color.White, Padding = new Padding(10)
+            Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(0, 0, 0, 8)
         };
         foreach (var f in def.Fields) editor.Controls.Add(MakeInput(f));
+        card.Controls.Add(editor);
+        lblMode.TextChanged += (s, e) => card.Subtitle = lblMode.Text;
 
-        var split = new Panel { Dock = DockStyle.Right, Width = 10 };
+        var split = new Panel { Dock = DockStyle.Right, Width = 14 };
         Controls.Add(grid);
         Controls.Add(split);
-        Controls.Add(editor);
+        Controls.Add(card);
         Controls.Add(tool);
         Controls.Add(Theme.Title(def.Title));
 
@@ -78,7 +81,7 @@ public class CrudForm : BaseForm
         {
             case FType.Memo: c = new TextBox { Multiline = true, Height = 70, ScrollBars = ScrollBars.Vertical }; break;
             case FType.Number: c = Ui.Num(200, 2); break;
-            case FType.Bool: c = new CheckBox { Text = f.Caption, AutoSize = false, Height = 28 }; break;
+            case FType.Bool: c = new Toggle { Text = f.Caption, Height = 36 }; break;
             case FType.Lookup:
                 {
                     var cb = Ui.Combo();
@@ -96,7 +99,7 @@ public class CrudForm : BaseForm
             case FType.DateTime: c = new DateTimePicker { Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm" }; break;
             default: c = new TextBox(); break;
         }
-        c.Width = f.Width;
+        c.Width = Math.Min(f.Width, 384);
         inputs[f.Name] = c;
         if (f.Type == FType.Bool) { c.Margin = new Padding(6, 8, 6, 4); return c; }
         return Ui.Labeled(f.Caption, c);
@@ -189,7 +192,7 @@ public class CrudForm : BaseForm
     {
         if (!Session.Guard(def.Perm)) return;
         var first = def.Fields[0];
-        if (GetValue(first) is string s0 && s0 == "") { Ui.Warn($"يرجى إدخال: {first.Caption}"); return; }
+        if (GetValue(first) is string s0 && s0 == "") { Ui.Warn($"يرجى إدخال: {first.Caption}"); inputs[first.Name].Focus(); return; }
 
         var cols = def.Fields.Select(f => f.Name).ToList();
         var vals = def.Fields.Select(GetValue).ToList();
@@ -205,18 +208,20 @@ public class CrudForm : BaseForm
             Db.Exec(sql, vals.ToArray());
         }
         LoadList();
-        lblMode.Text = $"تم الحفظ ✓ (رقم {currentId})";
+        lblMode.Text = $"تعديل السجل رقم {currentId}";
+        Toast.Show("تم الحفظ بنجاح");
     }
 
     void Delete()
     {
-        if (currentId == 0 || !Session.Guard("delete")) return;
+        if (currentId == 0 || !Session.Guard(def.Perm) || !Session.Guard("delete")) return;
         if (!Ui.Confirm("هل تريد حذف السجل المحدد؟")) return;
         try
         {
             Db.Exec($"DELETE FROM {def.Table} WHERE id=@p0", currentId);
             LoadList();
             NewRecord();
+            Toast.Show("تم الحذف");
         }
         catch { Ui.Warn("لا يمكن حذف هذا السجل لوجود حركات مرتبطة به."); }
     }
@@ -232,7 +237,7 @@ public static class Defs
 
     public static EntityDef Items() => new()
     {
-        Table = "items", Title = "المواد", Perm = "items",
+        Table = "items", Title = "المواد", Icon = "package", Perm = "items",
         ListSql = @"SELECT i.id, i.code AS [الرمز], i.barcode AS [الباركود], i.name AS [الاسم], i.category AS [الصنف], i.unit AS [الوحدة],
             i.price_retail AS [مفرد], i.price_wholesale AS [جملة], i.price_special AS [خاص],
             IFNULL((SELECT SUM(qty) FROM batches b WHERE b.item_id=i.id),0) AS [الرصيد], i.min_qty AS [حد الطلب] FROM items i",
@@ -252,7 +257,7 @@ public static class Defs
 
     public static EntityDef Parties() => new()
     {
-        Table = "parties", Title = "العملاء والموردون", Perm = "parties",
+        Table = "parties", Title = "العملاء والموردون", Icon = "users", Perm = "parties",
         ListSql = @"SELECT p.id, p.name AS [الاسم], p.kind AS [النوع], p.phone AS [الهاتف], p.price_level AS [مستوى السعر],
             p.credit_limit AS [سقف الذمة], b.balance AS [الرصيد] FROM parties p JOIN v_party_balance b ON b.id=p.id",
         SearchWhere = "[الاسم] LIKE @p0 OR [الهاتف] LIKE @p0",
@@ -269,7 +274,7 @@ public static class Defs
 
     public static EntityDef Employees() => new()
     {
-        Table = "employees", Title = "الموارد البشرية — الموظفون", Perm = "hr",
+        Table = "employees", Title = "الموارد البشرية — الموظفون", Icon = "id-card", Perm = "hr",
         ListSql = @"SELECT e.id, e.name AS [الاسم], e.job AS [الوظيفة], e.phone AS [الهاتف], e.salary AS [الراتب], e.hire_date AS [تاريخ التعيين],
             IFNULL((SELECT -SUM(amount*rate) FROM cash_moves m WHERE m.employee_id=e.id AND m.date LIKE strftime('%Y-%m','now','localtime')||'%'),0) AS [المصروف هذا الشهر],
             CASE e.active WHEN 1 THEN 'على الملاك' ELSE 'منفك' END AS [الحالة] FROM employees e",
@@ -282,7 +287,7 @@ public static class Defs
 
     public static EntityDef Warehouses() => new()
     {
-        Table = "warehouses", Title = "المخازن", Perm = "settings",
+        Table = "warehouses", Title = "المخازن", Icon = "warehouse", Perm = "settings",
         ListSql = @"SELECT w.id, w.name AS [الاسم], w.location AS [الموقع],
             IFNULL((SELECT SUM(qty*cost) FROM batches b WHERE b.warehouse_id=w.id),0) AS [قيمة المخزون] FROM warehouses w",
         Fields = { F("name", "اسم المخزن"), F("location", "الموقع"), F("notes", "ملاحظات", FType.Memo) }
@@ -290,7 +295,7 @@ public static class Defs
 
     public static EntityDef Cashboxes() => new()
     {
-        Table = "cashboxes", Title = "الصناديق والخزائن", Perm = "settings",
+        Table = "cashboxes", Title = "الصناديق والخزائن", Icon = "wallet", Perm = "settings",
         ListSql = @"SELECT c.id, c.name AS [الاسم], c.kind AS [النوع], c.currency AS [العملة],
             IFNULL((SELECT SUM(amount) FROM cash_moves m WHERE m.cashbox_id=c.id),0) AS [الرصيد] FROM cashboxes c",
         Fields =
@@ -302,28 +307,28 @@ public static class Defs
 
     public static EntityDef CostCenters() => new()
     {
-        Table = "cost_centers", Title = "مراكز الكلفة", Perm = "settings",
+        Table = "cost_centers", Title = "مراكز الكلفة", Icon = "layers", Perm = "settings",
         ListSql = "SELECT id, name AS [الاسم], notes AS [ملاحظات] FROM cost_centers",
         Fields = { F("name", "اسم مركز الكلفة"), F("notes", "ملاحظات", FType.Memo) }
     };
 
     public static EntityDef Delivery() => new()
     {
-        Table = "delivery_companies", Title = "شركات التوصيل", Perm = "settings",
+        Table = "delivery_companies", Title = "شركات التوصيل", Icon = "truck", Perm = "settings",
         ListSql = "SELECT id, name AS [الاسم], phone AS [الهاتف], fee AS [أجور التوصيل] FROM delivery_companies",
         Fields = { F("name", "اسم الشركة"), F("phone", "الهاتف"), F("fee", "أجور التوصيل الافتراضية", FType.Number), F("notes", "ملاحظات", FType.Memo) }
     };
 
     public static EntityDef Partners() => new()
     {
-        Table = "partners", Title = "الشركاء (توزيع الأرباح)", Perm = "profit",
+        Table = "partners", Title = "الشركاء (توزيع الأرباح)", Icon = "handshake", Perm = "profit",
         ListSql = "SELECT id, name AS [الاسم], phone AS [الهاتف], share AS [النسبة %] FROM partners",
         Fields = { F("name", "اسم الشريك"), F("phone", "الهاتف"), F("share", "نسبة الربح %", FType.Number) }
     };
 
     public static EntityDef Tasks() => new()
     {
-        Table = "tasks", Title = "مدير المهام والتنبيهات", Perm = "tasks",
+        Table = "tasks", Title = "مدير المهام والتنبيهات", Icon = "list-todo", Perm = "tasks",
         ListSql = @"SELECT id, title AS [الاسم], kind AS [النوع], run_at AS [موعد التنفيذ], repeat AS [التكرار],
             CASE active WHEN 1 THEN 'فعّالة' ELSE 'متوقفة' END AS [الحالة], last_run AS [آخر تنفيذ] FROM tasks",
         Fields =

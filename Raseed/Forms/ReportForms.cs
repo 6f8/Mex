@@ -5,8 +5,8 @@ namespace Raseed;
 /// <summary>التقارير: كشف الحساب، الأرباح وتوزيعها، الصناديق، التوصيل، مراكز الكلفة</summary>
 public class ReportsForm : BaseForm
 {
-    readonly DateTimePicker dFrom = new() { Width = 140, Format = DateTimePickerFormat.Short },
-                            dTo = new() { Width = 140, Format = DateTimePickerFormat.Short };
+    readonly DateTimePicker dFrom = new() { Width = 160, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd" },
+                            dTo = new() { Width = 160, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd" };
     string A => dFrom.Value.ToString(Ui.DFmt);
     string B => dTo.Value.ToString(Ui.DFmt) + " 23:59:59";
 
@@ -18,18 +18,18 @@ public class ReportsForm : BaseForm
         bar.Controls.Add(Ui.Labeled("من تاريخ", dFrom));
         bar.Controls.Add(Ui.Labeled("إلى تاريخ", dTo));
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, RightToLeftLayout = true, Font = Theme.F(10, FontStyle.Bold) };
-        tabs.TabPages.Add(Statement());
-        if (Session.Can("profit")) tabs.TabPages.Add(Profit());
-        tabs.TabPages.Add(Boxes());
-        tabs.TabPages.Add(Daily());
-        tabs.TabPages.Add(ItemSales());
-        tabs.TabPages.Add(ItemMovement());
-        tabs.TabPages.Add(Aging());
-        tabs.TabPages.Add(Repairs());
-        tabs.TabPages.Add(Delivery());
-        tabs.TabPages.Add(CostCenters());
-        if (Session.IsAdmin) tabs.TabPages.Add(AuditLog());
+        var tabs = new ModernTabs(vertical: true) { Dock = DockStyle.Fill };
+        tabs.Add(Statement(), "scroll-text");
+        if (Session.Can("profit")) tabs.Add(Profit(), "trending-up");
+        tabs.Add(Boxes(), "wallet");
+        tabs.Add(Daily(), "calendar-days");
+        tabs.Add(ItemSales(), "shopping-bag");
+        tabs.Add(ItemMovement(), "arrow-left-right");
+        tabs.Add(Aging(), "history");
+        tabs.Add(Repairs(), "wrench");
+        tabs.Add(Delivery(), "truck");
+        tabs.Add(CostCenters(), "layers");
+        if (Session.IsAdmin) tabs.Add(AuditLog(), "shield-check");
 
         Controls.Add(tabs);
         Controls.Add(bar);
@@ -53,7 +53,7 @@ public class ReportsForm : BaseForm
         var cb = Ui.Combo(260);
         Ui.FillCombo(cb, "SELECT id,name,phone FROM parties ORDER BY name");
         Ui.MakeSearchable(cb);
-        var lbl = new Label { Dock = DockStyle.Bottom, Height = 40, Font = Theme.F(12, FontStyle.Bold), ForeColor = Theme.Accent, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.White };
+        var lbl = new Label { Dock = DockStyle.Bottom, Height = 48, Font = Theme.FS(12), ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.BrandSoft, Padding = new Padding(12, 0, 12, 0) };
         var bShow = Theme.Btn("عرض الكشف", Theme.Accent, 130);
         var bWa = Theme.Btn("إرسال الرصيد واتساب", Theme.Success, 190);
         var top = Theme.Bar();
@@ -66,16 +66,7 @@ public class ReportsForm : BaseForm
         {
             long pid = Ui.GetId(cb);
             if (pid == 0) return;
-            var dt = Db.Query(@"
-                SELECT date AS d, 'INV:'||type AS kind, id AS ref,
-                       CASE type WHEN 'Sale' THEN net WHEN 'PurchaseReturn' THEN net ELSE 0 END AS debit,
-                       CASE type WHEN 'Purchase' THEN net WHEN 'SaleReturn' THEN net ELSE 0 END AS credit, notes
-                FROM invoices WHERE party_id=@p0
-                UNION ALL
-                SELECT date, kind, id, CASE WHEN amount<0 THEN -amount*rate ELSE 0 END,
-                       CASE WHEN amount>0 THEN amount*rate ELSE 0 END, note
-                FROM cash_moves WHERE party_id=@p0
-                ORDER BY d", pid);
+            var dt = Ledger.StatementRows(pid);
 
             var res = new DataTable();
             res.Columns.Add("التاريخ"); res.Columns.Add("البيان"); res.Columns.Add("المرجع");
@@ -113,7 +104,7 @@ public class ReportsForm : BaseForm
     TabPage Profit()
     {
         var grid = Ui.NewGrid();
-        var summary = new Label { Dock = DockStyle.Bottom, Height = 175, Font = Theme.F(11), BackColor = Color.White, Padding = new Padding(12) };
+        var summary = new Label { Dock = DockStyle.Bottom, Height = 190, Font = Theme.F(11), BackColor = Theme.Surface, ForeColor = Theme.Text2, Padding = new Padding(16) };
         var cbBox = Ui.Combo(200);
         Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
         var bCalc = Theme.Btn("احتساب الأرباح", Theme.Accent, 150);
@@ -124,7 +115,7 @@ public class ReportsForm : BaseForm
         top.Controls.Add(bPost);
         double netProfit = 0;
 
-        bCalc.Click += (s, e) =>
+        void Calc()
         {
             double Q(string sql) => Db.D(Db.Scalar(sql, A, B));
             const string L = "FROM invoice_lines l JOIN invoices i ON i.id=l.invoice_id WHERE i.date BETWEEN @p0 AND @p1 AND i.type=";
@@ -148,17 +139,20 @@ public class ReportsForm : BaseForm
             grid.DataSource = Db.Query("SELECT id, name AS [الشريك], share AS [النسبة %], ROUND(@p0*share/100.0,0) AS [الحصة] FROM partners ORDER BY id", netProfit);
             double totalShare = Db.D(Db.Scalar("SELECT SUM(share) FROM partners"));
             if (totalShare > 0 && Math.Abs(totalShare - 100) > 0.01)
-                summary.Text += $"\n⚠ مجموع نسب الشركاء {Ui.M(totalShare)}% وليس 100%";
-        };
+                summary.Text += $"\nتنبيه: مجموع نسب الشركاء {Ui.M(totalShare)}% وليس 100%";
+        }
+        bCalc.Click += (s, e) => Calc();
         bPost.Click += (s, e) =>
         {
             if (!Session.Guard("profit")) return;
-            if (netProfit <= 0) { Ui.Warn("احسب الأرباح أولاً (يجب أن يكون الربح موجباً)."); return; }
+            if (netProfit <= 0) { Ui.Warn("احسب الأرباح أولًا (يجب أن يكون الربح موجبًا)."); return; }
             if (!Ui.Confirm($"صرف حصص الشركاء من صافي ربح {Ui.M(netProfit)} للفترة {A} — {dTo.Value:yyyy-MM-dd}؟")) return;
             long box = Ui.GetId(cbBox);
+            if (box == 0) { Ui.Warn("اختر صندوق الصرف."); return; }
             double rate = Ui.BoxRate(box);
+            var partners = Db.Query("SELECT name, share FROM partners WHERE share>0");
             using var tx = new Tx();
-            foreach (DataRow p in Db.Query("SELECT name, share FROM partners WHERE share>0").Rows)
+            foreach (DataRow p in partners.Rows)
             {
                 double amt = Math.Round(netProfit * Db.D(p["share"]) / 100.0);
                 tx.Exec("INSERT INTO cash_moves(date,kind,cashbox_id,amount,rate,note,user_id) VALUES(@p0,'توزيع أرباح',@p1,@p2,@p3,@p4,@p5)",
@@ -167,6 +161,7 @@ public class ReportsForm : BaseForm
             tx.Commit();
             Ui.Info("تم تسجيل صرف حصص الشركاء.");
         };
+        Calc();   // عرض الأرباح مباشرة عند فتح التقرير
         return Page("الأرباح وتوزيعها", grid, top, summary);
     }
 
@@ -197,7 +192,7 @@ public class ReportsForm : BaseForm
         var b = Theme.Btn("عرض", Theme.Accent, 90);
         top.Controls.Add(Ui.Labeled("الصندوق", cb));
         top.Controls.Add(b);
-        var lbl = new Label { Dock = DockStyle.Bottom, Height = 34, Font = Theme.F(11, FontStyle.Bold), BackColor = Color.White, ForeColor = Theme.Accent, TextAlign = ContentAlignment.MiddleLeft };
+        var lbl = new Label { Dock = DockStyle.Bottom, Height = 44, Font = Theme.FS(11), BackColor = Theme.BrandSoft, ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 12, 0) };
         void Reload()
         {
             var dt = Db.Query(@"SELECT m.id, m.date AS [التاريخ], m.kind AS [النوع], c.name AS [الصندوق],
@@ -208,7 +203,7 @@ public class ReportsForm : BaseForm
                 WHERE m.date BETWEEN @p0 AND @p1 AND (@p2=0 OR m.cashbox_id=@p2) ORDER BY m.date, m.id", A, B, Ui.GetId(cb));
             grid.DataSource = dt;
             double inn = dt.Rows.Cast<DataRow>().Sum(r => Db.D(r["وارد"])), outt = dt.Rows.Cast<DataRow>().Sum(r => Db.D(r["صادر"]));
-            lbl.Text = Ui.GetId(cb) == 0 ? "   اختر صندوقاً لعرض المجاميع بعملته" : $"   الوارد: {Ui.M(inn)}    |    الصادر: {Ui.M(outt)}    |    الصافي: {Ui.M(inn - outt)}";
+            lbl.Text = Ui.GetId(cb) == 0 ? "   اختر صندوقًا لعرض المجاميع بعملته" : $"   الوارد: {Ui.M(inn)}    |    الصادر: {Ui.M(outt)}    |    الصافي: {Ui.M(inn - outt)}";
         }
         b.Click += (s, e) => Reload();
         Reload();
@@ -295,7 +290,7 @@ public class ReportsForm : BaseForm
             if (grid.CurrentRow == null) return;
             var ph = Convert.ToString(grid.CurrentRow.Cells["الهاتف"].Value);
             if (string.IsNullOrWhiteSpace(ph)) { Ui.Warn("لا يوجد رقم هاتف."); return; }
-            _ = WhatsApp.Send(ph, $"{Settings.Get("shop_name")}\nعزيزي {grid.CurrentRow.Cells["العميل"].Value}، نود تذكيركم بأن رصيد حسابكم المطلوب هو {Ui.M(Db.D(grid.CurrentRow.Cells["الرصيد المطلوب"].Value))} د.ع. شكراً لتعاونكم.");
+            _ = WhatsApp.Send(ph, $"{Settings.Get("shop_name")}\nعزيزي {grid.CurrentRow.Cells["العميل"].Value}، نود تذكيركم بأن رصيد حسابكم المطلوب هو {Ui.M(Db.D(grid.CurrentRow.Cells["الرصيد المطلوب"].Value))} د.ع. شكرًا لتعاونكم.");
         };
         grid.CellFormatting += (s, e) =>
         {
@@ -487,38 +482,103 @@ public class InvoicesListForm : BaseForm
     }
 }
 
-/// <summary>لوحة التحكم الرئيسية</summary>
+/// <summary>لوحة التحكم الرئيسية: ملخص اليوم، مخطط المبيعات، إجراءات سريعة، وتنبيهات</summary>
 public class DashboardForm : BaseForm
 {
+    readonly MainForm main;
+
     public DashboardForm(MainForm main)
     {
+        this.main = main;
+        AutoScroll = true;   // الشاشات القصيرة: تمرير عمودي بدل إخفاء التنبيهات
         int expDays = Settings.Int("expiry_days", 30), remDays = Settings.Int("reminder_days", 3);
 
-        var cards = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
-        cards.Controls.Add(Theme.Card("صافي مبيعات اليوم", Ui.M(Stats.TodaySales()), Theme.Accent));
-        cards.Controls.Add(Theme.Card("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success));
-        cards.Controls.Add(Theme.Card("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning));
-        cards.Controls.Add(Theme.Card("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger));
-        cards.Controls.Add(Theme.Card("مواد تحت حد الطلب", Stats.LowStock().ToString(), Theme.Purple));
-        cards.Controls.Add(Theme.Card($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays).ToString(), Theme.Danger));
-        cards.Controls.Add(Theme.Card("أقساط مستحقة", Stats.DueInstallments(remDays).ToString(), Theme.Warning));
-        cards.Controls.Add(Theme.Card("أجهزة في الصيانة", Stats.RepairsOpen().ToString(), Theme.Accent));
-        cards.Controls.Add(Theme.Card("أجهزة جاهزة للتسليم", Stats.RepairsReady().ToString(), Theme.Success));
-
-        var quick = Theme.Bar();
-        quick.BackColor = Theme.Bg;
-        void Q(string text, string perm, Color c, Func<Form> make)
+        // ---------- الترحيب ----------
+        var hello = new Panel { Dock = DockStyle.Top, Height = 62 };
+        var ar = new System.Globalization.CultureInfo("ar-IQ");
+        ar.DateTimeFormat.Calendar = new System.Globalization.GregorianCalendar();
+        string greet = DateTime.Now.Hour < 12 ? "صباح الخير" : "مساء الخير";
+        string today = DateTime.Now.ToString("dddd، d MMMM yyyy", ar);
+        hello.Paint += (s, e) =>
         {
-            if (!Session.Can(perm)) return;
-            var b = Theme.Btn(text, c, 150);
-            b.Click += (s, e) => main.Open(text, make());
-            quick.Controls.Add(b);
+            TextRenderer.DrawText(e.Graphics, $"{greet}، {Session.UserName}", Theme.FS(16), new Rectangle(0, 2, hello.Width - 4, 32), Theme.Ink, Gfx.RtlStart);
+            TextRenderer.DrawText(e.Graphics, $"{today}  •  إليك ملخص نشاط اليوم", Theme.F(10), new Rectangle(0, 34, hello.Width - 4, 24), Theme.Muted, Gfx.RtlStart);
+        };
+
+        // ---------- المؤشرات ----------
+        double todaySales = Stats.TodaySales();
+        double yesterday = Db.D(Db.Scalar("SELECT SUM(CASE type WHEN 'Sale' THEN net ELSE -net END) FROM invoices WHERE type IN ('Sale','SaleReturn') AND date LIKE @p0",
+            DateTime.Today.AddDays(-1).ToString(Ui.DFmt) + "%"));
+        long todayCount = Db.L(Db.Scalar("SELECT COUNT(*) FROM invoices WHERE type='Sale' AND date LIKE @p0", Ui.Today + "%"));
+        double pct = yesterday > 0 ? Math.Round((todaySales - yesterday) / yesterday * 100) : 0;
+        string trend = yesterday > 0
+            ? (pct >= 0 ? "+" : "−") + Math.Abs(pct).ToString("0") + "% عن أمس  •  " + todayCount + " فاتورة"
+            : todayCount + " فاتورة اليوم";
+        var kpis = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 140, WrapContents = false, Padding = new Padding(0, 4, 0, 0) };
+        var cards = new[]
+        {
+            Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Brand, "trending-up", trend, "سجل الفواتير"),
+            Kpi("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success, "wallet", "كل الصناديق بالدينار", "السندات والصيرفة"),
+            Kpi("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning, "hand-coins", "على العملاء", "العملاء والموردون"),
+            Kpi("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger, "landmark", "للموردين", "العملاء والموردون"),
+        };
+        if (todaySales < yesterday && yesterday > 0) cards[0].Accent = Theme.Warning;
+        kpis.Controls.AddRange(cards);
+        kpis.Resize += (s, e) =>
+        {
+            int w = (kpis.ClientSize.Width - 4 - cards.Length * 16) / cards.Length;
+            foreach (var c in cards) { c.Width = Math.Max(150, w); c.Height = 122; }
+        };
+
+        // ---------- المخطط والإجراءات ----------
+        var mid = new Panel { Dock = DockStyle.Top, Height = 330, Padding = new Padding(0, 6, 0, 8) };
+        var chartCard = new CardPanel { Dock = DockStyle.Fill, Title = "المبيعات — آخر 14 يومًا", Subtitle = "صافي المبيعات اليومي بعد المرتجعات", IconName = "chart-column" };
+        var chart = new BarChart { Dock = DockStyle.Fill };
+        var from = DateTime.Today.AddDays(-13);
+        var rows = Db.Query(@"SELECT substr(date,1,10) AS d, SUM(CASE type WHEN 'Sale' THEN net ELSE -net END) AS v FROM invoices
+            WHERE type IN ('Sale','SaleReturn') AND date>=@p0 GROUP BY substr(date,1,10)", from.ToString(Ui.DFmt));
+        var byDay = rows.Rows.Cast<DataRow>().ToDictionary(r => Db.S(r["d"]), r => Db.D(r["v"]));
+        for (int i = 0; i < 14; i++)
+        {
+            var d = from.AddDays(i);
+            chart.Data.Add((d.ToString("d/M"), byDay.TryGetValue(d.ToString(Ui.DFmt), out var v) ? Math.Max(0, v) : 0));
         }
-        Q("فاتورة بيع", "sales", Theme.Accent, () => new InvoiceForm("Sale"));
-        Q("فاتورة شراء", "purchases", Theme.Success, () => new InvoiceForm("Purchase"));
-        Q("استلام جهاز صيانة", "repairs", Theme.Warning, () => new RepairsForm());
-        Q("سند مالي", "vouchers", Theme.Purple, () => new VoucherForm());
-        Q("الأقساط", "installments", Theme.Gray, () => new InstallmentsForm());
+        chartCard.Controls.Add(chart);
+
+        var actions = new CardPanel { Dock = DockStyle.Left, Width = 340, Title = "إجراءات سريعة", Subtitle = "أكثر العمليات استخدامًا", IconName = "sparkles" };
+        var grid2 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, BackColor = Theme.Surface };
+        grid2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (int i = 0; i < 3; i++) grid2.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
+        var quick = new (string Text, string Icon, string Page, BtnKind Kind)[]
+        {
+            ("فاتورة بيع", "shopping-cart", "فاتورة بيع", BtnKind.Primary),
+            ("فاتورة شراء", "truck", "فاتورة شراء", BtnKind.Soft),
+            ("استلام جهاز", "wrench", "الصيانة", BtnKind.Soft),
+            ("سند قبض", "wallet", "السندات والصيرفة", BtnKind.Soft),
+            ("تسديد قسط", "calendar-clock", "الأقساط", BtnKind.Soft),
+            ("مادة جديدة", "package-plus", "المواد", BtnKind.Soft),
+        };
+        foreach (var q in quick)
+        {
+            if (!main.Pages.Any(p => p.Text == q.Page)) continue;
+            var b = new ModernButton { Text = q.Text, IconName = q.Icon, Kind = q.Kind, Dock = DockStyle.Fill, Margin = new Padding(5), Radius = 10, Font = Theme.FS(10) };
+            b.Click += (s, e) => main.Go(q.Page);
+            grid2.Controls.Add(b);
+        }
+        actions.Controls.Add(grid2);
+        mid.Controls.Add(chartCard);
+        mid.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 16 });
+        mid.Controls.Add(actions);
+
+        // ---------- التنبيهات ----------
+        var alertsCard = new CardPanel { Dock = DockStyle.Fill, Title = "التنبيهات", Subtitle = "ما يحتاج انتباهك اليوم", IconName = "bell" };
+        var chips = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
+        chips.Controls.Add(Chip("مواد تحت حد الطلب", Stats.LowStock(), Theme.Purple, "package-minus", "المخازن والصلاحيات"));
+        chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "المخازن والصلاحيات"));
+        chips.Controls.Add(Chip("أقساط مستحقة", Stats.DueInstallments(remDays), Theme.Warning, "calendar-clock", "الأقساط"));
+        chips.Controls.Add(Chip("أجهزة في الصيانة", Stats.RepairsOpen(), Theme.Info, "wrench", "الصيانة"));
+        chips.Controls.Add(Chip("جاهزة للتسليم", Stats.RepairsReady(), Theme.Success, "package-check", "الصيانة"));
 
         var grid = Ui.NewGrid();
         grid.DataSource = Db.Query(@"
@@ -536,10 +596,35 @@ public class DashboardForm : BaseForm
             WHERE t.amount-t.paid>0.001 AND t.due_date<=date('now','localtime','+'||@p1||' day')
             UNION ALL
             SELECT 'جهاز جاهز للتسليم', r.customer, r.device||'  —  وصل رقم '||r.id||'  —  '||IFNULL(r.phone,'') FROM repairs r WHERE r.status='جاهز'", expDays, remDays);
+        alertsCard.Controls.Add(grid);
+        alertsCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
+        alertsCard.Controls.Add(chips);
 
-        Controls.Add(grid);
-        Controls.Add(Theme.Title("التنبيهات"));
-        Controls.Add(quick);
-        Controls.Add(cards);
+        var bottom = new Panel { Dock = DockStyle.Top, Height = 420, Padding = new Padding(0, 8, 0, 0) };
+        bottom.Controls.Add(alertsCard);
+
+        Controls.Add(bottom);
+        Controls.Add(mid);
+        Controls.Add(kpis);
+        Controls.Add(hello);
+        // التنبيهات تملأ باقي الشاشة، وبحد أدنى يسمح بعرض بضعة أسطر (مع تمرير في الشاشات القصيرة)
+        Resize += (s, e) => bottom.Height = Math.Max(320, ClientSize.Height - hello.Height - kpis.Height - mid.Height);
+    }
+
+    // لا تقفز الصفحة للأسفل عند تركيز جدول التنبيهات
+    protected override Point ScrollToControl(Control activeControl) => DisplayRectangle.Location;
+
+    KpiCard Kpi(string title, string value, Color color, string icon, string hint, string page)
+    {
+        var k = new KpiCard { Title = title, Value = value, Accent = color, IconName = icon, Hint = hint };
+        if (main.Pages.Any(p => p.Text == page)) { k.Cursor = Cursors.Hand; k.Click += (s, e) => main.Go(page); }
+        return k;
+    }
+
+    Control Chip(string text, long count, Color color, string icon, string page)
+    {
+        var c = new StatChip { Text = text, Count = count, Accent = color, IconName = icon, Size = new Size(206, 62), Margin = new Padding(0, 0, 10, 8) };
+        if (main.Pages.Any(p => p.Text == page)) { c.Cursor = Cursors.Hand; c.Click += (s, e) => main.Go(page); }
+        return c;
     }
 }

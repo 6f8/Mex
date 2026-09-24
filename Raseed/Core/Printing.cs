@@ -53,10 +53,10 @@ public class PrintDoc
     // ---------------- التصيير ----------------
     record Item(Func<Graphics, float, float> Height, Action<Graphics, RectangleF> Draw, TableEl Table, bool IsHead);
 
-    const string FontName = "Segoe UI";
     bool Thermal => ForceA4 != true && Settings.Get("print_mode") == "80mm";
     float Scale => Thermal ? 0.82f : 1f;
-    Font Fnt(float size, bool bold) => new(FontName, size * Scale, bold ? FontStyle.Bold : FontStyle.Regular);
+    // نفس خط البرنامج في المطبوعات (IBM Plex Sans Arabic المضمّن)
+    Font Fnt(float size, bool bold) => FontKit.Create(size * Scale, bold ? FontStyle.Bold : FontStyle.Regular);
 
     static StringFormat Sf(StringAlignment a, bool wrap = true)
     {
@@ -161,7 +161,9 @@ public class PrintDoc
             // ورق 80 ملم: نحسب طول الورقة حسب المحتوى
             using var bmp = new Bitmap(10, 10);
             using var mg = Graphics.FromImage(bmp);
-            mg.PageUnit = GraphicsUnit.Display;
+            // الطابعة تقيس بوحدة 1/100 بوصة؛ القياس بالبكسل (96 نقطة) كان يُقصّر الإيصالات الطويلة
+            mg.PageUnit = GraphicsUnit.Inch;
+            mg.PageScale = 0.01f;
             float width = 315 - 24, total = 30 + items.Sum(i => i.Height(mg, width));
             pd.DefaultPageSettings.PaperSize = new PaperSize("Roll80", 315, (int)Math.Max(300, total));
             pd.DefaultPageSettings.Margins = new Margins(12, 12, 10, 10);
@@ -201,7 +203,7 @@ public class PrintDoc
             }
             if (!Thermal)
             {
-                using var f = new Font(FontName, 8);
+                using var f = FontKit.Create(8);
                 g.DrawString($"صفحة {page}", f, Brushes.Gray, new RectangleF(mb.Left, mb.Bottom, mb.Width, 20), Sf(StringAlignment.Center));
             }
             e.HasMorePages = index < items.Count;
@@ -231,7 +233,7 @@ public class PrintDoc
         if (!string.IsNullOrEmpty(subtitle)) doc.Text(subtitle, 9, false, StringAlignment.Center);
         var rows = new List<string[]>();
         foreach (DataGridViewRow r in grid.Rows)
-            rows.Add(cols.Select(c => Fmt(r.Cells[c.Index].Value)).ToArray());
+            if (r.Visible) rows.Add(cols.Select(c => Fmt(r.Cells[c.Index].Value)).ToArray());
         doc.Table(cols.Select(c => c.HeaderText).ToArray(), cols.Select(c => c.FillWeight).ToArray(), rows);
         doc.Footer();
         doc.Print(true);
@@ -384,9 +386,9 @@ public static class LabelPrinter
         var sf = new StringFormat(StringFormatFlags.DirectionRightToLeft | StringFormatFlags.NoWrap)
         { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
         float line = r.Height * 0.2f;
-        using var fShop = new Font("Segoe UI", Math.Max(5, line * 0.45f));
-        using var fName = new Font("Segoe UI", Math.Max(5, line * 0.55f), FontStyle.Bold);
-        using var fPrice = new Font("Segoe UI", Math.Max(5, line * 0.6f), FontStyle.Bold);
+        using var fShop = FontKit.Create(Math.Max(5, line * 0.45f));
+        using var fName = FontKit.Create(Math.Max(5, line * 0.55f), FontStyle.Bold);
+        using var fPrice = FontKit.Create(Math.Max(5, line * 0.6f), FontStyle.Bold);
         float y = r.Y;
         g.DrawString(shop, fShop, Brushes.Black, new RectangleF(r.X, y, r.Width, line * 0.8f), sf); y += line * 0.8f;
         g.DrawString(l.Name, fName, Brushes.Black, new RectangleF(r.X, y, r.Width, line), sf); y += line;
