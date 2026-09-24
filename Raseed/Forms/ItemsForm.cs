@@ -4,7 +4,7 @@ namespace Raseed;
 
 /// <summary>
 /// شاشة المواد: القائمة والبحث في جهة، وبطاقة المادة بتبويبات في الجهة الأخرى
-/// (المعلومات الأساسية، البيانات الإضافية، الأرقام التسلسلية، تواريخ الصلاحية، التنبيهات).
+/// (المعلومات الأساسية، البيانات الإضافية، الرقم التسلسلي، تأريخ الصلاحية، التنبيهات).
 /// </summary>
 public class ItemsForm : BaseForm
 {
@@ -20,26 +20,33 @@ public class ItemsForm : BaseForm
     readonly Label lblQtyHint = new() { AutoSize = false, Width = 540, Height = 26, ForeColor = Theme.Muted, Font = Theme.F(8.5f), TextAlign = ContentAlignment.MiddleLeft };
 
     // البيانات الإضافية
-    readonly TextBox tCode = new() { Width = FieldW }, tBarcode = new() { Width = FieldW - 48 };
-    readonly ComboBox cbCategory = new() { Width = FieldW, DropDownStyle = ComboBoxStyle.DropDown }, cbUnit = new() { Width = FieldW, DropDownStyle = ComboBoxStyle.DropDown };
-    readonly NumericUpDown nWarranty = Ui.Num(FieldW);
-    readonly Toggle tgMeasure = new() { Text = "تُباع بالقياس (الطول × العرض)", Width = 470 }, tgActive = new() { Text = "مادة فعّالة (تظهر في الفواتير)", Width = 470, Checked = true };
+    readonly Toggle tgScale = new() { Text = "استخدام الميزان (البيع بالوزن من باركود الميزان)", Width = 470 };
+    readonly TextBox tBarcode = new() { Width = FieldW - 48, PlaceholderText = "امسح الباركود ثم Enter" };
+    readonly ListBox lstBarcodes = new() { Width = FieldW, Height = 150, BorderStyle = BorderStyle.FixedSingle, Font = Theme.F(10.5f), IntegralHeight = false };
+    readonly TextBox tAlert = new() { Width = 470 }, tOrigin = new() { Width = 470, PlaceholderText = "بلد المنشأ أو المورد الأصلي" };
+    readonly TextBox tCode = new() { Width = 240 };
+    readonly ComboBox cbCategory = new() { Width = 240, DropDownStyle = ComboBoxStyle.DropDown }, cbUnit = new() { Width = 240, DropDownStyle = ComboBoxStyle.DropDown };
+    readonly Toggle tgMeasure = new() { Text = "تُباع بالقياس (الطول × العرض)", Width = 370 }, tgActive = new() { Text = "مادة فعّالة (تظهر في الفواتير)", Width = 370, Checked = true };
+    readonly TextBox tMedical = new() { Width = 370, Height = 80, Multiline = true };
 
     // الأرقام التسلسلية
-    readonly Toggle tgSerial = new() { Text = "تتبع الأرقام التسلسلية (IMEI) لهذه المادة", Width = 470 };
-    readonly TextBox tSerials = new() { Width = 360, Height = 90, Multiline = true, PlaceholderText = "رقم في كل سطر (يمكن اللصق أو المسح بالقارئ)" };
+    readonly Toggle tgSerial = new() { Text = "استخدام الرقم التسلسلي (IMEI)", Width = 470 };
+    readonly NumericUpDown nWarranty = Ui.Num(140);
+    readonly TextBox tSerial = new() { Width = FieldW, PlaceholderText = "امسح الرقم ثم Enter" };
     readonly DataGridView gSerials = Ui.NewGrid();
 
     // تواريخ الصلاحية
-    readonly DateTimePicker dOpenExpiry = new() { Width = FieldW, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
     readonly DataGridView gBatches = Ui.NewGrid();
 
     // التنبيهات
-    readonly NumericUpDown nMin = Ui.Num(FieldW, 2);
-    readonly TextBox tAlert = new() { Width = 470, Height = 70, Multiline = true }, tMedical = new() { Width = 470, Height = 90, Multiline = true };
+    readonly Toggle cExpiry = Check("تاريخ الصلاحية"), cMin = Check("الحد الأدنى"), cMax = Check("الحد الأعلى"),
+                    cSafety = Check("حد الأمان"), cStagnant = Check("فترة الركود"), cTarget = Check("هدف البيع");
+    readonly DateTimePicker dExpiry = new() { Width = 170, Format = DateTimePickerFormat.Short };
+    readonly NumericUpDown nAlertDays = Ui.Num(150), nMin = Ui.Num(170, 2), nMax = Ui.Num(170, 2), nSafety = Ui.Num(170, 2),
+                           nStagnant = Ui.Num(170), nTarget = Ui.Num(170, 2);
 
     readonly DataGridView list = Ui.NewGrid();
-    readonly TextBox search = new() { Width = 300, PlaceholderText = "بحث بالاسم أو الباركود أو الرمز..." };
+    readonly TextBox search = new() { Width = 300, PlaceholderText = "اسم المادة أو الباركود أو الرمز..." };
     readonly CardPanel formCard, listCard;
     readonly ModernButton bDel;
 
@@ -51,7 +58,8 @@ public class ItemsForm : BaseForm
         cbCost.Items.AddRange(new object[] { "كلفة الوجبة", "معدل الكلفة" });
         foreach (var cb in new[] { cbBuyCur, cbSellCur }) cb.Items.AddRange(new object[] { "دينار", "دولار" });
         cbUnit.Items.AddRange(new object[] { "قطعة", "علبة", "كارتون", "شريط", "متر", "متر مربع", "كغم", "لتر" });
-        nWarranty.Maximum = 3650;
+        nWarranty.Maximum = 120; nWarranty.Minimum = 0;
+        nAlertDays.Minimum = 0; nStagnant.Minimum = 0;
 
         // ---------- بطاقة المادة ----------
         formCard = new CardPanel { Dock = DockStyle.Fill, Title = "إضافة المواد", Subtitle = "مادة جديدة", IconName = "package-plus" };
@@ -61,25 +69,37 @@ public class ItemsForm : BaseForm
         tabs.Add("الرقم التسلسلي", Page(SerialPage()), "hash");
         tabs.Add("تأريخ الصلاحية", Page(ExpiryPage()), "calendar-clock");
         tabs.Add("التنبيهات", Page(AlertsPage()), "bell");
-
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, BackColor = Theme.Surface, Padding = new Padding(0, 10, 0, 0) };
-        var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 44, Margin = new Padding(4) }; bNew.FitWidth(130);
-        var bSave = new ModernButton { Text = "حفظ", IconName = "save", Height = 44, Margin = new Padding(4) }; bSave.FitWidth(130);
-        bDel = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Danger, Height = 44, Margin = new Padding(4) }; bDel.FitWidth(120);
-        actions.Controls.AddRange(new Control[] { bSave, bNew, bDel });
         formCard.Controls.Add(tabs);
-        formCard.Controls.Add(actions);
 
-        // ---------- القائمة ----------
-        listCard = new CardPanel { Dock = DockStyle.Right, Width = 560, Title = "قائمة المواد", IconName = "boxes" };
-        var sb = new InputBox(search, 300, "search") { Dock = DockStyle.Top, Height = 42 };
+        // ---------- القائمة والأزرار ----------
+        listCard = new CardPanel { Dock = DockStyle.Fill, Title = "قائمة المواد", IconName = "boxes" };
+        var searchRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, BackColor = Theme.Surface, WrapContents = false };
+        searchRow.Controls.Add(new Label { Text = "البحث", AutoSize = false, Width = 64, Height = 42, Font = Theme.FS(10.5f), ForeColor = Theme.Brand, TextAlign = ContentAlignment.MiddleLeft });
+        var sb = new InputBox(search, 380, "search") { Height = 42, Margin = new Padding(4, 0, 4, 0) };
+        searchRow.Controls.Add(sb);
+        searchRow.Resize += (s, e) => sb.Width = Math.Max(200, searchRow.ClientSize.Width - 80);
         listCard.Controls.Add(list);
-        listCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10, BackColor = Theme.Surface });
-        listCard.Controls.Add(sb);
+        listCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
+        listCard.Controls.Add(searchRow);
+
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(0, 10, 0, 0) };
+        var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 46, Margin = new Padding(0, 4, 8, 4) };
+        var bSave = new ModernButton { Text = "حفظ", IconName = "save", Height = 46, Margin = new Padding(0, 4, 8, 4) };
+        bDel = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 46, Margin = new Padding(0, 4, 8, 4) };
+        actions.Controls.AddRange(new Control[] { bNew, bSave, bDel });
+        actions.Resize += (s, e) =>
+        {
+            int w = Math.Max(110, (actions.ClientSize.Width - 24) / 3);
+            foreach (Control b in actions.Controls) b.Width = w;
+        };
+
+        var left = new Panel { Dock = DockStyle.Right, Width = 560 };
+        left.Controls.Add(listCard);
+        left.Controls.Add(actions);
 
         Controls.Add(formCard);
         Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
-        Controls.Add(listCard);
+        Controls.Add(left);
 
         bNew.Click += (s, e) => New();
         bSave.Click += (s, e) => Save();
@@ -110,19 +130,33 @@ public class ItemsForm : BaseForm
 
     static FlowLayoutPanel Stack() => new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Surface };
 
+    static Label Caption(string text, int width = 150) => new()
+    {
+        Text = text, AutoSize = false, Width = width, Height = 40, Font = Theme.FS(10), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(8, 0, 4, 0)
+    };
+
+    static Label Unit(string text) => new()
+    {
+        Text = text, AutoSize = false, Width = 90, Height = 40, Font = Theme.F(10), ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(6, 0, 4, 0)
+    };
+
     /// <summary>سطر: العنوان على اليمين ثم الحقل ثم أزرار إضافية (كما في الشاشات التقليدية المألوفة)</summary>
-    static Control Row(string caption, params Control[] fields)
+    static Control Row(string caption, params Control[] fields) => RowW(caption, 150, fields);
+
+    static Control RowW(string caption, int captionWidth, params Control[] fields)
     {
         var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 3, 0, 3) };
-        row.Controls.Add(new Label { Text = caption, AutoSize = false, Width = 150, Height = 40, Font = Theme.FS(10), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(8, 0, 4, 0) });
+        if (caption != null) row.Controls.Add(Caption(caption, captionWidth));
         foreach (var f in fields)
         {
-            var c = Ui.Wrap(f);
-            c.Margin = new Padding(4, 0, 4, 0);
+            var c = f is Label or Toggle or ModernButton ? f : Ui.Wrap(f);
+            if (c.Margin == new Padding(3)) c.Margin = new Padding(4, 0, 4, 0);
             row.Controls.Add(c);
         }
         return row;
     }
+
+    static Toggle Check(string text) => new() { Text = text, Width = 170, Height = 40, Margin = new Padding(8, 0, 4, 0) };
 
     static ModernButton PlusButton(string tip)
     {
@@ -130,6 +164,11 @@ public class ItemsForm : BaseForm
         new ToolTip().SetToolTip(b, tip);
         return b;
     }
+
+    static Label SectionLabel(string text, int width = 460) => new()
+    {
+        Text = text, AutoSize = false, Width = width, Height = 34, Font = Theme.FS(10.5f), ForeColor = Theme.Brand, TextAlign = ContentAlignment.BottomLeft, Margin = new Padding(8, 8, 8, 2)
+    };
 
     Control BasicPage()
     {
@@ -163,23 +202,62 @@ public class ItemsForm : BaseForm
 
     Control ExtraPage()
     {
-        var st = Stack();
-        var gen = new ModernButton { Kind = BtnKind.Secondary, IconName = "barcode", Size = new Size(40, 40), Margin = new Padding(4, 0, 4, 0) };
-        new ToolTip().SetToolTip(gen, "توليد باركود داخلي");
-        gen.Click += (s, e) =>
+        // عمودان: البيانات الإضافية المعتادة، وبجانبها بيانات التصنيف والبيانات الطبية
+        // يلتف العمود الثاني تحت الأول في الشاشات الضيقة
+        var cols = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Theme.Surface };
+        var right = Stack();
+        tgScale.Margin = new Padding(8, 4, 8, 10);
+        right.Controls.Add(tgScale);
+
+        var add = new ModernButton { Kind = BtnKind.Secondary, IconName = "plus", Size = new Size(40, 40), Margin = new Padding(4, 0, 4, 0) };
+        new ToolTip().SetToolTip(add, "إضافة الباركود للقائمة");
+        add.Click += (s, e) => AddBarcode(tBarcode.Text);
+        tBarcode.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; AddBarcode(tBarcode.Text); } };
+        right.Controls.Add(Row("الباركود", tBarcode, add));
+        var lstHost = Ui.Wrap(lstBarcodes);
+        lstHost.Margin = new Padding(162, 0, 4, 6);
+        right.Controls.Add(lstHost);
+        var gen = new ModernButton { Text = "توليد باركود", IconName = "barcode", Height = 42, Width = (FieldW - 8) / 2, Margin = new Padding(4, 0, 4, 0) };
+        gen.Click += (s, e) => AddBarcode(Barcodes.Generate(id, lstBarcodes.Items.Cast<string>()));
+        var delBc = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 42, Width = (FieldW - 8) / 2, Margin = new Padding(4, 0, 4, 0) };
+        delBc.Click += (s, e) => { if (lstBarcodes.SelectedIndex >= 0) lstBarcodes.Items.RemoveAt(lstBarcodes.SelectedIndex); };
+        var btns = RowW(null, 0, gen, delBc);
+        btns.Margin = new Padding(162, 0, 0, 6);
+        right.Controls.Add(btns);
+        right.Controls.Add(new Label { Text = "الأول في القائمة هو الباركود الأساسي (يُطبع على الملصق).\nيمكن إضافة أكثر من باركود للمادة نفسها.", AutoSize = false, Width = FieldW, Height = 38, ForeColor = Theme.Muted, Font = Theme.F(8.5f), Margin = new Padding(166, 0, 4, 4) });
+
+        right.Controls.Add(SectionLabel("الملاحظة عند البيع"));
+        var alertHost = Ui.Wrap(tAlert); alertHost.Margin = new Padding(8, 0, 8, 4);
+        right.Controls.Add(alertHost);
+        right.Controls.Add(SectionLabel("المصدر"));
+        var originHost = Ui.Wrap(tOrigin); originHost.Margin = new Padding(8, 0, 8, 10);
+        right.Controls.Add(originHost);
+        var move = new ModernButton { Text = "حركة مادة", IconName = "arrow-left-right", Height = 44, Margin = new Padding(8, 4, 8, 8) };
+        move.FitWidth(180);
+        move.Click += (s, e) =>
         {
-            long next = id > 0 ? id : Db.L(Db.Scalar("SELECT IFNULL(MAX(id),0)+1 FROM items"));
-            tBarcode.Text = "2" + next.ToString("D10");
+            if (id == 0) { Ui.Warn("اختر مادة من القائمة أولًا."); return; }
+            if (!Session.Guard("reports")) return;
+            MainForm.Instance?.Open($"حركة مادة — {tName.Text}", new ReportsForm("حركة مادة", id));
         };
-        st.Controls.Add(Row("الرمز", tCode));
-        st.Controls.Add(Row("الباركود", tBarcode, gen));
-        st.Controls.Add(Row("الصنف / المجموعة", cbCategory));
-        st.Controls.Add(Row("الوحدة", cbUnit));
-        st.Controls.Add(Row("الضمان (يوم)", nWarranty));
-        tgMeasure.Margin = tgActive.Margin = new Padding(8, 8, 8, 4);
-        st.Controls.Add(tgMeasure);
-        st.Controls.Add(tgActive);
-        return st;
+        right.Controls.Add(move);
+
+        var leftCol = Stack();
+        leftCol.Margin = new Padding(24, 0, 0, 0);
+        leftCol.Controls.Add(SectionLabel("التصنيف", 370));
+        leftCol.Controls.Add(RowW("الرمز", 110, tCode));
+        leftCol.Controls.Add(RowW("الصنف", 110, cbCategory));
+        leftCol.Controls.Add(RowW("الوحدة", 110, cbUnit));
+        tgMeasure.Margin = tgActive.Margin = new Padding(8, 6, 8, 2);
+        leftCol.Controls.Add(tgMeasure);
+        leftCol.Controls.Add(tgActive);
+        leftCol.Controls.Add(SectionLabel("البيانات الطبية (للصيدليات)", 370));
+        var medHost = Ui.Wrap(tMedical); medHost.Margin = new Padding(8, 0, 8, 4);
+        leftCol.Controls.Add(medHost);
+
+        cols.Controls.Add(right);
+        cols.Controls.Add(leftCol);
+        return cols;
     }
 
     Control SerialPage()
@@ -187,18 +265,20 @@ public class ItemsForm : BaseForm
         var st = Stack();
         tgSerial.Margin = new Padding(8, 4, 8, 8);
         st.Controls.Add(tgSerial);
-        var add = new ModernButton { Text = "إضافة الأرقام", IconName = "plus", Kind = BtnKind.Soft, Height = 40, Margin = new Padding(4, 0, 4, 0) };
-        add.FitWidth(130);
-        add.Click += (s, e) => AddSerials();
-        st.Controls.Add(Row("أرقام جديدة", tSerials, add));
-        var del = new ModernButton { Text = "حذف الرقم المحدد", IconName = "trash-2", Kind = BtnKind.Danger, Height = 38, Margin = new Padding(8, 8, 4, 8) };
-        del.FitWidth(150);
-        del.Click += (s, e) => DeleteSerial();
-        st.Controls.Add(del);
-        var host = new Panel { Width = 640, Height = 260, BackColor = Theme.Surface, Margin = new Padding(8, 0, 8, 8) };
+        st.Controls.Add(Row("فترة الضمان", nWarranty, Unit("شهر")));
+        tSerial.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; AddSerial(); } };
+        var add = new ModernButton { Kind = BtnKind.Secondary, IconName = "plus", Size = new Size(40, 40), Margin = new Padding(4, 0, 4, 0) };
+        new ToolTip().SetToolTip(add, "إضافة الرقم");
+        add.Click += (s, e) => AddSerial();
+        st.Controls.Add(Row("الرقم التسلسلي", tSerial, add));
+        var host = new Panel { Width = 600, Height = 260, BackColor = Theme.Surface, Margin = new Padding(166, 4, 8, 8) };
         gSerials.Dock = DockStyle.Fill;
         host.Controls.Add(gSerials);
         st.Controls.Add(host);
+        var del = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 42, Margin = new Padding(166, 0, 4, 8) };
+        del.FitWidth(170);
+        del.Click += (s, e) => DeleteSerial();
+        st.Controls.Add(del);
         st.Controls.Add(Hint("امسح الرقم التسلسلي في فاتورة البيع لإضافة الجهاز نفسه؛ يُحجز الرقم للفاتورة ويعود متوفرًا إذا حُذفت."));
         return st;
     }
@@ -206,9 +286,8 @@ public class ItemsForm : BaseForm
     Control ExpiryPage()
     {
         var st = Stack();
-        st.Controls.Add(Row("صلاحية الكمية الافتتاحية", dOpenExpiry));
-        st.Controls.Add(Hint("الوجبات الحالية في المخازن (يُصرف الأقرب انتهاءً أولًا):"));
-        var host = new Panel { Width = 640, Height = 300, BackColor = Theme.Surface, Margin = new Padding(8, 0, 8, 8) };
+        st.Controls.Add(Hint("الوجبات الحالية في المخازن (يُصرف الأقرب انتهاءً أولًا). تاريخ صلاحية الكمية الافتتاحية وفترة التنبيه في تبويب «التنبيهات»."));
+        var host = new Panel { Width = 760, Height = 340, BackColor = Theme.Surface, Margin = new Padding(8, 0, 8, 8) };
         gBatches.Dock = DockStyle.Fill;
         host.Controls.Add(gBatches);
         st.Controls.Add(host);
@@ -218,16 +297,24 @@ public class ItemsForm : BaseForm
     Control AlertsPage()
     {
         var st = Stack();
-        st.Controls.Add(Row("حد الطلب (تنبيه النفاد)", nMin));
-        st.Controls.Add(Ui.Labeled("تنبيه يظهر عند إضافة المادة للفاتورة", tAlert));
-        st.Controls.Add(Ui.Labeled("البيانات الطبية (الاسم العلمي، التركيز، الجرعة، التحذيرات)", tMedical));
+        st.Controls.Add(RowW(null, 0, cExpiry, Ui.Wrap(dExpiry), Caption("فترة التنبيه", 130), Ui.Wrap(nAlertDays), Unit("يوم")));
+        st.Controls.Add(RowW(null, 0, cMin, Ui.Wrap(nMin), Unit("عدد")));
+        st.Controls.Add(RowW(null, 0, cMax, Ui.Wrap(nMax), Unit("عدد")));
+        st.Controls.Add(RowW(null, 0, cSafety, Ui.Wrap(nSafety), Unit("عدد")));
+        st.Controls.Add(RowW(null, 0, cStagnant, Ui.Wrap(nStagnant), Unit("يوم")));
+        st.Controls.Add(RowW(null, 0, cTarget, Ui.Wrap(nTarget), Unit("خلال الشهر")));
+        st.Controls.Add(Hint("تظهر التنبيهات في الصفحة الرئيسية وعلى جرس التنبيهات: النفاد (الحد الأدنى)، الاقتراب منه (حد الأمان)، تكدّس المخزون (الحد الأعلى)،"));
+        st.Controls.Add(Hint("المادة التي لم تُبع خلال فترة الركود، والمادة التي لم تبلغ هدف البيع الشهري، والوجبات القريبة من انتهاء الصلاحية."));
+
+        foreach (var (chk, ctl) in new (Toggle, Control)[] { (cExpiry, nAlertDays), (cMin, nMin), (cMax, nMax), (cSafety, nSafety), (cStagnant, nStagnant), (cTarget, nTarget) })
+            chk.CheckedChanged += (s, e) => { ctl.Enabled = chk.Checked; if (chk == cExpiry) UpdateState(); };
         return st;
     }
 
     static Label Hint(string text) => new()
     {
-        Text = text, AutoSize = false, Width = 640, Height = 30, ForeColor = Theme.Muted, Font = Theme.F(9),
-        TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(8, 4, 8, 4)
+        Text = text, AutoSize = false, Width = 760, Height = 26, ForeColor = Theme.Muted, Font = Theme.F(9),
+        TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(8, 4, 8, 0)
     };
 
     // ================= البيانات =================
@@ -244,11 +331,13 @@ public class ItemsForm : BaseForm
     void LoadList()
     {
         var q = "%" + search.Text.Trim() + "%";
-        list.DataSource = Db.Query(@"SELECT i.id, i.name AS [اسم المادة], IFNULL(c.name,'') AS [الشركة],
-            IFNULL((SELECT SUM(qty) FROM batches b WHERE b.item_id=i.id),0) AS [العدد], i.price_retail AS [سعر البيع]
-            FROM items i LEFT JOIN companies c ON c.id=i.company_id
-            WHERE i.name LIKE @p0 OR IFNULL(i.barcode,'') LIKE @p0 OR IFNULL(i.code,'') LIKE @p0
+        list.DataSource = Db.Query(@"SELECT i.id, ROW_NUMBER() OVER (ORDER BY i.name) AS [ت], i.name AS [اسم المادة],
+            IFNULL(w.name, (SELECT name FROM warehouses ORDER BY is_default DESC, id LIMIT 1)) AS [المخزن],
+            IFNULL((SELECT SUM(qty) FROM batches b WHERE b.item_id=i.id),0) AS [العدد]
+            FROM items i LEFT JOIN warehouses w ON w.id=i.warehouse_id
+            WHERE i.name LIKE @p0 OR IFNULL(i.code,'') LIKE @p0 OR EXISTS(SELECT 1 FROM item_barcodes x WHERE x.item_id=i.id AND x.barcode LIKE @p0)
             ORDER BY i.name", q);
+        if (list.Columns.Contains("ت")) list.Columns["ت"].FillWeight = 30;
         listCard.Subtitle = $"{list.Rows.Count} مادة";
     }
 
@@ -256,17 +345,29 @@ public class ItemsForm : BaseForm
     static void SetCur(ComboBox cb, string v) => cb.SelectedIndex = v == "USD" ? 1 : 0;
     static void SetNum(NumericUpDown n, double v) => n.Value = (decimal)Math.Max((double)n.Minimum, Math.Min((double)n.Maximum, v));
 
+    static void SetAlert(Toggle chk, NumericUpDown n, double v)
+    {
+        chk.Checked = v > 0;
+        SetNum(n, v);
+        n.Enabled = chk.Checked;
+    }
+
+    static double AlertValue(Toggle chk, NumericUpDown n) => chk.Checked ? (double)n.Value : 0;
+
     void New()
     {
         id = 0;
         Ui.SelectId(cbCompany, 0);
-        if (cbWh.Items.Count > 0) cbWh.SelectedIndex = 0;
+        Ui.SelectId(cbWh, Ui.DefaultWarehouse());
         cbType.SelectedIndex = 0; cbCost.SelectedIndex = 0; cbBuyCur.SelectedIndex = 0; cbSellCur.SelectedIndex = 0;
-        foreach (var t in new[] { tName, tCode, tBarcode, tAlert, tMedical, tSerials }) t.Clear();
+        foreach (var t in new[] { tName, tCode, tBarcode, tAlert, tOrigin, tMedical, tSerial }) t.Clear();
+        lstBarcodes.Items.Clear();
         cbCategory.Text = ""; cbUnit.Text = "قطعة";
-        foreach (var n in new[] { nQty, nBuy, nRetail, nWholesale, nSpecial, nInst, nMin, nWarranty }) n.Value = 0;
-        tgMeasure.Checked = false; tgActive.Checked = true; tgSerial.Checked = false;
-        dOpenExpiry.Value = DateTime.Today.AddYears(1); dOpenExpiry.Checked = false;
+        foreach (var n in new[] { nQty, nBuy, nRetail, nWholesale, nSpecial, nInst, nWarranty }) n.Value = 0;
+        tgMeasure.Checked = false; tgActive.Checked = true; tgSerial.Checked = false; tgScale.Checked = false;
+        SetAlert(cMin, nMin, 0); SetAlert(cMax, nMax, 0); SetAlert(cSafety, nSafety, 0); SetAlert(cStagnant, nStagnant, 0); SetAlert(cTarget, nTarget, 0);
+        cExpiry.Checked = false; nAlertDays.Value = Settings.Int("expiry_days", 30); nAlertDays.Enabled = false;
+        dExpiry.Value = DateTime.Today.AddYears(1);
         formCard.Title = "إضافة المواد";
         formCard.Subtitle = "مادة جديدة";
         bDel.Enabled = false;
@@ -282,17 +383,31 @@ public class ItemsForm : BaseForm
         var r = dt.Rows[0];
         id = itemId;
         Ui.SelectId(cbCompany, Db.L(r["company_id"]));
+        Ui.SelectId(cbWh, Db.L(r["warehouse_id"]) > 0 ? Db.L(r["warehouse_id"]) : Ui.DefaultWarehouse());
         cbType.SelectedIndex = Db.S(r["item_type"]) == "خدمية" ? 1 : 0;
         cbCost.SelectedIndex = Db.S(r["cost_method"]) == "معدل الكلفة" ? 1 : 0;
         SetCur(cbBuyCur, Db.S(r["buy_currency"])); SetCur(cbSellCur, Db.S(r["sell_currency"]));
-        tName.Text = Db.S(r["name"]); tCode.Text = Db.S(r["code"]); tBarcode.Text = Db.S(r["barcode"]);
+        tName.Text = Db.S(r["name"]); tCode.Text = Db.S(r["code"]); tBarcode.Clear();
+        lstBarcodes.Items.Clear();
+        foreach (var b in Barcodes.Of(itemId)) lstBarcodes.Items.Add(b);
+        if (lstBarcodes.Items.Count == 0 && Db.S(r["barcode"]) != "") lstBarcodes.Items.Add(Db.S(r["barcode"]));
         cbCategory.Text = Db.S(r["category"]); cbUnit.Text = Db.S(r["unit"]);
         SetNum(nBuy, Db.D(r["price_buy"])); SetNum(nRetail, Db.D(r["price_retail"])); SetNum(nWholesale, Db.D(r["price_wholesale"]));
-        SetNum(nSpecial, Db.D(r["price_special"])); SetNum(nInst, Db.D(r["price_installment"])); SetNum(nMin, Db.D(r["min_qty"]));
-        SetNum(nWarranty, Db.D(r["warranty_days"]));
+        SetNum(nSpecial, Db.D(r["price_special"])); SetNum(nInst, Db.D(r["price_installment"]));
+        SetNum(nWarranty, Math.Round(Db.D(r["warranty_days"]) / 30.0));
         SetNum(nQty, Db.D(Db.Scalar("SELECT IFNULL(SUM(qty),0) FROM batches WHERE item_id=@p0", itemId)));
-        tgMeasure.Checked = Db.L(r["by_measure"]) == 1; tgActive.Checked = Db.L(r["active"]) == 1; tgSerial.Checked = Db.L(r["track_serial"]) == 1;
-        tAlert.Text = Db.S(r["alert_note"]); tMedical.Text = Db.S(r["medical_info"]);
+        tgMeasure.Checked = Db.L(r["by_measure"]) == 1; tgActive.Checked = Db.L(r["active"]) == 1;
+        tgSerial.Checked = Db.L(r["track_serial"]) == 1; tgScale.Checked = Db.L(r["use_scale"]) == 1;
+        tAlert.Text = Db.S(r["alert_note"]); tOrigin.Text = Db.S(r["origin"]); tMedical.Text = Db.S(r["medical_info"]);
+        SetAlert(cMin, nMin, Db.D(r["min_qty"])); SetAlert(cMax, nMax, Db.D(r["max_qty"])); SetAlert(cSafety, nSafety, Db.D(r["safety_qty"]));
+        SetAlert(cStagnant, nStagnant, Db.D(r["stagnant_days"])); SetAlert(cTarget, nTarget, Db.D(r["sales_target"]));
+        // الصلاحية: أقرب تاريخ في المخزون، وفترة التنبيه الخاصة بالمادة
+        var nearest = Db.S(Db.Scalar("SELECT MIN(expiry) FROM batches WHERE item_id=@p0 AND qty>0 AND IFNULL(expiry,'')<>''", itemId));
+        long alertDays = Db.L(r["expiry_alert_days"]);
+        cExpiry.Checked = nearest != "" || alertDays > 0;
+        if (DateTime.TryParse(nearest, out var ne)) dExpiry.Value = ne;
+        nAlertDays.Value = alertDays > 0 ? alertDays : Settings.Int("expiry_days", 30);
+        nAlertDays.Enabled = cExpiry.Checked;
         formCard.Title = "تعديل المادة";
         formCard.Subtitle = $"{tName.Text} — رقم {id}";
         bDel.Enabled = true;
@@ -305,8 +420,8 @@ public class ItemsForm : BaseForm
         bool service = cbType.SelectedIndex == 1;
         bool isNew = id == 0;
         nQty.Enabled = isNew && !service;
-        cbWh.Enabled = isNew && !service;
-        dOpenExpiry.Enabled = isNew && !service;
+        // تاريخ الصلاحية يخص الكمية الافتتاحية؛ صلاحية الوجبات اللاحقة تُدخل في فاتورة الشراء
+        dExpiry.Enabled = isNew && !service && cExpiry.Checked;
         lblQtyHint.Text = service ? "المادة الخدمية لا مخزون لها (مثل: أجور صيانة، شحن رصيد، خدمة توصيل)."
             : isNew ? "الكمية الافتتاحية تُضاف إلى المخزن المحدد بسعر الشراء (سند إدخال مخزني)."
             : "الرصيد الحالي في كل المخازن. لتغييره: إدخال مخزني أو إخراج مخزني أو تسوية مخزنية.";
@@ -322,27 +437,48 @@ public class ItemsForm : BaseForm
             ORDER BY (b.expiry IS NULL OR b.expiry=''), b.expiry", id);
     }
 
+    void AddBarcode(string code)
+    {
+        code = (code ?? "").Trim();
+        if (code == "") return;
+        if (lstBarcodes.Items.Contains(code)) { tBarcode.Clear(); return; }
+        long owner = Barcodes.Owner(code, id);
+        if (owner > 0) { Ui.Warn($"الباركود {code} مستخدم للمادة «{Db.S(Db.Scalar("SELECT name FROM items WHERE id=@p0", owner))}»."); return; }
+        lstBarcodes.Items.Add(code);
+        lstBarcodes.SelectedIndex = lstBarcodes.Items.Count - 1;
+        tBarcode.Clear();
+        tBarcode.Focus();
+    }
+
     void Save()
     {
         if (!Session.Guard("items")) return;
         var name = tName.Text.Trim();
         if (name == "") { Ui.Warn("أدخل اسم المادة."); tName.Focus(); return; }
-        var barcode = tBarcode.Text.Trim();
-        if (barcode != "" && Db.L(Db.Scalar("SELECT COUNT(*) FROM items WHERE barcode=@p0 AND id<>@p1", barcode, id)) > 0)
-        { Ui.Warn("هذا الباركود مستخدم لمادة أخرى."); return; }
+        if (tBarcode.Text.Trim() != "") AddBarcode(tBarcode.Text);
+        var codes = lstBarcodes.Items.Cast<string>().ToList();
+        foreach (var c in codes)
+            if (Barcodes.Owner(c, id) > 0) { Ui.Warn($"الباركود {c} مستخدم لمادة أخرى."); return; }
         bool service = cbType.SelectedIndex == 1;
         double qty = (double)nQty.Value, buy = (double)nBuy.Value;
-        if (id == 0 && qty > 0 && !service && Ui.GetId(cbWh) == 0) { Ui.Warn("اختر المخزن للكمية الافتتاحية."); return; }
+        long wh = Ui.GetId(cbWh);
+        if (id == 0 && qty > 0 && !service && wh == 0) { Ui.Warn("اختر المخزن للكمية الافتتاحية."); return; }
+        if (cMin.Checked && cMax.Checked && nMax.Value > 0 && nMax.Value < nMin.Value) { Ui.Warn("الحد الأعلى أقل من الحد الأدنى."); return; }
+        if (tgScale.Checked && !long.TryParse(tCode.Text.Trim(), out _))
+        { Ui.Warn("مادة الميزان تحتاج «الرمز» رقمًا (رمز المادة في الميزان) — تجده في البيانات الإضافية."); return; }
 
         object[] vals =
         {
-            name, tCode.Text.Trim(), barcode, cbCategory.Text.Trim(), cbUnit.Text.Trim() == "" ? "قطعة" : cbUnit.Text.Trim(),
+            name, tCode.Text.Trim(), codes.FirstOrDefault() ?? "", cbCategory.Text.Trim(), cbUnit.Text.Trim() == "" ? "قطعة" : cbUnit.Text.Trim(),
             (double)nRetail.Value, (double)nWholesale.Value, (double)nSpecial.Value, (double)nInst.Value, buy,
-            (double)nMin.Value, tgMeasure.Checked ? 1 : 0, tMedical.Text.Trim(), tAlert.Text.Trim(), tgActive.Checked ? 1 : 0,
-            (long)nWarranty.Value, Db.N(Ui.GetId(cbCompany)), service ? "خدمية" : "اعتيادية", cbCost.SelectedIndex == 1 ? "معدل الكلفة" : "كلفة الوجبة",
-            Cur(cbBuyCur), Cur(cbSellCur), tgSerial.Checked ? 1 : 0
+            AlertValue(cMin, nMin), tgMeasure.Checked ? 1 : 0, tMedical.Text.Trim(), tAlert.Text.Trim(), tgActive.Checked ? 1 : 0,
+            (long)nWarranty.Value * 30, Db.N(Ui.GetId(cbCompany)), service ? "خدمية" : "اعتيادية", cbCost.SelectedIndex == 1 ? "معدل الكلفة" : "كلفة الوجبة",
+            Cur(cbBuyCur), Cur(cbSellCur), tgSerial.Checked ? 1 : 0,
+            tgScale.Checked ? 1 : 0, tOrigin.Text.Trim(), Db.N(wh), AlertValue(cMax, nMax), AlertValue(cSafety, nSafety),
+            (long)AlertValue(cStagnant, nStagnant), AlertValue(cTarget, nTarget), cExpiry.Checked ? (long)nAlertDays.Value : 0
         };
-        const string cols = "name,code,barcode,category,unit,price_retail,price_wholesale,price_special,price_installment,price_buy,min_qty,by_measure,medical_info,alert_note,active,warranty_days,company_id,item_type,cost_method,buy_currency,sell_currency,track_serial";
+        const string cols = "name,code,barcode,category,unit,price_retail,price_wholesale,price_special,price_installment,price_buy,min_qty,by_measure,medical_info,alert_note,active,warranty_days,company_id,item_type,cost_method,buy_currency,sell_currency,track_serial," +
+                            "use_scale,origin,warehouse_id,max_qty,safety_qty,stagnant_days,sales_target,expiry_alert_days";
         var colList = cols.Split(',');
         bool isNew = id == 0;
         using (var tx = new Tx())
@@ -354,12 +490,13 @@ public class ItemsForm : BaseForm
                 {
                     // رصيد أول المدة: سند إدخال مخزني بكلفة سعر الشراء (بالدينار)
                     double cost = Cur(cbBuyCur) == "USD" ? buy * Ui.Rate("USD") : buy;
-                    StockOps.StockIn(tx, Ui.GetId(cbWh), new[] { (id, qty, cost, dOpenExpiry.Checked ? dOpenExpiry.Value.ToString(Ui.DFmt) : "") },
+                    StockOps.StockIn(tx, wh, new[] { (id, qty, cost, cExpiry.Checked ? dExpiry.Value.ToString(Ui.DFmt) : "") },
                         "رصيد أول المدة — " + name);
                 }
             }
             else
                 tx.Exec($"UPDATE items SET {string.Join(",", colList.Select((c, i) => $"{c}=@p{i}"))} WHERE id=@p{colList.Length}", vals.Append(id).ToArray());
+            Barcodes.Save(tx, id, codes);
             tx.Commit();
         }
         Toast.Show(isNew ? $"تمت إضافة المادة «{name}»" : $"تم حفظ المادة «{name}»");
@@ -377,7 +514,12 @@ public class ItemsForm : BaseForm
         if (!Ui.Confirm($"حذف المادة «{tName.Text}»؟")) return;
         try
         {
-            Db.Exec("DELETE FROM items WHERE id=@p0", id);
+            using (var tx = new Tx())
+            {
+                tx.Exec("DELETE FROM item_barcodes WHERE item_id=@p0", id);
+                tx.Exec("DELETE FROM items WHERE id=@p0", id);
+                tx.Commit();
+            }
             Db.Audit("حذف مادة", tName.Text);
             Toast.Show("تم حذف المادة");
             LoadList();
@@ -386,29 +528,22 @@ public class ItemsForm : BaseForm
         catch { Ui.Warn("لا يمكن حذف هذه المادة لوجود حركات عليها (فواتير أو مخزون). يمكنك إيقافها من «مادة فعّالة»."); }
     }
 
-    void AddSerials()
+    void AddSerial()
     {
+        var n = tSerial.Text.Trim();
+        if (n == "") return;
         if (id == 0) { Ui.Warn("احفظ المادة أولًا ثم أضف أرقامها التسلسلية."); return; }
-        var nums = tSerials.Lines.Select(x => x.Trim()).Where(x => x != "").Distinct().ToList();
-        if (nums.Count == 0) return;
-        int added = 0;
-        var dup = new List<string>();
+        if (Db.L(Db.Scalar("SELECT COUNT(*) FROM item_serials WHERE serial=@p0", n)) > 0) { Ui.Warn($"الرقم {n} موجود مسبقًا."); tSerial.SelectAll(); return; }
         using (var tx = new Tx())
         {
-            foreach (var n in nums)
-            {
-                if (Db.L(tx.Scalar("SELECT COUNT(*) FROM item_serials WHERE serial=@p0", n)) > 0) { dup.Add(n); continue; }
-                tx.Exec("INSERT INTO item_serials(item_id,serial,warehouse_id,created) VALUES(@p0,@p1,@p2,@p3)", id, n, Db.N(Ui.GetId(cbWh)), Ui.Now);
-                added++;
-            }
+            tx.Exec("INSERT INTO item_serials(item_id,serial,warehouse_id,created) VALUES(@p0,@p1,@p2,@p3)", id, n, Db.N(Ui.GetId(cbWh)), Ui.Now);
             if (!tgSerial.Checked) tx.Exec("UPDATE items SET track_serial=1 WHERE id=@p0", id);
             tx.Commit();
         }
         tgSerial.Checked = true;
-        tSerials.Clear();
+        tSerial.Clear();
+        tSerial.Focus();
         LoadSubGrids();
-        if (dup.Count > 0) Ui.Warn($"أُضيف {added} رقم. الأرقام التالية موجودة مسبقًا:\n" + string.Join("\n", dup.Take(20)));
-        else Toast.Show($"تمت إضافة {added} رقم تسلسلي");
     }
 
     void DeleteSerial()

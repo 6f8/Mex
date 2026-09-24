@@ -112,6 +112,7 @@ public class StockCountForm : BaseForm
     public StockCountForm()
     {
         Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id");
+        Ui.SelectId(cbWh, Ui.DefaultWarehouse());
         var bar = Theme.Bar();
         bar.Controls.Add(Ui.Labeled("المخزن", cbWh));
         bar.Controls.Add(Ui.Labeled("تصفية", search));

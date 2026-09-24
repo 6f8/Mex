@@ -172,6 +172,16 @@ public static class InvoiceOps
 /// <summary>الحسابات: حركات الجهات</summary>
 public static class Ledger
 {
+    /// <summary>تعديل رصيد الحساب ليصبح القيمة المطلوبة (عبر الرصيد الافتتاحي) — يعيد مقدار التعديل</summary>
+    public static double AdjustTo(long partyId, double target)
+    {
+        double current = Ui.PartyBalance(partyId), diff = Math.Round(target - current, 2);
+        if (Math.Abs(diff) < 0.005) return 0;
+        Db.Exec("UPDATE parties SET opening_balance=IFNULL(opening_balance,0)+@p0 WHERE id=@p1", diff, partyId);
+        Db.Audit("تعديل رصيد", $"الحساب {partyId}: من {Ui.M(current)} إلى {Ui.M(target)}");
+        return diff;
+    }
+
     /// <summary>حركات الجهة (مدين/دائن) — يجب أن يطابق مجموعها رصيد v_party_balance</summary>
     public static DataTable StatementRows(long pid) => Db.Query(@"
         SELECT date AS d, 'INV:'||type AS kind, id AS ref,

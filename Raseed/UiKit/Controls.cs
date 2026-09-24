@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace Raseed;
 
-public enum BtnKind { Primary, Secondary, Soft, Danger, Warning, Ghost, Dark, Success, Glass, Accent }
+public enum BtnKind { Primary, Secondary, Soft, Danger, Warning, Ghost, Dark, Success, Glass, Accent, Coral, Amber }
 
 /// <summary>زر حديث: زوايا دائرية، أيقونة، حالات مرور وضغط وتركيز</summary>
 public class ModernButton : Button
@@ -60,6 +60,9 @@ public class ModernButton : Button
             BtnKind.Dark => (Gfx.Mix(ColorTranslator.FromHtml("#1F2937"), ColorTranslator.FromHtml("#374151"), t), Color.White, Color.Empty),
             BtnKind.Success => (Gfx.Mix(Theme.Success, ColorTranslator.FromHtml("#15803D"), t), Color.White, Color.Empty),
             BtnKind.Accent => (Gfx.Mix(Theme.Orange, ColorTranslator.FromHtml("#D24A17"), t), Color.White, Color.Empty),
+            // زر حذف بلون مرجاني صريح (مثل أزرار الحذف في الشاشات المألوفة)
+            BtnKind.Coral => (Gfx.Mix(ColorTranslator.FromHtml("#F25F5C"), ColorTranslator.FromHtml("#DC4543"), t), Color.White, Color.Empty),
+            BtnKind.Amber => (Gfx.Mix(ColorTranslator.FromHtml("#F6BE2C"), ColorTranslator.FromHtml("#E5A812"), t), Color.White, Color.Empty),
             // زر شفاف فوق خلفية ملونة (مثل لوحة الدخول)
             BtnKind.Glass => (Color.FromArgb(40 + (int)(40 * t), 255, 255, 255), Color.White, Color.Empty),
             _ => (Theme.Brand, Color.White, Color.Empty)

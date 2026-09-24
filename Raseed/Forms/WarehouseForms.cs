@@ -17,7 +17,8 @@ public class TransferForm : BaseForm
         KeyPreview = true;
         Ui.FillCombo(cbFrom, "SELECT id,name FROM warehouses ORDER BY id");
         Ui.FillCombo(cbTo, "SELECT id,name FROM warehouses ORDER BY id");
-        if (cbTo.Items.Count > 1) cbTo.SelectedIndex = 1;
+        Ui.SelectId(cbFrom, Ui.DefaultWarehouse());
+        if (cbTo.Items.Count > 1) cbTo.SelectedIndex = cbFrom.SelectedIndex == 0 ? 1 : 0;
 
         var head = Theme.Bar();
         head.Controls.Add(Ui.Labeled("من المخزن", cbFrom));
@@ -90,7 +91,8 @@ public class TransferForm : BaseForm
         var t = txtFind.Text.Trim();
         if (t == "") return;
         var rows = items.Rows.Cast<DataRow>();
-        var r = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t || Db.S(x["code"]) == t || Db.S(x["name"]) == t)
+        long byCode = Barcodes.Owner(t);
+        var r = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t || Db.L(x["id"]) == byCode || Db.S(x["code"]) == t || Db.S(x["name"]) == t)
              ?? rows.FirstOrDefault(x => Db.S(x["name"]).Contains(t, StringComparison.OrdinalIgnoreCase));
         if (r == null) { Ui.Warn("لم يتم العثور على المادة: " + t); return; }
         long id = Db.L(r["id"]);

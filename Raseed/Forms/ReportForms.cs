@@ -10,30 +10,77 @@ public class ReportsForm : BaseForm
     string A => dFrom.Value.ToString(Ui.DFmt);
     string B => dTo.Value.ToString(Ui.DFmt) + " 23:59:59";
 
-    public ReportsForm()
+    readonly long preItem;
+
+    /// <summary>كل التقارير كتبويبات، أو تقرير واحد فقط (عند فتحه من القائمة الجانبية)</summary>
+    public ReportsForm(string only = null, long itemId = 0)
     {
+        preItem = itemId;
         dFrom.Value = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         dTo.Value = DateTime.Today;
         var bar = Theme.Bar();
         bar.Controls.Add(Ui.Labeled("من تاريخ", dFrom));
         bar.Controls.Add(Ui.Labeled("إلى تاريخ", dTo));
 
-        var tabs = new ModernTabs(vertical: true) { Dock = DockStyle.Fill };
-        tabs.Add(Statement(), "scroll-text");
-        if (Session.Can("profit")) tabs.Add(Profit(), "trending-up");
-        tabs.Add(Boxes(), "wallet");
-        tabs.Add(Daily(), "calendar-days");
-        tabs.Add(ItemSales(), "shopping-bag");
-        tabs.Add(ItemMovement(), "arrow-left-right");
-        tabs.Add(Aging(), "history");
-        tabs.Add(Repairs(), "wrench");
-        tabs.Add(Delivery(), "truck");
-        tabs.Add(CostCenters(), "layers");
-        if (Session.IsAdmin) tabs.Add(AuditLog(), "shield-check");
+        var all = new List<(string Title, string Icon, Func<TabPage> Make)>
+        {
+            ("كشف حساب", "scroll-text", Statement),
+            ("الأرباح وتوزيعها", "trending-up", Profit),
+            ("الصناديق والخزائن", "wallet", Boxes),
+            ("المصاريف", "receipt", Expenses),
+            ("اليومية", "calendar-days", Daily),
+            ("مبيعات المواد", "shopping-bag", ItemSales),
+            ("حركة مادة", "arrow-left-right", ItemMovement),
+            ("أعمار الديون", "history", Aging),
+            ("الصيانة المُسلَّمة", "wrench", Repairs),
+            ("طلبات التوصيل", "truck", Delivery),
+            ("مراكز الكلفة", "layers", CostCenters),
+            ("سجل العمليات", "shield-check", AuditLog),
+        };
+        all.RemoveAll(x => x.Title == "الأرباح وتوزيعها" && !Session.Can("profit") || x.Title == "سجل العمليات" && !Session.IsAdmin);
 
+        if (only != null && all.FirstOrDefault(x => x.Title == only) is { Make: not null } one)
+        {
+            Text = one.Title;
+            // محتوى التقرير مباشرة بلا شريط تبويبات
+            var page = one.Make();
+            var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
+            foreach (var c in page.Controls.Cast<Control>().ToList()) host.Controls.Add(c);
+            Controls.Add(host);
+            Controls.Add(bar);
+            return;
+        }
+        var tabs = new ModernTabs(vertical: true) { Dock = DockStyle.Fill };
+        foreach (var x in all) tabs.Add(x.Make(), x.Icon);
         Controls.Add(tabs);
         Controls.Add(bar);
         Controls.Add(Theme.Title("التقارير"));
+    }
+
+    // ---------- المصاريف حسب النوع ----------
+    TabPage Expenses()
+    {
+        var grid = Ui.NewGrid();
+        var top = Theme.Bar();
+        var cb = Ui.Combo(220);
+        Ui.FillCombo(cb, "SELECT id,name FROM expense_types ORDER BY name", true, "— كل الأنواع —");
+        var b = Theme.Btn("عرض", Theme.Accent, 100);
+        var lbl = new Label { Dock = DockStyle.Bottom, Height = 48, Font = Theme.FS(12), ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.BrandSoft, Padding = new Padding(12, 0, 12, 0) };
+        top.Controls.Add(Ui.Labeled("نوع المصروف", cb));
+        top.Controls.Add(b);
+        void Reload()
+        {
+            var dt = Db.Query(@"SELECT m.id, substr(m.date,1,16) AS [التاريخ], IFNULL(t.name,'بدون نوع') AS [نوع المصروف], c.name AS [الصندوق],
+                -m.amount AS [المبلغ], c.currency AS [العملة], -m.amount*m.rate AS [بالدينار], m.note AS [البيان]
+                FROM cash_moves m JOIN cashboxes c ON c.id=m.cashbox_id LEFT JOIN expense_types t ON t.id=m.expense_type_id
+                WHERE m.kind='مصروف' AND m.date BETWEEN @p0 AND @p1 AND (@p2=0 OR m.expense_type_id=@p2) ORDER BY m.date", A, B, Ui.GetId(cb));
+            grid.DataSource = dt;
+            var by = dt.Rows.Cast<DataRow>().GroupBy(r => Db.S(r["نوع المصروف"])).Select(g => $"{g.Key}: {Ui.M(g.Sum(r => Db.D(r["بالدينار"])))}");
+            lbl.Text = $"الإجمالي: {Ui.M(dt.Rows.Cast<DataRow>().Sum(r => Db.D(r["بالدينار"])))} د.ع    •    " + string.Join("   |   ", by);
+        }
+        b.Click += (s, e) => Reload();
+        Reload();
+        return Page("المصاريف", grid, top, lbl);
     }
 
     TabPage Page(string title, DataGridView grid, Control top, Control bottom = null)
@@ -241,6 +288,13 @@ public class ReportsForm : BaseForm
         var b = Theme.Btn("عرض الحركة", Theme.Accent, 120);
         top.Controls.Add(Ui.Labeled("المادة", cb));
         top.Controls.Add(b);
+        // فتح التقرير من شاشة المواد: المادة محددة والحركة معروضة مباشرة (من أول تاريخ)
+        if (preItem > 0)
+        {
+            Ui.SelectId(cb, preItem);
+            dFrom.Value = new DateTime(2000, 1, 1);
+            Load += (s, e) => b.PerformClick();
+        }
         b.Click += (s, e) =>
         {
             long item = Ui.GetId(cb);
@@ -518,9 +572,9 @@ public class DashboardForm : BaseForm
         var cards = new[]
         {
             Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Orange, "trending-up", trend, "سجل الفواتير"),
-            Kpi("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success, "wallet", "كل الصناديق بالدينار", "السندات والصيرفة"),
-            Kpi("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning, "hand-coins", "على العملاء", "العملاء والموردون"),
-            Kpi("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger, "landmark", "للموردين", "العملاء والموردون"),
+            Kpi("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success, "wallet", "كل الصناديق بالدينار", "حساب الصناديق"),
+            Kpi("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning, "hand-coins", "على الزبائن", "حساب الزبائن"),
+            Kpi("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger, "landmark", "للمجهزين", "حساب المجهزين"),
         };
         if (todaySales < yesterday && yesterday > 0) cards[0].Accent = Theme.Warning;
         kpis.Controls.AddRange(cards);
@@ -555,7 +609,7 @@ public class DashboardForm : BaseForm
             ("فاتورة بيع", "shopping-cart", "فاتورة بيع", BtnKind.Accent),
             ("فاتورة شراء", "truck", "فاتورة شراء", BtnKind.Soft),
             ("استلام جهاز", "wrench", "الصيانة", BtnKind.Soft),
-            ("سند قبض", "wallet", "السندات والصيرفة", BtnKind.Soft),
+            ("سند قبض", "wallet", "سند قبض", BtnKind.Soft),
             ("تسديد قسط", "calendar-clock", "الأقساط", BtnKind.Soft),
             ("مادة جديدة", "package-plus", "المواد", BtnKind.Soft),
         };
@@ -574,22 +628,14 @@ public class DashboardForm : BaseForm
         // ---------- التنبيهات ----------
         var alertsCard = new CardPanel { Dock = DockStyle.Fill, Title = "التنبيهات", Subtitle = "ما يحتاج انتباهك اليوم", IconName = "bell" };
         var chips = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
-        chips.Controls.Add(Chip("مواد تحت حد الطلب", Stats.LowStock(), Theme.Purple, "package-minus", "أرصدة المخازن"));
+        chips.Controls.Add(Chip("تنبيهات المواد", ItemAlerts.Count(expDays) - Stats.Expiring(expDays), Theme.Purple, "package-minus", "أرصدة المخازن"));
         chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "أرصدة المخازن"));
         chips.Controls.Add(Chip("أقساط مستحقة", Stats.DueInstallments(remDays), Theme.Warning, "calendar-clock", "الأقساط"));
         chips.Controls.Add(Chip("أجهزة في الصيانة", Stats.RepairsOpen(), Theme.Info, "wrench", "الصيانة"));
         chips.Controls.Add(Chip("جاهزة للتسليم", Stats.RepairsReady(), Theme.Success, "package-check", "الصيانة"));
 
         var grid = Ui.NewGrid();
-        grid.DataSource = Db.Query(@"
-            SELECT 'مخزون منخفض' AS [التنبيه], i.name AS [المادة / الجهة], 'الرصيد: '||IFNULL(s.q,0)||'  —  حد الطلب: '||i.min_qty AS [التفاصيل]
-            FROM items i LEFT JOIN (SELECT item_id, SUM(qty) q FROM batches GROUP BY item_id) s ON s.item_id=i.id
-            WHERE i.min_qty>0 AND IFNULL(s.q,0)<=i.min_qty
-            UNION ALL
-            SELECT CASE WHEN b.expiry<date('now','localtime') THEN 'منتهية الصلاحية' ELSE 'قاربت على الانتهاء' END, i.name,
-                   'تاريخ الصلاحية: '||b.expiry||'  —  الكمية: '||b.qty
-            FROM batches b JOIN items i ON i.id=b.item_id
-            WHERE b.qty>0 AND b.expiry IS NOT NULL AND b.expiry<>'' AND b.expiry<=date('now','localtime','+'||@p0||' day')
+        grid.DataSource = Db.Query(ItemAlerts.Sql + @"
             UNION ALL
             SELECT 'قسط مستحق', p.name, 'الاستحقاق: '||t.due_date||'  —  المتبقي: '||(t.amount-t.paid)
             FROM installments t JOIN parties p ON p.id=t.party_id

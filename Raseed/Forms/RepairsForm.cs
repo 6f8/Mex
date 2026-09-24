@@ -33,6 +33,7 @@ public class RepairsForm : BaseForm
         Ui.FillCombo(cbTech, "SELECT id,name FROM employees WHERE active=1 ORDER BY name", true);
         Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
         Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id");
+        Ui.SelectId(cbWh, Ui.DefaultWarehouse());
         nWarranty.Maximum = 3650;
 
         // ---------- الأدوات ----------

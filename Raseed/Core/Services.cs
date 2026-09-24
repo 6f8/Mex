@@ -216,9 +216,13 @@ public static class Stats
     public static double Receivables() => Db.D(Db.Scalar("SELECT SUM(balance) FROM v_party_balance WHERE balance>0"));
     public static double Payables() => -Db.D(Db.Scalar("SELECT SUM(balance) FROM v_party_balance WHERE balance<0"));
     public static long LowStock() => Db.L(Db.Scalar(
-        "SELECT COUNT(*) FROM items i WHERE i.min_qty>0 AND IFNULL((SELECT SUM(qty) FROM batches b WHERE b.item_id=i.id),0)<=i.min_qty"));
+        "SELECT COUNT(*) FROM items i WHERE i.active=1 AND i.min_qty>0 AND IFNULL((SELECT SUM(qty) FROM batches b WHERE b.item_id=i.id),0)<=i.min_qty"));
+    /// <summary>وجبات قاربت على الانتهاء (فترة التنبيه للمادة إن حُددت، وإلا الإعداد العام)</summary>
     public static long Expiring(int days) => Db.L(Db.Scalar(
-        "SELECT COUNT(*) FROM batches WHERE qty>0 AND expiry IS NOT NULL AND expiry<>'' AND expiry<=date('now','localtime','+'||@p0||' day')", days));
+        @"SELECT COUNT(*) FROM batches b JOIN items i ON i.id=b.item_id WHERE b.qty>0 AND IFNULL(b.expiry,'')<>''
+          AND b.expiry<=date('now','localtime','+'||(CASE WHEN i.expiry_alert_days>0 THEN i.expiry_alert_days ELSE @p0 END)||' day')", days));
+    /// <summary>كل تنبيهات المواد (منخفض، أمان، أعلى، راكد، هدف، صلاحية)</summary>
+    public static long ItemAlertsCount(int days) => ItemAlerts.Count(days);
     public static long RepairsOpen() => Db.L(Db.Scalar("SELECT COUNT(*) FROM repairs WHERE status NOT IN ('تم التسليم','ملغي')"));
     public static long RepairsReady() => Db.L(Db.Scalar("SELECT COUNT(*) FROM repairs WHERE status='جاهز'"));
     public static long DueInstallments(int days) => Db.L(Db.Scalar(

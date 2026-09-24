@@ -234,9 +234,10 @@ public static class Theme
     {
         if (s is "جاهز" or "مسدد" or "فعّال" or "فعّالة" or "على الملاك" or "حاضر" or "تم التسليم" or "بيع" or "قبض" or "جهاز جاهز للتسليم") return (C("#15803D"), SuccessSoft);
         if (s is "متأخر" or "لا يصلح" or "ملغي" or "موقوف" or "متوقفة" or "منفك" or "غائب" or "منتهية الصلاحية" or "راجع" or "إتلاف" or "صرف" or "مصروف") return (C("#B91C1C"), DangerSoft);
-        if (s is "بانتظار قطعة" or "قيد الفحص" or "قيد التصليح" or "قاربت على الانتهاء" or "قسط مستحق" or "قيد التوصيل" or "إجازة" or "مخزون منخفض" or "إرجاع بيع" or "إرجاع شراء") return (C("#B45309"), WarningSoft);
+        if (s is "بانتظار قطعة" or "قيد الفحص" or "قيد التصليح" or "قاربت على الانتهاء" or "قسط مستحق" or "قيد التوصيل" or "إجازة" or "مخزون منخفض" or "إرجاع بيع" or "إرجاع شراء" or "وصل حد الأمان") return (C("#B45309"), WarningSoft);
         if (s is "مستلم" or "قائم" or "شراء" or "مدير" or "تحويل" or "صيرفة" or "راتب" or "سلفة" or "دفعة فاتورة") return (C("#1D4ED8"), InfoSoft);
-        if (s is "صيانة" or "عربون صيانة" or "توزيع أرباح") return (C("#6D28D9"), PurpleSoft);
+        if (s is "صيانة" or "عربون صيانة" or "توزيع أرباح" or "تجاوز الحد الأعلى" or "مادة راكدة") return (C("#6D28D9"), PurpleSoft);
+        if (s is "هدف البيع") return (C("#1D4ED8"), InfoSoft);
         if (s is "مكافأة" or "تسديد قسط") return (C("#15803D"), SuccessSoft);
         if (s is "خصم") return (C("#B91C1C"), DangerSoft);
         if (s is "مستخدم" or "عطلة") return (Text2, GraySoft);

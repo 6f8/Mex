@@ -46,6 +46,9 @@ public static class Ui
     public static string TypeName(string t) => TypeNames.TryGetValue(t ?? "", out var n) ? n : t;
 
     /// <summary>سندات المخزن لا تمس الحسابات ولا الصناديق</summary>
+    /// <summary>المخزن الافتراضي (المعلَّم «افتراضي»، وإلا الأول)</summary>
+    public static long DefaultWarehouse() => Db.L(Db.Scalar("SELECT id FROM warehouses ORDER BY is_default DESC, id LIMIT 1"));
+
     public static bool IsStockDoc(string t) => t is "StockIn" or "StockOut";
 
     /// <summary>«فاتورة بيع» أو «سند إدخال مخزني»</summary>
@@ -145,13 +148,15 @@ public static class Ui
 
     public static void Warn(string msg) => Dialogs.Warn(msg);
 
-    public static bool AskNumber(string title, string caption, double def, out double value)
+    public static bool AskNumber(string title, string caption, double def, out double value, string hint = null)
     {
-        using var f = new DialogShell(title, 420, 250, "calculator");
+        using var f = new DialogShell(title, 420, hint == null ? 250 : 290, "calculator");
         var n = Num(372, 2);
         n.Value = (decimal)def;
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(0, 6, 0, 0) };
         flow.Controls.Add(Labeled(caption, n));
+        if (hint != null)
+            flow.Controls.Add(new Label { Text = hint, AutoSize = false, Width = 372, Height = 34, ForeColor = Theme.Muted, Font = Theme.F(9), TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(8, 0, 6, 0) });
         f.Body.Controls.Add(flow);
         f.AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
         f.AddButton("موافق", DialogResult.OK);

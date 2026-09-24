@@ -6,16 +6,19 @@ namespace Raseed;
 public class VoucherForm : BaseForm
 {
     readonly ComboBox cbKind = Ui.Combo(130), cbBox = Ui.Combo(200), cbBox2 = Ui.Combo(200), cbParty = Ui.Combo(240),
-                      cbEmp = Ui.Combo(200), cbCC = Ui.Combo(160);
+                      cbEmp = Ui.Combo(200), cbCC = Ui.Combo(160), cbExp = Ui.Combo(200);
     readonly NumericUpDown nAmt = Ui.Num(160, 2), nAmt2 = Ui.Num(160, 2);
     readonly DateTimePicker dt = new() { Width = 170, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm" };
     readonly TextBox txtNote = new() { Width = 330 };
     readonly Label lblInfo = new() { AutoSize = true, ForeColor = Theme.BrandDark, Font = Theme.FS(10), Margin = new Padding(10, 36, 10, 0) };
     readonly DataGridView grid = Ui.NewGrid();
-    readonly Control pBox2, pParty, pEmp, pAmt2, pCC;
+    readonly Control pBox2, pParty, pEmp, pAmt2, pCC, pExp;
+    readonly string fixedKind;
 
-    public VoucherForm()
+    /// <summary>كل السندات، أو نوع واحد ثابت عند فتحه من قسم «السندات» (سند قبض، سند صرف...)</summary>
+    public VoucherForm(string kind = null)
     {
+        fixedKind = kind;
         cbKind.Items.AddRange(new object[] { "قبض", "صرف", "مصروف", "راتب", "تحويل", "صيرفة" });
         Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
         Ui.FillCombo(cbBox2, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
@@ -23,6 +26,7 @@ public class VoucherForm : BaseForm
         Ui.MakeSearchable(cbParty);
         Ui.FillCombo(cbEmp, "SELECT id,name,salary FROM employees WHERE active=1 ORDER BY name", true);
         Ui.FillCombo(cbCC, "SELECT id,name FROM cost_centers ORDER BY id", true);
+        Ui.FillCombo(cbExp, "SELECT id,name FROM expense_types ORDER BY name", true);
         dt.Value = DateTime.Now;
 
         var bar = Theme.Bar();
@@ -32,6 +36,7 @@ public class VoucherForm : BaseForm
         bar.Controls.Add(pBox2 = Ui.Labeled("إلى الصندوق", cbBox2));
         bar.Controls.Add(pParty = Ui.Labeled("الجهة (عميل/مورد)", cbParty));
         bar.Controls.Add(pEmp = Ui.Labeled("الموظف", cbEmp));
+        bar.Controls.Add(pExp = Ui.Labeled("نوع المصروف", cbExp));
         bar.Controls.Add(pCC = Ui.Labeled("مركز الكلفة", cbCC));
         bar.Controls.Add(Ui.Labeled("المبلغ", nAmt));
         bar.Controls.Add(pAmt2 = Ui.Labeled("المبلغ المستلم (بعملة الصندوق الثاني)", nAmt2));
@@ -64,7 +69,12 @@ public class VoucherForm : BaseForm
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
 
-        cbKind.SelectedIndex = 0;
+        cbKind.SelectedIndex = kind == null ? 0 : Math.Max(0, cbKind.Items.IndexOf(kind));
+        if (kind != null)
+        {
+            Text = kind == "تحويل" ? "تحويل بين الصناديق" : kind is "قبض" or "صرف" ? "سند " + kind : kind;
+            cbKind.Enabled = false;
+        }
         LoadGrid();
     }
 
@@ -76,15 +86,17 @@ public class VoucherForm : BaseForm
         pParty.Visible = k is "قبض" or "صرف";
         pEmp.Visible = k == "راتب";
         pCC.Visible = k is "قبض" or "صرف" or "مصروف" or "راتب";
+        pExp.Visible = k == "مصروف";
     }
 
     void LoadGrid()
     {
         grid.DataSource = Db.Query(@"SELECT m.id, m.date AS [التاريخ], m.kind AS [النوع], c.name AS [الصندوق], m.amount AS [المبلغ],
-            c.currency AS [العملة], p.name AS [الجهة], e.name AS [الموظف], cc.name AS [مركز الكلفة], m.note AS [البيان],
+            c.currency AS [العملة], IFNULL(p.name, t.name) AS [الجهة / النوع], e.name AS [الموظف], cc.name AS [مركز الكلفة], m.note AS [البيان],
             m.invoice_id AS [فاتورة] FROM cash_moves m JOIN cashboxes c ON c.id=m.cashbox_id
             LEFT JOIN parties p ON p.id=m.party_id LEFT JOIN employees e ON e.id=m.employee_id
-            LEFT JOIN cost_centers cc ON cc.id=m.cost_center_id ORDER BY m.id DESC LIMIT 500");
+            LEFT JOIN cost_centers cc ON cc.id=m.cost_center_id LEFT JOIN expense_types t ON t.id=m.expense_type_id
+            WHERE (@p0 IS NULL OR m.kind=@p0) ORDER BY m.id DESC LIMIT 500", (object)fixedKind ?? DBNull.Value);
     }
 
     void Save()
@@ -108,7 +120,8 @@ public class VoucherForm : BaseForm
                 case "صرف":
                     tx.Exec(ins, date, k, box, -amt, r1, Db.N(party), null, Db.N(cc), null, note, Session.UserId); break;
                 case "مصروف":
-                    tx.Exec(ins, date, k, box, -amt, r1, null, null, Db.N(cc), null, note, Session.UserId); break;
+                    tx.Exec(ins, date, k, box, -amt, r1, null, null, Db.N(cc), null, note, Session.UserId);
+                    tx.Exec("UPDATE cash_moves SET expense_type_id=@p0 WHERE id=last_insert_rowid()", Db.N(Ui.GetId(cbExp))); break;
                 case "راتب":
                     if (!Session.Can("hr")) { Ui.Warn("ليس لديك صلاحية الموارد البشرية."); return; }
                     if (emp == 0) { Ui.Warn("اختر الموظف."); return; }
@@ -236,10 +249,11 @@ public class InstallmentsForm : BaseForm
             2 => "WHERE t.amount-t.paid>0.001 AND t.due_date<date('now','localtime')",
             _ => ""
         };
-        grid.DataSource = Db.Query($@"SELECT t.id, p.name AS [العميل], p.phone AS [الهاتف], t.invoice_id AS [الفاتورة], t.seq AS [القسط],
+        grid.DataSource = Db.Query($@"SELECT t.id, p.name AS [العميل], p.phone AS [الهاتف], IFNULL(g.name,'') AS [الكفيل], t.invoice_id AS [الفاتورة], t.seq AS [القسط],
             t.due_date AS [الاستحقاق], t.amount AS [المبلغ], t.paid AS [المسدد], t.amount-t.paid AS [المتبقي],
             CASE WHEN t.amount-t.paid<=0.001 THEN 'مسدد' WHEN t.due_date<date('now','localtime') THEN 'متأخر' ELSE 'قائم' END AS [الحالة],
-            t.notified AS [آخر تذكير] FROM installments t JOIN parties p ON p.id=t.party_id {where} ORDER BY t.due_date",
+            t.notified AS [آخر تذكير] FROM installments t JOIN parties p ON p.id=t.party_id
+            LEFT JOIN invoices v ON v.id=t.invoice_id LEFT JOIN guarantors g ON g.id=v.guarantor_id {where} ORDER BY t.due_date",
             Settings.Int("reminder_days", 3));
     }
 

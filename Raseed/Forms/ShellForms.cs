@@ -237,19 +237,30 @@ public class SetupDialog : DialogShell
 public class MainForm : BaseForm
 {
     public record Page(string Text, string Perm, string Icon, string Group, string Desc, Func<Form> Make);
-    record Section(string Name, string Icon, Color Tint);
+    /// <summary>قسم في القائمة: أيقونته ولونه، ولون أشرطة عناصره (تدرّج من ItemFrom إلى ItemTo)</summary>
+    record Section(string Name, string Icon, Color Tint, Color ItemFrom, Color ItemTo);
 
     const string HomeKey = "الرئيسية";
     const int MaxTabs = 8;
 
+    static readonly Color Teal = ColorTranslator.FromHtml("#0F8B8D"), Report = ColorTranslator.FromHtml("#E0474C");
+
     static readonly Section[] Sections =
     {
-        new("المخزن", "warehouse", Theme.Orange),
-        new("بيع", "shopping-cart", Theme.Success),
-        new("شراء", "truck", Theme.Info),
-        new("الحسابات", "wallet", Theme.Purple),
-        new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490")),
-        new("الإدارة", "settings", Theme.Gray),
+        new("المخزن", "warehouse", Theme.Orange, Theme.Orange, Theme.Amber),
+        new("بيع", "shopping-cart", Theme.Success, ColorTranslator.FromHtml("#15803D"), ColorTranslator.FromHtml("#22A55A")),
+        new("شراء", "truck", Theme.Info, ColorTranslator.FromHtml("#1D4ED8"), ColorTranslator.FromHtml("#3B82F6")),
+        new("الأقساط", "calendar-clock", ColorTranslator.FromHtml("#4F46E5"), ColorTranslator.FromHtml("#4338CA"), ColorTranslator.FromHtml("#6366F1")),
+        new("السندات", "receipt-text", Theme.Purple, ColorTranslator.FromHtml("#6D28D9"), ColorTranslator.FromHtml("#8B5CF6")),
+        new("الحسابات", "landmark", Teal, Teal, Teal),
+        new("تقارير الحسابات", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
+        new("تقارير القوائم", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
+        new("تقارير الأرباح", "file-text", Report, Report, Report),
+        new("تقارير المواد", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
+        new("تقارير المخازن", "file-text", Report, Report, Report),
+        new("تقارير المتابعة", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
+        new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0891B2")),
+        new("الإدارة", "settings", Theme.Gray, ColorTranslator.FromHtml("#4B5563"), ColorTranslator.FromHtml("#6B7280")),
     };
 
     readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), BackColor = Theme.Bg };
@@ -269,41 +280,78 @@ public class MainForm : BaseForm
 
     public List<Page> Pages { get; }
 
-    List<Page> BuildPages() => new()
+    List<Page> BuildPages()
     {
-        new(HomeKey, null, "house", "", "نظرة سريعة على نشاط اليوم والتنبيهات", () => new DashboardForm(this)),
+        var list = new List<Page>
+        {
+            new(HomeKey, null, "house", "", "نظرة سريعة على نشاط اليوم والتنبيهات", () => new DashboardForm(this)),
 
-        new("المواد", "items", "package", "المخزن", "تعريف المواد والأسعار والباركود والرصيد الافتتاحي", () => new ItemsForm()),
-        new("المخازن", "stock", "warehouse", "المخزن", "أسماء المخازن والفروع", () => new CrudForm(Defs.Warehouses())),
-        new("الشركات", "items", "building-2", "المخزن", "الشركات المصنّعة أو الموردة للمواد", () => new CrudForm(Defs.Companies())),
-        new("طباعة الباركود", "labels", "barcode", "المخزن", "طباعة ملصقات الأسعار والباركود", () => new LabelsForm()),
-        new("إدخال مخزني", "stock", "arrow-down-to-line", "المخزن", "إدخال مواد إلى المخزن بدون مورد (رصيد أول المدة، هدايا، إنتاج)", () => new InvoiceForm("StockIn")),
-        new("إخراج مخزني", "stock", "arrow-up-from-line", "المخزن", "إخراج مواد من المخزن لغير البيع (استهلاك داخلي، عينات)", () => new InvoiceForm("StockOut")),
-        new("تسوية مخزنية", "stock", "clipboard-check", "المخزن", "جرد الرصيد الفعلي وتسوية الفروقات", () => new StockCountForm()),
-        new("نقل بين المخازن", "stock", "arrow-left-right", "المخزن", "نقل مواد من مخزن إلى آخر مع حفظ الصلاحية والكلفة", () => new TransferForm()),
-        new("المواد التالفة", "damage", "ban", "المخزن", "إخراج المواد التالفة أو المنتهية من المخزن", () => new InvoiceForm("Damage")),
-        new("أرصدة المخازن", "stock", "boxes", "المخزن", "الأرصدة حسب الوجبة وتواريخ انتهاء الصلاحية والنواقص", () => new StockForm(this)),
+            new("المواد", "items", "package", "المخزن", "تعريف المواد والأسعار والباركود والرصيد الافتتاحي", () => new ItemsForm()),
+            new("المخازن", "stock", "warehouse", "المخزن", "أسماء المخازن والمخزن الافتراضي", () => new CrudForm(Defs.Warehouses())),
+            new("الشركات", "items", "building-2", "المخزن", "الشركات المصنّعة أو الموردة للمواد", () => new CrudForm(Defs.Companies())),
+            new("طباعة الباركود", "labels", "barcode", "المخزن", "طباعة ملصقات الأسعار والباركود", () => new LabelsForm()),
+            new("إدخال مخزني", "stock", "arrow-down-to-line", "المخزن", "إدخال مواد إلى المخزن بدون مورد (رصيد أول المدة، هدايا، إنتاج)", () => new InvoiceForm("StockIn")),
+            new("إخراج مخزني", "stock", "arrow-up-from-line", "المخزن", "إخراج مواد من المخزن لغير البيع (استهلاك داخلي، عينات)", () => new InvoiceForm("StockOut")),
+            new("تسوية مخزنية", "stock", "clipboard-check", "المخزن", "جرد الرصيد الفعلي وتسوية الفروقات", () => new StockCountForm()),
+            new("نقل بين المخازن", "stock", "arrow-left-right", "المخزن", "نقل مواد من مخزن إلى آخر مع حفظ الصلاحية والكلفة", () => new TransferForm()),
+            new("المواد التالفة", "damage", "ban", "المخزن", "إخراج المواد التالفة أو المنتهية من المخزن", () => new InvoiceForm("Damage")),
 
-        new("فاتورة بيع", "sales", "shopping-cart", "بيع", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
-        new("إرجاع بيع", "returns", "undo-2", "بيع", "إرجاع مواد من عميل إلى المخزن", () => new InvoiceForm("SaleReturn")),
-        new("الأقساط", "installments", "calendar-clock", "بيع", "متابعة الأقساط وتسديدها وتذكير العملاء", () => new InstallmentsForm()),
-        new("سجل الفواتير", "reports", "receipt-text", "بيع", "البحث في الفواتير والسندات السابقة وطباعتها وتعديلها", () => new InvoicesListForm()),
+            new("فاتورة بيع", "sales", "shopping-cart", "بيع", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
+            new("إرجاع بيع", "returns", "undo-2", "بيع", "إرجاع مواد من عميل إلى المخزن", () => new InvoiceForm("SaleReturn")),
 
-        new("فاتورة شراء", "purchases", "truck", "شراء", "إدخال بضاعة من المورد إلى المخزن", () => new InvoiceForm("Purchase")),
-        new("إرجاع شراء", "returns", "redo-2", "شراء", "إرجاع مواد إلى المورد", () => new InvoiceForm("PurchaseReturn")),
+            new("فاتورة شراء", "purchases", "truck", "شراء", "إدخال بضاعة من المورد إلى المخزن", () => new InvoiceForm("Purchase")),
+            new("إرجاع شراء", "returns", "redo-2", "شراء", "إرجاع مواد إلى المورد", () => new InvoiceForm("PurchaseReturn")),
 
-        new("العملاء والموردون", "parties", "users", "الحسابات", "الحسابات والأرصدة وسقوف الذمة", () => new CrudForm(Defs.Parties())),
-        new("السندات والصيرفة", "vouchers", "wallet", "الحسابات", "قبض وصرف ومصروفات وتحويل بين الصناديق", () => new VoucherForm()),
-        new("التقارير والأرباح", "reports", "chart-column", "الحسابات", "كشوف الحساب والأرباح وحركة الصناديق", () => new ReportsForm()),
+            new("الأقساط", "installments", "calendar-clock", "الأقساط", "متابعة الأقساط وتسديدها وتذكير العملاء والكفلاء", () => new InstallmentsForm()),
 
-        new("الصيانة", "repairs", "wrench", "الصيانة والموظفون", "استلام الأجهزة ومتابعتها وتسليمها", () => new RepairsForm()),
-        new("الموارد البشرية", "hr", "id-card", "الصيانة والموظفون", "الموظفون والحضور والسلف والرواتب", () => new HrForm()),
+            new("سند قبض", "vouchers", "hand-coins", "السندات", "استلام مبلغ من زبون أو جهة", () => new VoucherForm("قبض")),
+            new("سند صرف", "vouchers", "banknote", "السندات", "دفع مبلغ لمجهز أو جهة", () => new VoucherForm("صرف")),
+            new("سند مصروف", "vouchers", "receipt", "السندات", "مصاريف المحل حسب نوع المصروف", () => new VoucherForm("مصروف")),
+            new("سند راتب", "hr", "id-card", "السندات", "صرف راتب موظف", () => new VoucherForm("راتب")),
+            new("تحويل بين الصناديق", "vouchers", "repeat", "السندات", "نقل مبلغ من صندوق إلى آخر بنفس العملة", () => new VoucherForm("تحويل")),
+            new("صيرفة", "vouchers", "coins", "السندات", "تبديل عملة بين صندوقين (دينار ↔ دولار)", () => new VoucherForm("صيرفة")),
+            new("كل السندات", "vouchers", "list", "السندات", "كل الحركات المالية وحذفها وطباعتها", () => new VoucherForm()),
 
-        new("مدير المهام", "tasks", "list-todo", "الإدارة", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
-        new("التعريفات", "settings", "layers", "الإدارة", "المخازن والصناديق ومراكز الكلفة والتوصيل والشركاء", () => new DefsHubForm()),
-        new("المستخدمون والصلاحيات", "users", "shield-check", "الإدارة", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
-        new("الإعدادات", "settings", "settings", "الإدارة", "بيانات المحل والطباعة والنسخ الاحتياطي وواتساب", () => new SettingsForm()),
-    };
+            new("حساب الزبائن", "parties", "users", "الحسابات", "الزبائن وأرصدتهم وتعديل الرصيد", () => new CrudForm(Defs.Accounts(false))),
+            new("حساب المجهزين", "parties", "truck", "الحسابات", "الموردون وأرصدتهم", () => new CrudForm(Defs.Accounts(true))),
+            new("حساب الصناديق", "settings", "wallet", "الحسابات", "صناديق النقد وأرصدتها", () => new CrudForm(Defs.Cashboxes(false))),
+            new("حساب الخزائن", "settings", "landmark", "الحسابات", "الخزائن والحسابات المصرفية والمحافظ الإلكترونية", () => new CrudForm(Defs.Cashboxes(true))),
+            new("حساب الكفلاء", "installments", "shield-check", "الحسابات", "كفلاء البيع بالأقساط والمبالغ المكفولة", () => new CrudForm(Defs.Guarantors())),
+            new("حساب المصاريف", "vouchers", "receipt", "الحسابات", "أنواع المصاريف ومجموع كل نوع", () => new CrudForm(Defs.ExpenseTypes())),
+            new("حساب الموظفين", "hr", "id-card", "الحسابات", "الموظفون ورواتبهم", () => new CrudForm(Defs.Employees())),
+
+            new("كشف حساب", "reports", "scroll-text", "تقارير الحسابات", "حركات الحساب ورصيده وإرساله واتساب", () => new ReportsForm("كشف حساب")),
+            new("الصناديق والخزائن", "reports", "wallet", "تقارير الحسابات", "أرصدة الصناديق وواردها وصادرها", () => new ReportsForm("الصناديق والخزائن")),
+            new("المصاريف", "reports", "receipt", "تقارير الحسابات", "المصاريف حسب النوع خلال الفترة", () => new ReportsForm("المصاريف")),
+            new("أعمار الديون", "reports", "history", "تقارير الحسابات", "الديون المتأخرة حسب مدة التأخير", () => new ReportsForm("أعمار الديون")),
+            new("مراكز الكلفة", "reports", "layers", "تقارير الحسابات", "الإيرادات والمصاريف لكل مركز كلفة", () => new ReportsForm("مراكز الكلفة")),
+
+            new("سجل الفواتير", "reports", "receipt-text", "تقارير القوائم", "البحث في الفواتير والسندات السابقة وطباعتها وتعديلها", () => new InvoicesListForm()),
+            new("اليومية", "reports", "calendar-days", "تقارير القوائم", "حركة الصناديق يومًا بيوم", () => new ReportsForm("اليومية")),
+            new("طلبات التوصيل", "reports", "truck", "تقارير القوائم", "طلبات شركات التوصيل وحالاتها", () => new ReportsForm("طلبات التوصيل")),
+
+            new("الأرباح وتوزيعها", "profit", "trending-up", "تقارير الأرباح", "الأرباح خلال الفترة وتوزيعها على الشركاء", () => new ReportsForm("الأرباح وتوزيعها")),
+
+            new("مبيعات المواد", "reports", "shopping-bag", "تقارير المواد", "الكميات المباعة وأرباح كل مادة", () => new ReportsForm("مبيعات المواد")),
+            new("حركة مادة", "reports", "arrow-left-right", "تقارير المواد", "الوارد والصادر والرصيد لمادة", () => new ReportsForm("حركة مادة")),
+
+            new("أرصدة المخازن", "stock", "boxes", "تقارير المخازن", "الأرصدة حسب الوجبة وتواريخ انتهاء الصلاحية والنواقص", () => new StockForm(this)),
+
+            new("الصيانة المُسلَّمة", "reports", "wrench", "تقارير المتابعة", "الأجهزة المسلَّمة وأجورها", () => new ReportsForm("الصيانة المُسلَّمة")),
+
+            new("الصيانة", "repairs", "wrench", "الصيانة والموظفون", "استلام الأجهزة ومتابعتها وتسليمها", () => new RepairsForm()),
+            new("الموارد البشرية", "hr", "id-card", "الصيانة والموظفون", "الحضور والسلف والرواتب", () => new HrForm()),
+
+            new("مدير المهام", "tasks", "list-todo", "الإدارة", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
+            new("التعريفات", "settings", "layers", "الإدارة", "مراكز الكلفة وشركات التوصيل والشركاء", () => new DefsHubForm()),
+            new("المستخدمون والصلاحيات", "users", "shield-check", "الإدارة", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
+            new("الإعدادات", "settings", "settings", "الإدارة", "بيانات المحل والطباعة والنسخ الاحتياطي وواتساب والميزان", () => new SettingsForm()),
+        };
+        if (Session.IsAdmin)
+            list.Insert(list.FindIndex(p => p.Group == "الصيانة والموظفون"),
+                new("سجل العمليات", "users", "shield-check", "تقارير المتابعة", "من غيّر ماذا ومتى (حذف، تعديل فواتير، تعديل أرصدة)", () => new ReportsForm("سجل العمليات")));
+        return list;
+    }
 
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
@@ -359,14 +407,22 @@ public class MainForm : BaseForm
         {
             var pages = Pages.Where(p => p.Group == sec.Name).ToList();
             if (pages.Count == 0) continue;
-            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint };
+            // قسم بشاشة واحدة يفتحها مباشرة (مثل «الأقساط» و«تقارير الأرباح»)
+            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint, HasChildren = pages.Count > 1 };
             var items = new List<NavItem>();
             nav.Add(head);
+            if (pages.Count == 1)
+            {
+                var only = pages[0];
+                head.Click += (s, e) => Navigate(only);
+                sections.Add((head, items));
+                continue;
+            }
             for (int i = 0; i < pages.Count; i++)
             {
                 var p = pages[i];
-                // تدرّج من البرتقالي إلى الكهرماني على طول القسم
-                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = Gfx.Mix(Theme.Orange, Theme.Amber, pages.Count == 1 ? 0 : (float)i / (pages.Count - 1)), Visible = false };
+                // لون القسم بتدرّج على طول عناصره (المخزن: من البرتقالي إلى الكهرماني)
+                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = Gfx.Mix(sec.ItemFrom, sec.ItemTo, pages.Count == 1 ? 0 : (float)i / (pages.Count - 1)), Visible = false };
                 item.Click += (s, e) => Navigate(p);
                 items.Add(item);
                 navItems.Add((item, p));
@@ -388,6 +444,7 @@ public class MainForm : BaseForm
         top.WhatsApp.Click += (s, e) => Shell("https://web.whatsapp.com/");
         top.Calc.Click += (s, e) => Shell("calc.exe");
         top.Help.Click += (s, e) => ShowHelp();
+        top.Refresh.Click += (s, e) => ReloadCurrent();
 
         var tabStrip = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = DocTabs.Strip, Padding = new Padding(12, 0, 12, 0) };
         tabStrip.Controls.Add(tabs);
@@ -446,6 +503,7 @@ public class MainForm : BaseForm
             case Keys.Control | Keys.Tab: CycleTab(1); return true;
             case Keys.Control | Keys.Shift | Keys.Tab: CycleTab(-1); return true;
             case Keys.F1: ShowHelp(); return true;
+            case Keys.F5: ReloadCurrent(); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }
@@ -454,7 +512,7 @@ public class MainForm : BaseForm
     {
         try
         {
-            top.Bell.Badge = (int)(Stats.LowStock() + Stats.Expiring(Settings.Int("expiry_days", 30)) +
+            top.Bell.Badge = (int)(Stats.ItemAlertsCount(Settings.Int("expiry_days", 30)) +
                                    Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady());
             top.Bell.Invalidate();
         }
@@ -497,7 +555,7 @@ public class MainForm : BaseForm
         if (homeHead != null) homeHead.Active = page?.Text == HomeKey;
         foreach (var (btn, p) in navItems) btn.Active = ReferenceEquals(p, page);
         foreach (var (head, items) in sections) head.Active = page != null && head.Text == page.Group;
-        if (page != null && page.Group != "" && !sections.Any(x => x.Head.Text == page.Group && x.Head.Expanded)) Expand(page.Group);
+        if (page != null && page.Group != "" && sections.Any(x => x.Head.Text == page.Group && x.Items.Count > 0 && !x.Head.Expanded)) Expand(page.Group);
     }
 
     // ---------- التبويبات ----------
@@ -574,6 +632,20 @@ public class MainForm : BaseForm
         Highlight(entry.Page);
         if (changed && !fresh && entry.Form is BaseForm b) try { b.OnPageActivated(); } catch { }
         if (!fresh) entry.Form.SelectNextControl(entry.Form, true, true, true, true);
+    }
+
+    /// <summary>إعادة بناء الشاشة الحالية بأحدث البيانات (مع التأكيد إن كان فيها عمل غير محفوظ)</summary>
+    void ReloadCurrent()
+    {
+        if (activeKey == null || !open.TryGetValue(activeKey, out var entry) || entry.Page == null) return;
+        if (entry.Form is BaseForm bf && !bf.ConfirmClose()) return;
+        var f = entry.Page.Make();
+        f.TopLevel = false; f.FormBorderStyle = FormBorderStyle.None; f.Dock = DockStyle.Fill; f.BackColor = Theme.Bg; f.Visible = false;
+        content.Controls.Add(f);
+        Detach(entry.Form);
+        open[activeKey] = (f, entry.Page);
+        Activate(activeKey, fresh: true);
+        RefreshAlerts();
     }
 
     public bool CloseTab(string key)
@@ -657,6 +729,7 @@ public class MainForm : BaseForm
         public ModernButton Calc { get; }
         public ModernButton Bell { get; }
         public ModernButton Help { get; }
+        public ModernButton Refresh { get; }
         readonly ModernButton[] tools;
 
         public TopBar()
@@ -677,14 +750,15 @@ public class MainForm : BaseForm
             Help = new ModernButton { Kind = BtnKind.Dark, IconName = "headset", Text = "الدعم والمساعدة", Font = Theme.FS(9.5f), Height = 40, TabStop = false, Radius = 10 };
             Help.FitWidth(150);
             Controls.Add(Help);
-            Bell = Tool("bell", "التنبيهات", BtnKind.Accent);
+            Bell = Tool("bell", "التنبيهات", BtnKind.Amber);
+            Refresh = Tool("refresh-cw", "تحديث الشاشة الحالية (F5)");
             Calc = Tool("calculator", "الحاسبة");
             WhatsApp = Tool("message-circle", "واتساب ويب");
             Backup = Tool("cloud-upload", "نسخة احتياطية الآن");
             Search = new ModernButton { Kind = BtnKind.Secondary, IconName = "search", Text = "بحث سريع   Ctrl+K", Font = Theme.F(9.5f), Height = 40, TabStop = false, Radius = 10 };
             Search.FitWidth(190);
             Controls.Add(Search);
-            tools = new[] { Help, Bell, Calc, WhatsApp, Backup, Search };
+            tools = new[] { Help, Bell, Refresh, Calc, WhatsApp, Backup, Search };
         }
 
         public void SetTitle(string t, string d, string i) { title = t; desc = d; icon = i; Invalidate(); }
@@ -880,8 +954,9 @@ public class DefsHubForm : BaseForm
     public DefsHubForm()
     {
         var tabs = new ModernTabs { Dock = DockStyle.Fill };
-        var icons = new[] { "warehouse", "wallet", "layers", "truck", "handshake" };
-        var defs = new[] { Defs.Warehouses(), Defs.Cashboxes(), Defs.CostCenters(), Defs.Delivery(), Defs.Partners() };
+        // المخازن والصناديق والخزائن لها شاشاتها في قسمي «المخزن» و«الحسابات»
+        var icons = new[] { "layers", "truck", "handshake" };
+        var defs = new[] { Defs.CostCenters(), Defs.Delivery(), Defs.Partners() };
         for (int i = 0; i < defs.Length; i++)
         {
             var f = new CrudForm(defs[i]) { TopLevel = false, FormBorderStyle = FormBorderStyle.None, Dock = DockStyle.Fill };
