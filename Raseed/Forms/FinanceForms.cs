@@ -301,7 +301,7 @@ public class StockForm : BaseForm
         bar.Controls.Add(Ui.Labeled("المخزن", cbWh));
         bar.Controls.Add(Ui.Labeled("العرض", cbView));
         bar.Controls.Add(Ui.Labeled("بحث", search));
-        var bMove = Theme.Btn("مناقلة بين المخازن", Theme.Accent, 170);
+        var bMove = Theme.Btn("نقل بين المخازن", Theme.Accent, 160, "arrow-left-right");
         var bDamage = Theme.Btn("إتلاف مواد", Theme.Danger, 120);
         bar.Controls.Add(bMove);
         bar.Controls.Add(bDamage);
@@ -314,8 +314,8 @@ public class StockForm : BaseForm
         cbWh.SelectedIndexChanged += (s, e) => LoadGrid();
         cbView.SelectedIndexChanged += (s, e) => LoadGrid();
         search.TextChanged += (s, e) => LoadGrid();
-        bMove.Click += (s, e) => Transfer();
-        bDamage.Click += (s, e) => { if (Session.Guard("damage")) main.Open("إتلاف مواد", new InvoiceForm("Damage")); };
+        bMove.Click += (s, e) => { if (Session.Guard("stock")) main.Go("نقل بين المخازن"); };
+        bDamage.Click += (s, e) => { if (Session.Guard("damage")) main.Go("المواد التالفة"); };
         grid.CellFormatting += (s, e) =>
         {
             if (e.RowIndex < 0 || !grid.Columns.Contains("أيام متبقية")) return;
@@ -358,26 +358,5 @@ public class StockForm : BaseForm
                     GROUP BY i.id ORDER BY i.name", wh, like);
                 break;
         }
-    }
-
-    void Transfer()
-    {
-        if (!Session.Guard("stock")) return;
-        if (cbView.SelectedIndex > 1 || grid.CurrentRow == null) { Ui.Warn("اختر وجبة من عرض «الأرصدة حسب الوجبة»."); return; }
-        long bid = Db.L(grid.CurrentRow.Cells["id"].Value);
-        var b = Db.Query("SELECT * FROM batches WHERE id=@p0", bid).Rows[0];
-        double have = Db.D(b["qty"]);
-        var target = Ui.Pick("مناقلة", "المخزن المستلم", "SELECT id,name FROM warehouses WHERE id<>@p0", Db.L(b["warehouse_id"]));
-        if (target == null) return;
-        if (!Ui.AskNumber("مناقلة", $"الكمية المنقولة (المتوفر {Ui.M(have)})", have, out var q) || q <= 0) return;
-        if (q > have + 1e-9) { Ui.Warn("الكمية أكبر من المتوفر."); return; }
-        using (var tx = new Tx())
-        {
-            tx.Exec("UPDATE batches SET qty=qty-@p0 WHERE id=@p1", q, bid);
-            tx.Exec("INSERT INTO batches(item_id,warehouse_id,expiry,qty,cost,created) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",
-                b["item_id"], target.Id, b["expiry"], q, b["cost"], Ui.Now);
-            tx.Commit();
-        }
-        LoadGrid();
     }
 }

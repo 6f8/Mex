@@ -32,6 +32,38 @@ public static class StockOps
         return list;
     }
 
+    /// <summary>المادة الخدمية لا مخزون لها (صيانة، اشتراك، شحن رصيد...)</summary>
+    public static bool IsService(Tx tx, long itemId) => Db.S(tx.Scalar("SELECT item_type FROM items WHERE id=@p0", itemId)) == "خدمية";
+
+    /// <summary>إنشاء سند إدخال مخزني (مثل رصيد أول المدة) وإضافة الكميات كوجبات جديدة</summary>
+    public static long StockIn(Tx tx, long whId, IEnumerable<(long Item, double Qty, double Cost, string Expiry)> lines, string notes)
+    {
+        var list = lines.Where(l => l.Qty > 0).ToList();
+        double total = list.Sum(l => l.Qty * l.Cost);
+        long inv = tx.Insert("INSERT INTO invoices(type,date,warehouse_id,total,discount,net,paid,notes,user_id) VALUES('StockIn',@p0,@p1,@p2,0,@p2,0,@p3,@p4)",
+            Ui.Now, whId, total, notes, Session.UserId);
+        foreach (var l in list)
+        {
+            long bid = tx.Insert("INSERT INTO batches(item_id,warehouse_id,expiry,qty,cost,created) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",
+                l.Item, whId, string.IsNullOrEmpty(l.Expiry) ? null : l.Expiry, l.Qty, l.Cost, Ui.Now);
+            tx.Exec("INSERT INTO invoice_lines(invoice_id,item_id,batch_id,qty,price,cost,expiry) VALUES(@p0,@p1,@p2,@p3,@p4,@p4,@p5)",
+                inv, l.Item, bid, l.Qty, l.Cost, string.IsNullOrEmpty(l.Expiry) ? null : l.Expiry);
+        }
+        return inv;
+    }
+
+    /// <summary>نقل كمية من مخزن إلى آخر مع الحفاظ على الصلاحية والكلفة لكل وجبة (FEFO)</summary>
+    public static void Transfer(Tx tx, long transferId, long itemId, long fromWh, long toWh, double qty)
+    {
+        foreach (var t in TakeFefo(tx, itemId, fromWh, qty))
+        {
+            long bid = tx.Insert("INSERT INTO batches(item_id,warehouse_id,expiry,qty,cost,created) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",
+                itemId, toWh, t.Expiry is DBNull ? null : t.Expiry, t.Qty, t.Cost, Ui.Now);
+            tx.Exec("INSERT INTO transfer_lines(transfer_id,item_id,qty,src_batch,dst_batch,expiry,cost) VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6)",
+                transferId, itemId, t.Qty, t.BatchId, bid, t.Expiry, t.Cost);
+        }
+    }
+
     public static double AvgCost(long itemId)
     {
         using var tx = new Tx(write: false);
@@ -49,7 +81,7 @@ public static class StockOps
 /// <summary>حذف الفاتورة أو عكسها (للتعديل) مع إرجاع المخزون والمبالغ</summary>
 public static class InvoiceOps
 {
-    public static bool IsOut(string type) => type is "Sale" or "PurchaseReturn" or "Damage";
+    public static bool IsOut(string type) => type is "Sale" or "PurchaseReturn" or "Damage" or "StockOut";
 
     /// <summary>يعكس أثر الفاتورة على المخزون والصناديق ويحذفها. يرمي استثناء برسالة واضحة إذا تعذر ذلك.</summary>
     public static void Remove(Tx tx, long id)
@@ -79,6 +111,7 @@ public static class InvoiceOps
         }
         tx.Exec("DELETE FROM cash_moves WHERE invoice_id=@p0", id);
         tx.Exec("DELETE FROM installments WHERE invoice_id=@p0", id);
+        tx.Exec("UPDATE item_serials SET invoice_id=NULL WHERE invoice_id=@p0", id);   // الأرقام التسلسلية المباعة تعود متوفرة
         tx.Exec("DELETE FROM invoice_lines WHERE invoice_id=@p0", id);
         tx.Exec("DELETE FROM invoices WHERE id=@p0", id);
         if (!IsOut(type)) tx.Exec("DELETE FROM batches WHERE qty<=0.0000001 AND id NOT IN (SELECT batch_id FROM invoice_lines WHERE batch_id IS NOT NULL) AND id NOT IN (SELECT batch_id FROM repair_parts WHERE batch_id IS NOT NULL)");
@@ -97,8 +130,8 @@ public static class InvoiceOps
             FROM invoice_lines l JOIN items i ON i.id=l.item_id WHERE l.invoice_id=@p0
             GROUP BY l.item_id, l.price, l.length, l.width ORDER BY MIN(l.id)", id);
 
-        var doc = PrintDoc.Header("فاتورة " + Ui.TypeName(type));
-        doc.Pair("رقم الفاتورة", id.ToString(), "التاريخ", Db.S(v["date"]).Length >= 16 ? Db.S(v["date"])[..16] : Db.S(v["date"]));
+        var doc = PrintDoc.Header(Ui.DocTitle(type));
+        doc.Pair(Ui.IsStockDoc(type) ? "رقم السند" : "رقم الفاتورة", id.ToString(), "التاريخ", Db.S(v["date"]).Length >= 16 ? Db.S(v["date"])[..16] : Db.S(v["date"]));
         if (Db.S(v["pname"]) != "") doc.Pair(type is "Sale" or "SaleReturn" ? "العميل" : "المورد", Db.S(v["pname"]), "الهاتف", Db.S(v["pphone"]));
         if (Db.S(v["pay_type"]) != "") doc.Pair("طريقة الدفع", Db.S(v["pay_type"]), "المستخدم", Db.S(v["uname"]));
         doc.Space();
@@ -116,7 +149,7 @@ public static class InvoiceOps
         doc.Pair("الإجمالي", Ui.M(Db.D(v["total"])), "الخصم", Ui.M(Db.D(v["discount"])));
         if (Db.D(v["delivery_fee"]) > 0) doc.Pair("التوصيل", Db.S(v["dname"]), "الأجور", Ui.M(Db.D(v["delivery_fee"])));
         doc.Text("الصافي: " + Ui.M(Db.D(v["net"])) + " د.ع", 13, true, StringAlignment.Center);
-        if (type != "Damage")
+        if (type != "Damage" && !Ui.IsStockDoc(type))
             doc.Pair("المدفوع", Ui.M(Db.D(v["paid"])), "المتبقي", Ui.M(Db.D(v["net"]) - Db.D(v["paid"])));
         long pid = Db.L(v["party_id"]);
         if (pid > 0) doc.Text("رصيد الحساب الحالي: " + Ui.M(Ui.PartyBalance(pid)), 10, false, StringAlignment.Center);

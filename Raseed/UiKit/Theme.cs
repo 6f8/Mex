@@ -9,28 +9,31 @@ public static class Theme
 {
     static Color C(string hex) => ColorTranslator.FromHtml(hex);
 
-    // ---- الهوية ----
-    public static readonly Color Brand = C("#0F8F83");          // أخضر مزرق (لون «الرصيد»)
-    public static readonly Color BrandDark = C("#0B7168");
-    public static readonly Color BrandSoft = C("#E7F5F3");
-    public static readonly Color BrandSoft2 = C("#CBEBE6");
+    // ---- الهوية: كحلي للأزرار الأساسية، وتدرج برتقالي/كهرماني للقائمة والتمييز ----
+    public static readonly Color Brand = C("#2B3A8F");
+    public static readonly Color BrandDark = C("#1E2A6E");
+    public static readonly Color BrandSoft = C("#EAEDF9");
+    public static readonly Color BrandSoft2 = C("#CFD6F2");
+    public static readonly Color Orange = C("#F0602A");
+    public static readonly Color Amber = C("#F7B52C");
+    public static readonly Color OrangeSoft = C("#FDE7DA");
 
-    // ---- الشريط الجانبي ----
-    public static readonly Color Sidebar = C("#0B1324");
-    public static readonly Color SidebarHover = C("#18233A");
-    public static readonly Color SidebarText = C("#B4BFD2");
-    public static readonly Color SidebarMuted = C("#5F6B84");
+    // ---- الشريط الجانبي (فاتح بلون كريمي) ----
+    public static readonly Color Sidebar = C("#F3EFE6");
+    public static readonly Color SidebarHover = C("#E9E2D4");
+    public static readonly Color SidebarText = C("#1F2937");
+    public static readonly Color SidebarMuted = C("#8B8171");
 
     // ---- الأسطح والنصوص ----
-    public static readonly Color Bg = C("#F3F5F9");
+    public static readonly Color Bg = C("#EEEAE1");
     public static readonly Color Surface = Color.White;
-    public static readonly Color SurfaceAlt = C("#F8FAFC");
-    public static readonly Color Border = C("#E3E8EF");
-    public static readonly Color BorderStrong = C("#D3DAE4");
-    public static readonly Color Ink = C("#0F172A");
-    public static readonly Color Text2 = C("#334155");
-    public static readonly Color Muted = C("#64748B");
-    public static readonly Color Subtle = C("#94A3B8");
+    public static readonly Color SurfaceAlt = C("#F8F6F1");
+    public static readonly Color Border = C("#E4DED2");
+    public static readonly Color BorderStrong = C("#D4CDBF");
+    public static readonly Color Ink = C("#1B1F2A");
+    public static readonly Color Text2 = C("#374151");
+    public static readonly Color Muted = C("#6B6557");
+    public static readonly Color Subtle = C("#A39B8B");
 
     // ---- حالات ----
     public static readonly Color Success = C("#16A34A"), SuccessSoft = C("#E8F7EE");
@@ -38,12 +41,10 @@ public static class Theme
     public static readonly Color Warning = C("#D97706"), WarningSoft = C("#FEF3E2");
     public static readonly Color Info = C("#2563EB"), InfoSoft = C("#EAF1FE");
     public static readonly Color Purple = C("#7C3AED"), PurpleSoft = C("#F2ECFE");
-    public static readonly Color Gray = C("#64748B"), GraySoft = C("#EEF2F6");
+    public static readonly Color Gray = C("#6B7280"), GraySoft = C("#EFEBE3");
 
     // أسماء قديمة ما زالت مستخدمة في الشاشات
     public static readonly Color Accent = Brand;
-    public static readonly Color Primary = Sidebar;
-    public static readonly Color PrimaryHover = SidebarHover;
 
     public static Font F(float size = 10f, FontStyle style = FontStyle.Regular) => FontKit.Get(size, style);
     /// <summary>وزن نصف عريض للعناوين والأزرار</summary>
@@ -122,7 +123,7 @@ public static class Theme
         g.DefaultCellStyle.SelectionBackColor = BrandSoft;
         g.DefaultCellStyle.SelectionForeColor = Ink;
         g.AlternatingRowsDefaultCellStyle.BackColor = Surface;
-        g.GridColor = C("#EDF1F5");
+        g.GridColor = C("#EFEAE0");
         g.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
         g.RowHeadersVisible = false;
         g.AllowUserToAddRows = false;
@@ -166,7 +167,7 @@ public static class Theme
         int hover = -1;
         g.CellMouseEnter += (s, e) => { if (e.RowIndex != hover) { int old = hover; hover = e.RowIndex; InvalidateRow(g, old); InvalidateRow(g, hover); } };
         g.MouseLeave += (s, e) => { int old = hover; hover = -1; InvalidateRow(g, old); };
-        var hoverColor = C("#F5F8FB");
+        var hoverColor = C("#FBF6EC");
         g.CellFormatting += (s, e) =>
         {
             if (e.RowIndex < 0) return;

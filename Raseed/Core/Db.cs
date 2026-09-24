@@ -67,6 +67,15 @@ public static class Db
         {
             ("cash_moves", "repair_id", "INTEGER"),
             ("items", "warranty_days", "INTEGER DEFAULT 0"),
+            // الإصدار 4: شاشة المواد الجديدة
+            ("items", "company_id", "INTEGER REFERENCES companies(id)"),
+            ("items", "item_type", "TEXT DEFAULT 'اعتيادية'"),
+            ("items", "cost_method", "TEXT DEFAULT 'كلفة الوجبة'"),
+            ("items", "buy_currency", "TEXT DEFAULT 'IQD'"),
+            ("items", "sell_currency", "TEXT DEFAULT 'IQD'"),
+            ("items", "price_buy", "REAL DEFAULT 0"),
+            ("items", "price_installment", "REAL DEFAULT 0"),
+            ("items", "track_serial", "INTEGER DEFAULT 0"),
         };
         foreach (var (table, col, def) in cols)
         {
@@ -156,6 +165,17 @@ CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY, employee_id INTEGE
 CREATE TABLE IF NOT EXISTS hr_moves(id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id), date TEXT NOT NULL,
     kind TEXT NOT NULL, amount REAL NOT NULL, note TEXT, cash_ref TEXT, user_id INTEGER);
 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY, date TEXT, user_id INTEGER, action TEXT, details TEXT);
+
+-- الإصدار 4: الشركات المصنّعة، الأرقام التسلسلية، النقل بين المخازن
+CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, notes TEXT);
+CREATE TABLE IF NOT EXISTS item_serials(id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL, warehouse_id INTEGER, invoice_id INTEGER, created TEXT, UNIQUE(item_id, serial));
+CREATE INDEX IF NOT EXISTS ix_serials_serial ON item_serials(serial);
+CREATE TABLE IF NOT EXISTS transfers(id INTEGER PRIMARY KEY, date TEXT NOT NULL, from_wh INTEGER NOT NULL REFERENCES warehouses(id),
+    to_wh INTEGER NOT NULL REFERENCES warehouses(id), notes TEXT, user_id INTEGER);
+CREATE TABLE IF NOT EXISTS transfer_lines(id INTEGER PRIMARY KEY, transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id), qty REAL NOT NULL, src_batch INTEGER, dst_batch INTEGER, expiry TEXT, cost REAL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS ix_tlines_transfer ON transfer_lines(transfer_id);
 
 -- فهارس الأداء: رصيد الجهات وكشوف الحساب والتقارير تبحث بهذه الأعمدة باستمرار
 CREATE INDEX IF NOT EXISTS ix_invoices_party ON invoices(party_id);

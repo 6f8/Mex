@@ -123,7 +123,7 @@ public class ReportsForm : BaseForm
             double disc = Q("SELECT SUM(discount) FROM invoices WHERE type='Sale' AND date BETWEEN @p0 AND @p1");
             double ret = Q($"SELECT SUM(l.qty*l.price) {L}'SaleReturn'");
             double cogs = Q($"SELECT SUM(l.qty*l.cost) {L}'Sale'") - Q($"SELECT SUM(l.qty*l.cost) {L}'SaleReturn'");
-            double damage = Q($"SELECT SUM(l.qty*l.cost) {L}'Damage'");
+            double damage = Q($"SELECT SUM(l.qty*l.cost) {L}'Damage'") + Q($"SELECT SUM(l.qty*l.cost) {L}'StockOut'");
             double exp = -Q("SELECT SUM(amount*rate) FROM cash_moves WHERE kind IN ('مصروف','راتب','سلفة') AND date BETWEEN @p0 AND @p1");
             double rep = Q("SELECT SUM(final_price) FROM repairs WHERE status='تم التسليم' AND date_out BETWEEN @p0 AND @p1");
             double repParts = Q("SELECT SUM(p.qty*p.cost) FROM repair_parts p JOIN repairs r ON r.id=p.repair_id WHERE r.status='تم التسليم' AND r.date_out BETWEEN @p0 AND @p1");
@@ -131,7 +131,7 @@ public class ReportsForm : BaseForm
             netProfit = sales - disc - ret - cogs - damage - exp + (rep - repParts);
             summary.Text =
                 $"المبيعات: {Ui.M(sales)}    |    الخصومات: {Ui.M(disc)}    |    المرتجعات: {Ui.M(ret)}    |    أجور التوصيل المحصلة: {Ui.M(fees)} (أمانة لشركات التوصيل)\n" +
-                $"كلفة البضاعة المباعة: {Ui.M(cogs)}    |    المواد المتلفة: {Ui.M(damage)}\n" +
+                $"كلفة البضاعة المباعة: {Ui.M(cogs)}    |    المواد المتلفة والمصروفة داخليًا: {Ui.M(damage)}\n" +
                 $"إيراد الصيانة: {Ui.M(rep)}    |    كلفة قطع الصيانة: {Ui.M(repParts)}    |    ربح الصيانة: {Ui.M(rep - repParts)}\n" +
                 $"المصروفات والرواتب والسلف: {Ui.M(exp)}\n\n" +
                 $"صافي الربح للفترة: {Ui.M(netProfit)}";
@@ -247,8 +247,8 @@ public class ReportsForm : BaseForm
             var dt = Db.Query($@"SELECT d, kind, ref, party, inq, outq FROM (
                 SELECT i.date AS d, {string.Format(Ui.TypeCaseSql, "i.type")} || CASE WHEN i.notes LIKE 'تسوية جرد%' THEN ' (جرد)' ELSE '' END AS kind,
                     i.id AS ref, IFNULL(p.name,'') AS party,
-                    CASE WHEN i.type IN ('Purchase','SaleReturn') THEN l.qty ELSE 0 END AS inq,
-                    CASE WHEN i.type IN ('Sale','PurchaseReturn','Damage') THEN l.qty ELSE 0 END AS outq
+                    CASE WHEN i.type IN ('Purchase','SaleReturn','StockIn') THEN l.qty ELSE 0 END AS inq,
+                    CASE WHEN i.type IN ('Sale','PurchaseReturn','Damage','StockOut') THEN l.qty ELSE 0 END AS outq
                 FROM invoice_lines l JOIN invoices i ON i.id=l.invoice_id LEFT JOIN parties p ON p.id=i.party_id WHERE l.item_id=@p0
                 UNION ALL
                 SELECT p.date, 'صيانة', r.id, r.customer, 0, p.qty FROM repair_parts p JOIN repairs r ON r.id=p.repair_id WHERE p.item_id=@p0
@@ -385,11 +385,11 @@ public class InvoicesListForm : BaseForm
     readonly ComboBox cbType = Ui.Combo(150);
     readonly TextBox search = new() { Width = 220, PlaceholderText = "اسم الجهة أو رقم الفاتورة" };
     readonly DataGridView grid = Ui.NewGrid(), lines = Ui.NewGrid();
-    static readonly string[] Codes = { "", "Sale", "Purchase", "SaleReturn", "PurchaseReturn", "Damage" };
+    static readonly string[] Codes = { "", "Sale", "Purchase", "SaleReturn", "PurchaseReturn", "Damage", "StockIn", "StockOut" };
 
     public InvoicesListForm()
     {
-        cbType.Items.AddRange(new object[] { "الكل", "بيع", "شراء", "إرجاع بيع", "إرجاع شراء", "إتلاف" });
+        cbType.Items.AddRange(new object[] { "الكل", "بيع", "شراء", "إرجاع بيع", "إرجاع شراء", "إتلاف", "إدخال مخزني", "إخراج مخزني" });
         var bar = Theme.Bar();
         bar.Controls.Add(Ui.Labeled("النوع", cbType));
         bar.Controls.Add(Ui.Labeled("بحث", search));
@@ -438,7 +438,7 @@ public class InvoicesListForm : BaseForm
         long id = Sel;
         if (id == 0 || !Session.Guard("edit_invoice")) return;
         var type = Db.S(Db.Scalar("SELECT type FROM invoices WHERE id=@p0", id));
-        var perm = type switch { "Sale" => "sales", "Purchase" => "purchases", "Damage" => "damage", _ => "returns" };
+        var perm = type switch { "Sale" => "sales", "Purchase" => "purchases", "Damage" => "damage", "StockIn" or "StockOut" => "stock", _ => "returns" };
         if (!Session.Guard(perm)) return;
         if (Db.S(Db.Scalar("SELECT notes FROM invoices WHERE id=@p0", id)).StartsWith("تسوية جرد")) { Ui.Warn("قيود الجرد لا تُعدَّل، يمكن حذفها فقط."); return; }
         var f = new InvoiceForm(type, id);
@@ -517,7 +517,7 @@ public class DashboardForm : BaseForm
         var kpis = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 140, WrapContents = false, Padding = new Padding(0, 4, 0, 0) };
         var cards = new[]
         {
-            Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Brand, "trending-up", trend, "سجل الفواتير"),
+            Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Orange, "trending-up", trend, "سجل الفواتير"),
             Kpi("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success, "wallet", "كل الصناديق بالدينار", "السندات والصيرفة"),
             Kpi("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning, "hand-coins", "على العملاء", "العملاء والموردون"),
             Kpi("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger, "landmark", "للموردين", "العملاء والموردون"),
@@ -552,7 +552,7 @@ public class DashboardForm : BaseForm
         for (int i = 0; i < 3; i++) grid2.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
         var quick = new (string Text, string Icon, string Page, BtnKind Kind)[]
         {
-            ("فاتورة بيع", "shopping-cart", "فاتورة بيع", BtnKind.Primary),
+            ("فاتورة بيع", "shopping-cart", "فاتورة بيع", BtnKind.Accent),
             ("فاتورة شراء", "truck", "فاتورة شراء", BtnKind.Soft),
             ("استلام جهاز", "wrench", "الصيانة", BtnKind.Soft),
             ("سند قبض", "wallet", "السندات والصيرفة", BtnKind.Soft),
@@ -574,8 +574,8 @@ public class DashboardForm : BaseForm
         // ---------- التنبيهات ----------
         var alertsCard = new CardPanel { Dock = DockStyle.Fill, Title = "التنبيهات", Subtitle = "ما يحتاج انتباهك اليوم", IconName = "bell" };
         var chips = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
-        chips.Controls.Add(Chip("مواد تحت حد الطلب", Stats.LowStock(), Theme.Purple, "package-minus", "المخازن والصلاحيات"));
-        chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "المخازن والصلاحيات"));
+        chips.Controls.Add(Chip("مواد تحت حد الطلب", Stats.LowStock(), Theme.Purple, "package-minus", "أرصدة المخازن"));
+        chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "أرصدة المخازن"));
         chips.Controls.Add(Chip("أقساط مستحقة", Stats.DueInstallments(remDays), Theme.Warning, "calendar-clock", "الأقساط"));
         chips.Controls.Add(Chip("أجهزة في الصيانة", Stats.RepairsOpen(), Theme.Info, "wrench", "الصيانة"));
         chips.Controls.Add(Chip("جاهزة للتسليم", Stats.RepairsReady(), Theme.Success, "package-check", "الصيانة"));
