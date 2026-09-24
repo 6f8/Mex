@@ -15,6 +15,11 @@ public class BaseForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.None;
     }
+
+    /// <summary>يُستدعى كلما عادت الشاشة لتكون التبويب النشط (لتحديث القوائم مثلًا)</summary>
+    public virtual void OnPageActivated() { }
+    /// <summary>قبل إغلاق التبويب: false لإلغاء الإغلاق (مثل فاتورة لم تُحفظ)</summary>
+    public virtual bool ConfirmClose() => true;
 }
 
 /// <summary>عنصر في القوائم المنسدلة</summary>
@@ -35,11 +40,18 @@ public static class Ui
     public static readonly Dictionary<string, string> TypeNames = new()
     {
         ["Sale"] = "بيع", ["Purchase"] = "شراء", ["SaleReturn"] = "إرجاع بيع",
-        ["PurchaseReturn"] = "إرجاع شراء", ["Damage"] = "إتلاف"
+        ["PurchaseReturn"] = "إرجاع شراء", ["Damage"] = "إتلاف",
+        ["StockIn"] = "إدخال مخزني", ["StockOut"] = "إخراج مخزني"
     };
     public static string TypeName(string t) => TypeNames.TryGetValue(t ?? "", out var n) ? n : t;
 
-    public const string TypeCaseSql = "CASE {0} WHEN 'Sale' THEN 'بيع' WHEN 'Purchase' THEN 'شراء' WHEN 'SaleReturn' THEN 'إرجاع بيع' WHEN 'PurchaseReturn' THEN 'إرجاع شراء' ELSE 'إتلاف' END";
+    /// <summary>سندات المخزن لا تمس الحسابات ولا الصناديق</summary>
+    public static bool IsStockDoc(string t) => t is "StockIn" or "StockOut";
+
+    /// <summary>«فاتورة بيع» أو «سند إدخال مخزني»</summary>
+    public static string DocTitle(string t) => (IsStockDoc(t) ? "سند " : "فاتورة ") + TypeName(t);
+
+    public const string TypeCaseSql = "CASE {0} WHEN 'Sale' THEN 'بيع' WHEN 'Purchase' THEN 'شراء' WHEN 'SaleReturn' THEN 'إرجاع بيع' WHEN 'PurchaseReturn' THEN 'إرجاع شراء' WHEN 'StockIn' THEN 'إدخال مخزني' WHEN 'StockOut' THEN 'إخراج مخزني' ELSE 'إتلاف' END";
 
     public static string M(double v) => (Math.Abs(v) < 0.005 ? 0 : v).ToString("#,0.##");
     public static double V(object o) => o is double d ? d : double.TryParse(Convert.ToString(o), out var x) ? x : 0;

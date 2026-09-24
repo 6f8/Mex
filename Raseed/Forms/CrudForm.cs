@@ -255,6 +255,14 @@ public static class Defs
         }
     };
 
+    public static EntityDef Companies() => new()
+    {
+        Table = "companies", Title = "الشركات", Icon = "building-2", Perm = "items",
+        ListSql = @"SELECT c.id, c.name AS [الاسم], c.phone AS [الهاتف],
+            (SELECT COUNT(*) FROM items i WHERE i.company_id=c.id) AS [عدد المواد] FROM companies c",
+        Fields = { F("name", "اسم الشركة / الماركة"), F("phone", "الهاتف"), F("notes", "ملاحظات", FType.Memo) }
+    };
+
     public static EntityDef Parties() => new()
     {
         Table = "parties", Title = "العملاء والموردون", Icon = "users", Perm = "parties",

@@ -4,14 +4,14 @@ using System.Runtime.InteropServices;
 
 namespace Raseed;
 
-/// <summary>شعار البرنامج: مربع دائري بتدرج لون الهوية وحرف «ر»</summary>
+/// <summary>شعار البرنامج: مربع دائري بتدرج برتقالي/كهرماني وحرف «ر»</summary>
 public static class Brand
 {
     public static void DrawMark(Graphics g, RectangleF r)
     {
         Gfx.Hq(g);
         using (var p = Gfx.Round(r, r.Width * 0.28f))
-        using (var b = new LinearGradientBrush(r, ColorTranslator.FromHtml("#14B8A6"), Theme.BrandDark, 45f))
+        using (var b = new LinearGradientBrush(r, Theme.Amber, Theme.Orange, 60f))
             g.FillPath(b, p);
         using (var p = Gfx.Round(RectangleF.Inflate(r, -1, -1), r.Width * 0.27f))
         using (var pen = new Pen(Color.FromArgb(60, 255, 255, 255), 1)) g.DrawPath(pen, p);
@@ -36,7 +36,7 @@ public class LoginForm : BaseForm
         KeyPreview = true;
 
         var brand = new BrandPanel { Dock = DockStyle.Right, Width = 420 };
-        var close = new ModernButton { Kind = BtnKind.Dark, IconName = "x", Size = new Size(36, 36), Location = new Point(16, 16), TabStop = false };
+        var close = new ModernButton { Kind = BtnKind.Glass, IconName = "x", Size = new Size(36, 36), Location = new Point(16, 16), TabStop = false };
         close.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
         brand.Controls.Add(close);
 
@@ -134,7 +134,7 @@ public class LoginForm : BaseForm
         public BrandPanel()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            BackColor = Theme.Sidebar;
+            BackColor = ColorTranslator.FromHtml("#E9571F");   // لون التدرج عند زر الإغلاق (الأزرار تُرسم فوق لون الحاوية)
         }
 
         protected override void OnPaintBackground(PaintEventArgs e) { }
@@ -144,35 +144,38 @@ public class LoginForm : BaseForm
             var g = e.Graphics;
             Gfx.Hq(g);
             var rect = ClientRectangle;
-            using (var bg = new LinearGradientBrush(rect, ColorTranslator.FromHtml("#0B1324"), ColorTranslator.FromHtml("#0C3B3C"), 60f))
+            using (var bg = new LinearGradientBrush(rect, ColorTranslator.FromHtml("#E8531F"), ColorTranslator.FromHtml("#F6A928"), 70f))
                 g.FillRectangle(bg, rect);
             // دوائر زخرفية ناعمة
-            using (var b1 = new SolidBrush(Color.FromArgb(22, 20, 184, 166))) g.FillEllipse(b1, -120, Height - 260, 380, 380);
-            using (var b2 = new SolidBrush(Color.FromArgb(16, 255, 255, 255))) g.FillEllipse(b2, Width - 170, -110, 300, 300);
-            using (var pen = new Pen(Color.FromArgb(28, 255, 255, 255), 1)) g.DrawEllipse(pen, Width - 230, -170, 420, 420);
+            using (var b1 = new SolidBrush(Color.FromArgb(34, 255, 255, 255))) g.FillEllipse(b1, -120, Height - 260, 380, 380);
+            using (var b2 = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillEllipse(b2, Width - 170, -110, 300, 300);
+            using (var pen = new Pen(Color.FromArgb(50, 255, 255, 255), 1)) g.DrawEllipse(pen, Width - 230, -170, 420, 420);
 
             int right = Width - 48;
-            Brand.DrawMark(g, new RectangleF(right - 56, 70, 56, 56));
-            TextRenderer.DrawText(g, "رصيد", Theme.FS(30), new Rectangle(40, 140, right - 40, 60), Color.White, Gfx.RtlStart);
-            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(40, 200, right - 40, 32), ColorTranslator.FromHtml("#9FB3C8"), Gfx.RtlStart);
+            // الشعار بخلفية بيضاء ليتميز عن التدرج
+            var mark = new RectangleF(right - 58, 70, 58, 58);
+            Gfx.FillRound(g, mark, 16, Color.White);
+            TextRenderer.DrawText(g, "ر", FontKit.Get(23, FontStyle.Bold), Rectangle.Round(new RectangleF(mark.X, mark.Y - 3, mark.Width, mark.Height)), Theme.Orange, Gfx.Center);
+            TextRenderer.DrawText(g, "رصيد", Theme.FS(30), new Rectangle(40, 142, right - 40, 60), Color.White, Gfx.RtlStart);
+            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(40, 202, right - 40, 32), ColorTranslator.FromHtml("#FFF1E6"), Gfx.RtlStart);
 
             var features = new[]
             {
                 ("scan-barcode", "فواتير سريعة بالباركود"),
-                ("package", "مخزون بتواريخ الصلاحية"),
+                ("warehouse", "مخازن متعددة بتواريخ الصلاحية"),
                 ("users", "حسابات العملاء والأقساط"),
                 ("chart-column", "تقارير الأرباح لحظة بلحظة"),
             };
-            int y = 270;
+            int y = 272;
             foreach (var (icon, text) in features)
             {
                 var ir = new RectangleF(right - 34, y, 34, 34);
-                Gfx.FillRound(g, ir, 10, Color.FromArgb(30, 255, 255, 255));
-                Icons.Draw(g, icon, ir, ColorTranslator.FromHtml("#5EEAD4"), 17);
-                TextRenderer.DrawText(g, text, Theme.F(10.5f), new Rectangle(40, y, right - 34 - 14 - 40, 34), ColorTranslator.FromHtml("#E2E8F0"), Gfx.RtlStart);
+                Gfx.FillRound(g, ir, 10, Color.FromArgb(56, 255, 255, 255));
+                Icons.Draw(g, icon, ir, Color.White, 17);
+                TextRenderer.DrawText(g, text, Theme.F(10.5f), new Rectangle(40, y, right - 34 - 14 - 40, 34), Color.White, Gfx.RtlStart);
                 y += 50;
             }
-            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(40, Height - 50, right - 40, 24), ColorTranslator.FromHtml("#64748B"), Gfx.RtlStart);
+            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(40, Height - 50, right - 40, 24), ColorTranslator.FromHtml("#FFE3CC"), Gfx.RtlStart);
         }
     }
 }
@@ -234,13 +237,33 @@ public class SetupDialog : DialogShell
 public class MainForm : BaseForm
 {
     public record Page(string Text, string Perm, string Icon, string Group, string Desc, Func<Form> Make);
+    record Section(string Name, string Icon, Color Tint);
 
-    readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 18, 22, 18), BackColor = Theme.Bg };
-    readonly HeaderBar header;
+    const string HomeKey = "الرئيسية";
+    const int MaxTabs = 8;
+
+    static readonly Section[] Sections =
+    {
+        new("المخزن", "warehouse", Theme.Orange),
+        new("بيع", "shopping-cart", Theme.Success),
+        new("شراء", "truck", Theme.Info),
+        new("الحسابات", "wallet", Theme.Purple),
+        new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490")),
+        new("الإدارة", "settings", Theme.Gray),
+    };
+
+    readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), BackColor = Theme.Bg };
+    readonly TopBar top;
+    readonly DocTabs tabs = new() { Dock = DockStyle.Fill };
+    readonly Panel side = new() { Dock = DockStyle.Left, Width = 286, BackColor = Theme.Sidebar };
+    readonly ScrollHost nav = new() { Dock = DockStyle.Fill, BackColor = Theme.Sidebar };
     readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "رصيد" };
     readonly System.Windows.Forms.Timer timer = new() { Interval = 30_000 };
-    readonly List<NavButton> navButtons = new();
-    Form current;
+    readonly Dictionary<string, (Form Form, Page Page)> open = new();
+    readonly List<(NavSection Head, List<NavItem> Items)> sections = new();
+    readonly List<(NavItem Btn, Page Page)> navItems = new();
+    NavSection homeHead;
+    string activeKey;
     public bool LoggedOut { get; private set; }
     public static MainForm Instance { get; private set; }
 
@@ -248,23 +271,34 @@ public class MainForm : BaseForm
 
     List<Page> BuildPages() => new()
     {
-        new("الرئيسية", null, "layout-dashboard", "", "نظرة سريعة على نشاط اليوم والتنبيهات", () => new DashboardForm(this)),
-        new("فاتورة بيع", "sales", "shopping-cart", "المبيعات", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
-        new("إرجاع بيع", "returns", "undo-2", "المبيعات", "إرجاع مواد من عميل إلى المخزن", () => new InvoiceForm("SaleReturn")),
-        new("سجل الفواتير", "reports", "receipt-text", "المبيعات", "البحث في الفواتير السابقة وطباعتها وتعديلها", () => new InvoicesListForm()),
-        new("الأقساط", "installments", "calendar-clock", "المبيعات", "متابعة الأقساط وتسديدها وتذكير العملاء", () => new InstallmentsForm()),
-        new("فاتورة شراء", "purchases", "truck", "المشتريات والمخزون", "إدخال بضاعة من المورد إلى المخزن", () => new InvoiceForm("Purchase")),
-        new("إرجاع شراء", "returns", "redo-2", "المشتريات والمخزون", "إرجاع مواد إلى المورد", () => new InvoiceForm("PurchaseReturn")),
-        new("المواد", "items", "package", "المشتريات والمخزون", "تعريف المواد والأسعار والباركود", () => new CrudForm(Defs.Items())),
-        new("المخازن والصلاحيات", "stock", "warehouse", "المشتريات والمخزون", "الأرصدة حسب الوجبة وتواريخ انتهاء الصلاحية", () => new StockForm(this)),
-        new("جرد المخزون", "stock", "clipboard-check", "المشتريات والمخزون", "مطابقة الرصيد الفعلي وتسوية الفروقات", () => new StockCountForm()),
-        new("إتلاف مواد", "damage", "ban", "المشتريات والمخزون", "إخراج المواد التالفة أو المنتهية من المخزن", () => new InvoiceForm("Damage")),
-        new("ملصقات الباركود", "labels", "barcode", "المشتريات والمخزون", "طباعة ملصقات الأسعار والباركود", () => new LabelsForm()),
+        new(HomeKey, null, "house", "", "نظرة سريعة على نشاط اليوم والتنبيهات", () => new DashboardForm(this)),
+
+        new("المواد", "items", "package", "المخزن", "تعريف المواد والأسعار والباركود والرصيد الافتتاحي", () => new ItemsForm()),
+        new("المخازن", "stock", "warehouse", "المخزن", "أسماء المخازن والفروع", () => new CrudForm(Defs.Warehouses())),
+        new("الشركات", "items", "building-2", "المخزن", "الشركات المصنّعة أو الموردة للمواد", () => new CrudForm(Defs.Companies())),
+        new("طباعة الباركود", "labels", "barcode", "المخزن", "طباعة ملصقات الأسعار والباركود", () => new LabelsForm()),
+        new("إدخال مخزني", "stock", "arrow-down-to-line", "المخزن", "إدخال مواد إلى المخزن بدون مورد (رصيد أول المدة، هدايا، إنتاج)", () => new InvoiceForm("StockIn")),
+        new("إخراج مخزني", "stock", "arrow-up-from-line", "المخزن", "إخراج مواد من المخزن لغير البيع (استهلاك داخلي، عينات)", () => new InvoiceForm("StockOut")),
+        new("تسوية مخزنية", "stock", "clipboard-check", "المخزن", "جرد الرصيد الفعلي وتسوية الفروقات", () => new StockCountForm()),
+        new("نقل بين المخازن", "stock", "arrow-left-right", "المخزن", "نقل مواد من مخزن إلى آخر مع حفظ الصلاحية والكلفة", () => new TransferForm()),
+        new("المواد التالفة", "damage", "ban", "المخزن", "إخراج المواد التالفة أو المنتهية من المخزن", () => new InvoiceForm("Damage")),
+        new("أرصدة المخازن", "stock", "boxes", "المخزن", "الأرصدة حسب الوجبة وتواريخ انتهاء الصلاحية والنواقص", () => new StockForm(this)),
+
+        new("فاتورة بيع", "sales", "shopping-cart", "بيع", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
+        new("إرجاع بيع", "returns", "undo-2", "بيع", "إرجاع مواد من عميل إلى المخزن", () => new InvoiceForm("SaleReturn")),
+        new("الأقساط", "installments", "calendar-clock", "بيع", "متابعة الأقساط وتسديدها وتذكير العملاء", () => new InstallmentsForm()),
+        new("سجل الفواتير", "reports", "receipt-text", "بيع", "البحث في الفواتير والسندات السابقة وطباعتها وتعديلها", () => new InvoicesListForm()),
+
+        new("فاتورة شراء", "purchases", "truck", "شراء", "إدخال بضاعة من المورد إلى المخزن", () => new InvoiceForm("Purchase")),
+        new("إرجاع شراء", "returns", "redo-2", "شراء", "إرجاع مواد إلى المورد", () => new InvoiceForm("PurchaseReturn")),
+
         new("العملاء والموردون", "parties", "users", "الحسابات", "الحسابات والأرصدة وسقوف الذمة", () => new CrudForm(Defs.Parties())),
         new("السندات والصيرفة", "vouchers", "wallet", "الحسابات", "قبض وصرف ومصروفات وتحويل بين الصناديق", () => new VoucherForm()),
         new("التقارير والأرباح", "reports", "chart-column", "الحسابات", "كشوف الحساب والأرباح وحركة الصناديق", () => new ReportsForm()),
+
         new("الصيانة", "repairs", "wrench", "الصيانة والموظفون", "استلام الأجهزة ومتابعتها وتسليمها", () => new RepairsForm()),
         new("الموارد البشرية", "hr", "id-card", "الصيانة والموظفون", "الموظفون والحضور والسلف والرواتب", () => new HrForm()),
+
         new("مدير المهام", "tasks", "list-todo", "الإدارة", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
         new("التعريفات", "settings", "layers", "الإدارة", "المخازن والصناديق ومراكز الكلفة والتوصيل والشركاء", () => new DefsHubForm()),
         new("المستخدمون والصلاحيات", "users", "shield-check", "الإدارة", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
@@ -282,65 +316,88 @@ public class MainForm : BaseForm
         KeyPreview = true;
         Pages = BuildPages().Where(p => Session.Can(p.Perm)).ToList();
 
-        // ---------- الشريط الجانبي ----------
-        var side = new Panel { Dock = DockStyle.Left, Width = 262, BackColor = Theme.Sidebar };
-        var logo = new Panel { Dock = DockStyle.Top, Height = 86, BackColor = Theme.Sidebar };
+        // ---------- الشعار ----------
+        var logo = new Panel { Dock = DockStyle.Top, Height = 96, BackColor = Theme.Sidebar };
         logo.Paint += (s, e) =>
         {
             var g = e.Graphics;
-            Brand.DrawMark(g, new RectangleF(logo.Width - 20 - 42, 22, 42, 42));
-            TextRenderer.DrawText(g, "رصيد", Theme.FS(16), new Rectangle(12, 18, logo.Width - 90, 30), Color.White, Gfx.RtlStart);
-            TextRenderer.DrawText(g, Settings.Get("shop_name"), Theme.F(9), new Rectangle(12, 46, logo.Width - 90, 22), Theme.SidebarMuted, Gfx.RtlStart);
-            using var pen = new Pen(Color.FromArgb(24, 255, 255, 255));
-            g.DrawLine(pen, 18, logo.Height - 1, logo.Width - 18, logo.Height - 1);
+            Brand.DrawMark(g, new RectangleF(logo.Width - 22 - 50, 22, 50, 50));
+            TextRenderer.DrawText(g, "رصيد", Theme.FS(19), new Rectangle(12, 18, logo.Width - 22 - 50 - 26, 34), Theme.Brand, Gfx.RtlStart);
+            TextRenderer.DrawText(g, "للمبيعات والمخازن", Theme.FS(9.5f), new Rectangle(12, 50, logo.Width - 22 - 50 - 26, 22), Theme.Orange, Gfx.RtlStart);
+            using var pen = new Pen(Theme.BorderStrong);
+            g.DrawLine(pen, 0, logo.Height - 1, logo.Width, logo.Height - 1);
         };
 
-        var userBox = new Panel { Dock = DockStyle.Bottom, Height = 76, BackColor = Theme.Sidebar };
+        // ---------- المستخدم ----------
+        var userBox = new Panel { Dock = DockStyle.Bottom, Height = 74, BackColor = Theme.Sidebar };
         userBox.Paint += (s, e) =>
         {
             var g = e.Graphics;
-            using (var pen = new Pen(Color.FromArgb(24, 255, 255, 255))) g.DrawLine(pen, 18, 0, userBox.Width - 18, 0);
-            Avatar.Draw(g, new RectangleF(userBox.Width - 20 - 40, 18, 40, 40), Session.UserName, Theme.Brand);
-            TextRenderer.DrawText(g, Session.UserName, Theme.FS(10), new Rectangle(104, 16, userBox.Width - 176, 24), Color.White, Gfx.RtlStart);
-            TextRenderer.DrawText(g, Session.IsAdmin ? "مدير النظام" : "مستخدم", Theme.F(8.5f), new Rectangle(104, 40, userBox.Width - 176, 20), Theme.SidebarMuted, Gfx.RtlStart);
+            using (var pen = new Pen(Theme.BorderStrong)) g.DrawLine(pen, 0, 0, userBox.Width, 0);
+            Avatar.Draw(g, new RectangleF(userBox.Width - 20 - 40, 17, 40, 40), Session.UserName, Theme.Brand);
+            TextRenderer.DrawText(g, Session.UserName, Theme.FS(10), new Rectangle(104, 15, userBox.Width - 176, 24), Theme.SidebarText, Gfx.RtlStart);
+            TextRenderer.DrawText(g, Session.IsAdmin ? "مدير النظام" : "مستخدم", Theme.F(8.5f), new Rectangle(104, 39, userBox.Width - 176, 20), Theme.SidebarMuted, Gfx.RtlStart);
         };
-        var bLogout = new ModernButton { Kind = BtnKind.Dark, IconName = "log-out", Size = new Size(38, 38), Location = new Point(16, 19), TabStop = false };
+        var bLogout = new ModernButton { Kind = BtnKind.Ghost, IconName = "log-out", Size = new Size(38, 38), Location = new Point(14, 18), TabStop = false };
         new ToolTip().SetToolTip(bLogout, "تسجيل الخروج");
-        bLogout.Click += (s, e) => { if (Ui.Confirm("تسجيل الخروج من البرنامج؟")) { LoggedOut = true; Close(); } };
-        var bPwd = new ModernButton { Kind = BtnKind.Dark, IconName = "key-round", Size = new Size(38, 38), Location = new Point(58, 19), TabStop = false };
+        bLogout.Click += (s, e) => { if (Ui.Confirm("تسجيل الخروج من البرنامج؟") && CloseAllTabs()) { LoggedOut = true; Close(); } };
+        var bPwd = new ModernButton { Kind = BtnKind.Ghost, IconName = "key-round", Size = new Size(38, 38), Location = new Point(56, 18), TabStop = false };
         new ToolTip().SetToolTip(bPwd, "تغيير كلمة المرور");
         bPwd.Click += (s, e) => { using var d = new PasswordDialog(); d.ShowModal(); };
         userBox.Controls.Add(bLogout);
         userBox.Controls.Add(bPwd);
 
-        var nav = new ScrollHost { Dock = DockStyle.Fill, BackColor = Theme.Sidebar };
-        string group = null;
-        foreach (var p in Pages)
+        // ---------- الأقسام (تُفتح وتُطوى) ----------
+        var home = Pages.FirstOrDefault(p => p.Text == HomeKey);
+        if (home != null)
         {
-            if (p.Group != group && p.Group != "")
-                nav.Add(new Label
-                {
-                    Text = p.Group, AutoSize = false, Height = 34, ForeColor = Theme.SidebarMuted, Font = Theme.FS(8.5f),
-                    TextAlign = ContentAlignment.BottomLeft, Padding = new Padding(10, 0, 10, 4), BackColor = Theme.Sidebar
-                });
-            group = p.Group;
-            var b = new NavButton { Text = p.Text, IconName = p.Icon, Group = p.Group, Tag = p };
-            b.Click += (s, e) => Navigate(p);
-            navButtons.Add(b);
-            nav.Add(b);
+            homeHead = new NavSection { Text = HomeKey, IconName = home.Icon, Tint = Theme.Brand, HasChildren = false };
+            homeHead.Click += (s, e) => Navigate(home);
+            nav.Add(homeHead);
+        }
+        foreach (var sec in Sections)
+        {
+            var pages = Pages.Where(p => p.Group == sec.Name).ToList();
+            if (pages.Count == 0) continue;
+            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint };
+            var items = new List<NavItem>();
+            nav.Add(head);
+            for (int i = 0; i < pages.Count; i++)
+            {
+                var p = pages[i];
+                // تدرّج من البرتقالي إلى الكهرماني على طول القسم
+                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = Gfx.Mix(Theme.Orange, Theme.Amber, pages.Count == 1 ? 0 : (float)i / (pages.Count - 1)), Visible = false };
+                item.Click += (s, e) => Navigate(p);
+                items.Add(item);
+                navItems.Add((item, p));
+                nav.Add(item);
+            }
+            head.Click += (s, e) => Expand(head.Expanded ? null : sec.Name);
+            sections.Add((head, items));
         }
         side.Controls.Add(nav);
         side.Controls.Add(userBox);
         side.Controls.Add(logo);
 
-        // ---------- الرأس ----------
-        header = new HeaderBar();
-        header.Search.Click += (s, e) => ShowPalette();
-        header.Bell.Click += (s, e) => Navigate(Pages[0]);
+        // ---------- الشريط العلوي والتبويبات ----------
+        top = new TopBar();
+        top.Menu.Click += (s, e) => ToggleSidebar();
+        top.Search.Click += (s, e) => ShowPalette();
+        top.Bell.Click += (s, e) => { if (home != null) Navigate(home); };
+        top.Backup.Click += (s, e) => BackupNow();
+        top.WhatsApp.Click += (s, e) => Shell("https://web.whatsapp.com/");
+        top.Calc.Click += (s, e) => Shell("calc.exe");
+        top.Help.Click += (s, e) => ShowHelp();
+
+        var tabStrip = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = DocTabs.Strip, Padding = new Padding(12, 0, 12, 0) };
+        tabStrip.Controls.Add(tabs);
+        tabs.Selected += Activate;
+        tabs.Closed += key => CloseTab(key);
 
         var main = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
         main.Controls.Add(content);
-        main.Controls.Add(header);
+        main.Controls.Add(tabStrip);
+        main.Controls.Add(top);
         Controls.Add(main);
         Controls.Add(side);
 
@@ -359,6 +416,7 @@ public class MainForm : BaseForm
         };
         FormClosing += (s, e) =>
         {
+            if (!LoggedOut && e.CloseReason == CloseReason.UserClosing && !CloseAllTabs()) { e.Cancel = true; return; }
             timer.Stop();
             MobileApi.Stop();
             if (Settings.Get("backup_on_exit") == "1") try { Backup.Run(); } catch { }
@@ -372,7 +430,7 @@ public class MainForm : BaseForm
         base.OnHandleCreated(e);
         try
         {
-            int caption = 0x00FFFFFF, text = 0x002A170F;   // شريط عنوان أبيض ونص داكن (ويندوز 11)
+            int caption = 0x00FFFFFF, text = 0x002A1F1B;   // شريط عنوان أبيض ونص داكن (ويندوز 11)
             DwmSetWindowAttribute(Handle, 35, ref caption, sizeof(int));
             DwmSetWindowAttribute(Handle, 36, ref text, sizeof(int));
         }
@@ -381,7 +439,14 @@ public class MainForm : BaseForm
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == (Keys.Control | Keys.K)) { ShowPalette(); return true; }
+        switch (keyData)
+        {
+            case Keys.Control | Keys.K: ShowPalette(); return true;
+            case Keys.Control | Keys.W: if (activeKey != null) CloseTab(activeKey); return true;
+            case Keys.Control | Keys.Tab: CycleTab(1); return true;
+            case Keys.Control | Keys.Shift | Keys.Tab: CycleTab(-1); return true;
+            case Keys.F1: ShowHelp(); return true;
+        }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
@@ -389,9 +454,9 @@ public class MainForm : BaseForm
     {
         try
         {
-            header.Bell.Badge = (int)(Stats.LowStock() + Stats.Expiring(Settings.Int("expiry_days", 30)) +
-                                      Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady());
-            header.Bell.Invalidate();
+            top.Bell.Badge = (int)(Stats.LowStock() + Stats.Expiring(Settings.Int("expiry_days", 30)) +
+                                   Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady());
+            top.Bell.Invalidate();
         }
         catch { }
     }
@@ -402,7 +467,45 @@ public class MainForm : BaseForm
         if (p.ShowDialog(this) == DialogResult.OK && p.Selected != null) Navigate(p.Selected);
     }
 
-    public void Navigate(Page p) => Open(p.Text, p.Make(), p);
+    // ---------- القائمة الجانبية ----------
+    /// <summary>إخفاء القائمة لمساحة عمل أكبر (مثل شاشة البيع) أو إظهارها</summary>
+    public void ToggleSidebar()
+    {
+        SuspendLayout();
+        side.Visible = !side.Visible;
+        ResumeLayout(true);
+        Invalidate(true);
+        Update();
+    }
+
+    void Expand(string section)
+    {
+        nav.SuspendContent();
+        foreach (var (head, items) in sections)
+        {
+            bool exp = head.Text == section;
+            head.Expanded = exp;
+            foreach (var it in items) it.Visible = exp;
+        }
+        nav.ResumeContent();
+        var target = sections.FirstOrDefault(x => x.Head.Text == section);
+        if (target.Head != null) nav.EnsureVisible(target.Items.LastOrDefault() ?? (Control)target.Head, target.Head);
+    }
+
+    void Highlight(Page page)
+    {
+        if (homeHead != null) homeHead.Active = page?.Text == HomeKey;
+        foreach (var (btn, p) in navItems) btn.Active = ReferenceEquals(p, page);
+        foreach (var (head, items) in sections) head.Active = page != null && head.Text == page.Group;
+        if (page != null && page.Group != "" && !sections.Any(x => x.Head.Text == page.Group && x.Head.Expanded)) Expand(page.Group);
+    }
+
+    // ---------- التبويبات ----------
+    public void Navigate(Page p)
+    {
+        if (open.ContainsKey(p.Text)) Activate(p.Text);
+        else Open(p.Text, p.Make(), p);
+    }
 
     /// <summary>الانتقال إلى شاشة باسمها (إن كانت ضمن صلاحيات المستخدم)</summary>
     public bool Go(string pageText)
@@ -413,47 +516,175 @@ public class MainForm : BaseForm
         return true;
     }
 
+    /// <summary>فتح شاشة في تبويب جديد (أو استبدال تبويب بنفس العنوان)</summary>
     public void Open(string title, Form f) => Open(title, f, Pages.FirstOrDefault(x => x.Text == title));
 
-    void Open(string title, Form f, Page page)
+    void Open(string key, Form f, Page page)
     {
-        if (current != null)
+        if (open.TryGetValue(key, out var existing))
         {
-            var old = current;
-            content.Controls.Remove(old);
-            BeginInvoke(() => old.Dispose());   // التخلص لاحقًا لأن الطلب قد يأتي من زر داخل الشاشة نفسها
+            if (existing.Form is BaseForm bf && !bf.ConfirmClose()) { f.Dispose(); Activate(key); return; }
+            Detach(existing.Form);
+            open.Remove(key);
         }
-        foreach (var b in navButtons) b.Active = page != null && ReferenceEquals(b.Tag, page);
+        // حد أقصى للتبويبات: يُغلق أقدم تبويب لا يحتوي عملًا غير محفوظ
+        if (open.Count >= MaxTabs)
+        {
+            var old = tabs.Items.Select(t => t.Key).FirstOrDefault(k => k != HomeKey && k != activeKey && !(open[k].Form is InvoiceForm or TransferForm));
+            if (old != null) { Detach(open[old].Form); open.Remove(old); tabs.Remove(old); }
+        }
         f.TopLevel = false;
         f.FormBorderStyle = FormBorderStyle.None;
         f.Dock = DockStyle.Fill;
         f.BackColor = Theme.Bg;
+        f.Visible = false;
         content.Controls.Add(f);
-        header.SetTitle(title, page?.Desc ?? "", page?.Icon);
-        f.Show();
-        current = f;
+        open[key] = (f, page);
+        tabs.Set(key, key, page?.Icon ?? "square-pen", key != HomeKey);
+        // عنوان التبويب يتبع عنوان الشاشة (مثل «تعديل فاتورة» ← «فاتورة بيع» بعد الحفظ)
+        if (page == null) f.TextChanged += (s, e) => { if (open.ContainsKey(key) && f.Text != "") tabs.Set(key, f.Text, "square-pen", true); };
+        Activate(key, fresh: true);
     }
 
-    /// <summary>رأس الصفحة: العنوان والوصف، البحث السريع والتنبيهات والتاريخ</summary>
-    sealed class HeaderBar : Panel
+    void Activate(string key) => Activate(key, false);
+
+    void Activate(string key, bool fresh)
+    {
+        if (!open.TryGetValue(key, out var entry)) return;
+        // لوحة التحكم تُبنى من جديد عند الرجوع إليها لتعرض أحدث الأرقام
+        if (!fresh && key == HomeKey && activeKey != HomeKey && entry.Page != null)
+        {
+            var f = entry.Page.Make();
+            f.TopLevel = false; f.FormBorderStyle = FormBorderStyle.None; f.Dock = DockStyle.Fill; f.BackColor = Theme.Bg; f.Visible = false;
+            content.Controls.Add(f);
+            Detach(entry.Form);
+            entry = (f, entry.Page);
+            open[key] = entry;
+        }
+        content.SuspendLayout();
+        entry.Form.Show();
+        entry.Form.BringToFront();
+        foreach (var o in open.Values) if (o.Form != entry.Form && o.Form.Visible) o.Form.Hide();
+        content.ResumeLayout();
+
+        bool changed = activeKey != key;
+        activeKey = key;
+        tabs.Activate(key);
+        top.SetTitle(entry.Page?.Text ?? entry.Form.Text, entry.Page?.Desc ?? "", entry.Page?.Icon ?? "square-pen");
+        Highlight(entry.Page);
+        if (changed && !fresh && entry.Form is BaseForm b) try { b.OnPageActivated(); } catch { }
+        if (!fresh) entry.Form.SelectNextControl(entry.Form, true, true, true, true);
+    }
+
+    public bool CloseTab(string key)
+    {
+        if (key == HomeKey || !open.TryGetValue(key, out var entry)) return false;
+        if (key != activeKey) Activate(key);
+        if (entry.Form is BaseForm bf && !bf.ConfirmClose()) return false;
+        var keys = tabs.Items.Select(t => t.Key).ToList();
+        int idx = keys.IndexOf(key);
+        open.Remove(key);
+        tabs.Remove(key);
+        Detach(entry.Form);
+        if (activeKey == key)
+        {
+            activeKey = null;
+            var rest = tabs.Items.Select(t => t.Key).ToList();
+            if (rest.Count > 0) Activate(rest[Math.Clamp(idx - 1, 0, rest.Count - 1)]);
+        }
+        return true;
+    }
+
+    /// <summary>يغلق كل التبويبات (مع التأكيد على غير المحفوظ) — false إذا ألغى المستخدم</summary>
+    bool CloseAllTabs()
+    {
+        foreach (var key in tabs.Items.Select(t => t.Key).Where(k => k != HomeKey).ToList())
+            if (!CloseTab(key)) return false;
+        return true;
+    }
+
+    void CycleTab(int dir)
+    {
+        var keys = tabs.Items.Select(t => t.Key).ToList();
+        if (keys.Count < 2) return;
+        int i = keys.IndexOf(activeKey);
+        Activate(keys[((i + dir) % keys.Count + keys.Count) % keys.Count]);
+    }
+
+    void Detach(Form f)
+    {
+        content.Controls.Remove(f);
+        BeginInvoke(() => f.Dispose());   // التخلص لاحقًا لأن الطلب قد يأتي من زر داخل الشاشة نفسها
+    }
+
+    // ---------- أدوات الشريط العلوي ----------
+    void BackupNow()
+    {
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var file = Backup.Run();
+            Cursor = Cursors.Default;
+            Toast.Show("تم حفظ نسخة احتياطية: " + Path.GetFileName(file));
+        }
+        catch (Exception ex) { Cursor = Cursors.Default; Dialogs.Error("تعذّر إنشاء النسخة الاحتياطية:\n" + ex.Message); }
+    }
+
+    static void Shell(string target)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true }); }
+        catch (Exception ex) { Dialogs.Warn("تعذّر الفتح: " + ex.Message); }
+    }
+
+    void ShowHelp() => Dialogs.Message(
+        "اختصارات مفيدة:\n" +
+        "•  Ctrl+K  البحث السريع عن أي شاشة\n" +
+        "•  Ctrl+W  إغلاق التبويب الحالي،  Ctrl+Tab  التنقل بين التبويبات\n" +
+        "•  F2  مربع الباركود في الفاتورة،  F10  حفظ الفاتورة\n\n" +
+        "القائمة الجانبية: انقر على اسم القسم (المخزن، بيع، شراء...) لفتحه وإظهار شاشاته.\n" +
+        "كل شاشة تُفتح في تبويب مستقل أعلى الصفحة، فيمكنك ترك فاتورة مفتوحة والرجوع إليها.\n\n" +
+        $"قاعدة البيانات:\n{Db.DataDir}",
+        "الدعم والمساعدة", Tone.Info);
+
+    /// <summary>الشريط العلوي: زر القائمة وعنوان الشاشة، وأدوات سريعة (نسخ احتياطي، واتساب، حاسبة، تنبيهات، مساعدة)</summary>
+    sealed class TopBar : Panel
     {
         string title = "", desc = "", icon;
+        public ModernButton Menu { get; }
         public ModernButton Search { get; }
+        public ModernButton Backup { get; }
+        public ModernButton WhatsApp { get; }
+        public ModernButton Calc { get; }
         public ModernButton Bell { get; }
+        public ModernButton Help { get; }
+        readonly ModernButton[] tools;
 
-        public HeaderBar()
+        public TopBar()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             Dock = DockStyle.Top;
-            Height = 76;
+            Height = 68;
             BackColor = Theme.Surface;
-            Search = new ModernButton { Kind = BtnKind.Secondary, IconName = "search", Text = "بحث سريع   Ctrl+K", Font = Theme.F(9.5f), Height = 40 };
-            Search.FitWidth(210);
-            Search.TabStop = false;
-            Bell = new ModernButton { Kind = BtnKind.Secondary, IconName = "bell", Size = new Size(42, 40), TabStop = false };
-            new ToolTip().SetToolTip(Bell, "التنبيهات");
+            var tip = new ToolTip();
+            ModernButton Tool(string iconName, string hint, BtnKind kind = BtnKind.Secondary)
+            {
+                var b = new ModernButton { Kind = kind, IconName = iconName, Size = new Size(42, 40), TabStop = false, Radius = 10 };
+                tip.SetToolTip(b, hint);
+                Controls.Add(b);
+                return b;
+            }
+            Menu = Tool("menu", "إظهار / إخفاء القائمة", BtnKind.Ghost);
+            Help = new ModernButton { Kind = BtnKind.Dark, IconName = "headset", Text = "الدعم والمساعدة", Font = Theme.FS(9.5f), Height = 40, TabStop = false, Radius = 10 };
+            Help.FitWidth(150);
+            Controls.Add(Help);
+            Bell = Tool("bell", "التنبيهات", BtnKind.Accent);
+            Calc = Tool("calculator", "الحاسبة");
+            WhatsApp = Tool("message-circle", "واتساب ويب");
+            Backup = Tool("cloud-upload", "نسخة احتياطية الآن");
+            Search = new ModernButton { Kind = BtnKind.Secondary, IconName = "search", Text = "بحث سريع   Ctrl+K", Font = Theme.F(9.5f), Height = 40, TabStop = false, Radius = 10 };
+            Search.FitWidth(190);
             Controls.Add(Search);
-            Controls.Add(Bell);
+            tools = new[] { Help, Bell, Calc, WhatsApp, Backup, Search };
         }
 
         public void SetTitle(string t, string d, string i) { title = t; desc = d; icon = i; Invalidate(); }
@@ -461,10 +692,15 @@ public class MainForm : BaseForm
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            if (Bell == null || Search == null) return;   // يُستدعى من المُنشئ قبل إنشاء الأزرار
-            // أدوات الرأس في الجهة اليسرى (نهاية السطر العربي)
-            Bell.Location = new Point(22, (Height - Bell.Height) / 2);
-            Search.Location = new Point(Bell.Right + 10, (Height - Search.Height) / 2);
+            if (tools == null) return;   // يُستدعى من المُنشئ قبل إنشاء الأزرار
+            Menu.Location = new Point(Width - 18 - Menu.Width, (Height - Menu.Height) / 2);
+            // الأدوات في الجهة اليسرى (نهاية السطر العربي)
+            int x = 20;
+            foreach (var b in tools)
+            {
+                b.Location = new Point(x, (Height - b.Height) / 2);
+                x = b.Right + (b == Help || b == Backup ? 16 : 8);
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -472,27 +708,27 @@ public class MainForm : BaseForm
             var g = e.Graphics;
             g.Clear(BackColor);
             Gfx.Hq(g);
-            int right = Width - 26;
+            int right = Menu.Left - 14;
             if (icon != null && FontKit.HasIcons)
             {
-                var ir = new RectangleF(right - 44, (Height - 44) / 2f, 44, 44);
-                Gfx.FillRound(g, ir, 12, Theme.BrandSoft);
-                Icons.Draw(g, icon, ir, Theme.Brand, 21);
-                right -= 58;
+                var ir = new RectangleF(right - 40, (Height - 40) / 2f, 40, 40);
+                Gfx.FillRound(g, ir, 11, Theme.OrangeSoft);
+                Icons.Draw(g, icon, ir, Theme.Orange, 20);
+                right -= 52;
             }
             int left = Search.Right + 20;
-            TextRenderer.DrawText(g, title, Theme.FS(15), new Rectangle(left, 12, right - left, 30), Theme.Ink, Gfx.RtlStart);
-            TextRenderer.DrawText(g, desc, Theme.F(9.5f), new Rectangle(left, 42, right - left, 22), Theme.Muted, Gfx.RtlStart);
+            TextRenderer.DrawText(g, title, Theme.FS(14), new Rectangle(left, 10, right - left, 28), Theme.Ink, Gfx.RtlStart);
+            TextRenderer.DrawText(g, desc, Theme.F(9.5f), new Rectangle(left, 38, right - left, 22), Theme.Muted, Gfx.RtlStart);
             using var pen = new Pen(Theme.Border);
             g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
         }
     }
 }
 
-/// <summary>حاوية تمرير بعجلة الفأرة بدون شريط تمرير ظاهر (للقائمة الجانبية)</summary>
+/// <summary>حاوية تمرير بعجلة الفأرة بدون شريط تمرير ظاهر (للقائمة الجانبية)؛ العناصر بعرضها الكامل</summary>
 public class ScrollHost : Panel
 {
-    readonly FlowLayoutPanel inner = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 6, 12, 12) };
+    readonly FlowLayoutPanel inner = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = Padding.Empty, Margin = Padding.Empty };
 
     public ScrollHost()
     {
@@ -500,21 +736,34 @@ public class ScrollHost : Panel
         inner.BackColor = Theme.Sidebar;
         Controls.Add(inner);
         inner.Location = Point.Empty;
+        inner.SizeChanged += (s, e) => Scroll(0);
     }
 
     public void Add(Control c)
     {
-        c.Width = Width - 24;
-        c.Margin = new Padding(0, 1, 0, 1);
+        c.Width = Width;
+        c.Margin = Padding.Empty;
         inner.Controls.Add(c);
         c.MouseWheel += (s, e) => Scroll(e.Delta);
+    }
+
+    public void SuspendContent() => inner.SuspendLayout();
+    public void ResumeContent() => inner.ResumeLayout(true);
+
+    /// <summary>تمرير يُظهر العنصر الأخير من القسم المفتوح مع بقاء رأسه ظاهرًا</summary>
+    public void EnsureVisible(Control last, Control first)
+    {
+        int bottom = last.Bottom + inner.Top, topY = first.Top + inner.Top;
+        if (bottom > Height) inner.Top -= bottom - Height;
+        if (first.Top + inner.Top < 0 || topY < 0) inner.Top = -first.Top;
+        Scroll(0);
     }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
         inner.Width = Width;
-        foreach (Control c in inner.Controls) c.Width = Width - 24;
+        foreach (Control c in inner.Controls) c.Width = Width;
         Scroll(0);
     }
 

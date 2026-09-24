@@ -25,12 +25,15 @@ public class InvoiceForm : BaseForm
     long editId, lastId;
     double oldEffect;   // أثر الفاتورة القديمة على رصيد الجهة (عند التعديل)
 
-    bool IsOut => type is "Sale" or "PurchaseReturn" or "Damage";
-    bool UsesExpiry => type is "Purchase" or "SaleReturn";
+    bool IsOut => InvoiceOps.IsOut(type);
+    bool UsesExpiry => type is "Purchase" or "SaleReturn" or "StockIn";
     bool SaleSide => type is "Sale" or "SaleReturn";
-    bool HasParty => type != "Damage";
+    // سندات المخزن والإتلاف: بلا جهة ولا دفع، والسعر فيها هو الكلفة
+    bool HasParty => type is not ("Damage" or "StockIn" or "StockOut");
+    bool CostDoc => !HasParty;
+    DataTable serials;   // الأرقام التسلسلية (IMEI) للبحث بالمسح
 
-    record Line(long ItemId, string Name, double Len, double Wid, double Qty, double Price, string Expiry);
+    record Line(long ItemId, string Name, double Len, double Wid, double Qty, double Price, string Expiry, string Serials);
 
     static Control Stat(string caption, StatLabel value, int width = 150)
     {
@@ -44,7 +47,7 @@ public class InvoiceForm : BaseForm
     {
         type = invoiceType;
         editId = editInvoiceId;
-        Text = "فاتورة " + Ui.TypeName(type);
+        Text = Ui.DocTitle(type);
         KeyPreview = true;
 
         // ---------- الترويسة ----------
@@ -121,9 +124,10 @@ public class InvoiceForm : BaseForm
         AddCol("len", "الطول", false, 55);
         AddCol("wid", "العرض", false, 55);
         AddCol("qty", "الكمية", false, 60);
-        AddCol("price", type == "Damage" ? "الكلفة" : "السعر", !Session.Can("edit_price") || type == "Damage", 75);
+        AddCol("price", CostDoc ? "الكلفة" : "السعر", !Session.Can("edit_price") || type is "Damage" or "StockOut", 75);
         AddCol("expiry", "الصلاحية (yyyy-mm-dd)", false, 95, UsesExpiry);
         AddCol("total", "المجموع", true, 85);
+        AddCol("serials", "", true, 10, false);   // الأرقام التسلسلية الممسوحة لهذا السطر
         grid.CellEndEdit += (s, e) => { RecalcRow(e.RowIndex); Totals(); };
         grid.SelectionChanged += (s, e) => { if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false); };
 
@@ -138,7 +142,7 @@ public class InvoiceForm : BaseForm
         footCard.Controls.Add(foot);
         footCard.Controls.Add(actions);
         foot.Controls.Add(Stat("الإجمالي", lblTotal, 130));
-        if (type != "Damage")
+        if (HasParty)
         {
             nDisc.Enabled = Session.Can("discount");
             nDisc.Width = 110; nPaid.Width = 130;
@@ -149,10 +153,11 @@ public class InvoiceForm : BaseForm
             lblParty.Margin = new Padding(10, 30, 10, 0);
             foot.Controls.Add(lblParty);
         }
-        var bSave = new ModernButton { Text = "حفظ الفاتورة", IconName = "save", Height = 50, Font = Theme.FS(11), Margin = new Padding(6, 0, 0, 0) };
+        bool stockDoc = Ui.IsStockDoc(type);
+        var bSave = new ModernButton { Text = stockDoc ? "حفظ السند" : "حفظ الفاتورة", IconName = "save", Height = 50, Font = Theme.FS(11), Margin = new Padding(6, 0, 0, 0) };
         bSave.FitWidth(170);
-        var bNew = Theme.Btn("فاتورة جديدة", Theme.Gray, 120);
-        var bPrint = Theme.Btn("طباعة آخر فاتورة", Theme.Purple, 150);
+        var bNew = Theme.Btn(stockDoc ? "سند جديد" : "فاتورة جديدة", Theme.Gray, 120, "plus");
+        var bPrint = Theme.Btn(stockDoc ? "طباعة آخر سند" : "طباعة آخر فاتورة", Theme.Purple, 150, "printer");
         bNew.Height = bPrint.Height = 44;
         bNew.Margin = bPrint.Margin = new Padding(4, 4, 4, 4);
         findEnd.Controls.Add(bNew);
@@ -174,7 +179,8 @@ public class InvoiceForm : BaseForm
         nDisc.ValueChanged += (s, e) => Totals();
         nFee.ValueChanged += (s, e) => Totals();
         nPaid.ValueChanged += (s, e) => { if (!busy) Totals(false); };
-        cbPay.SelectedIndexChanged += (s, e) => Totals();
+        // سعر الأقساط يختلف عن السعر النقدي إن وُجد
+        cbPay.SelectedIndexChanged += (s, e) => { if (type == "Sale") Reprice(); else Totals(); };
         cbParty.SelectedIndexChanged += (s, e) => PartyChanged();
         cbLevel.SelectedIndexChanged += (s, e) => Reprice();
         cbWh.SelectedIndexChanged += (s, e) => { if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false); };
@@ -201,10 +207,19 @@ public class InvoiceForm : BaseForm
         });
     }
 
+    // مواد جديدة قد تُعرَّف في تبويب آخر أثناء بقاء الفاتورة مفتوحة
+    public override void OnPageActivated() => LoadItems();
+
+    public override bool ConfirmClose() =>
+        grid.Rows.Count == 0 || Ui.Confirm($"{Text}: فيها {grid.Rows.Count} مادة لم تُحفظ.\nإغلاقها بدون حفظ؟");
+
     void LoadItems()
     {
-        items = Db.Query(@"SELECT id,code,barcode,name,unit,price_retail,price_wholesale,price_special,by_measure,medical_info,alert_note FROM items
+        items = Db.Query(@"SELECT id,code,barcode,name,unit,price_retail,price_wholesale,price_special,price_installment,price_buy,
+            IFNULL(buy_currency,'IQD') AS buy_currency, IFNULL(sell_currency,'IQD') AS sell_currency, IFNULL(item_type,'اعتيادية') AS item_type,
+            IFNULL(cost_method,'كلفة الوجبة') AS cost_method, by_measure,medical_info,alert_note FROM items
             WHERE active=1 OR id IN (SELECT item_id FROM invoice_lines WHERE invoice_id=@p0)", editId);
+        serials = Db.Query("SELECT serial, item_id, invoice_id FROM item_serials");
         var src = new AutoCompleteStringCollection();
         foreach (DataRow r in items.Rows)
         {
@@ -223,6 +238,18 @@ public class InvoiceForm : BaseForm
         var t = txtFind.Text.Trim();
         if (t == "") return;
         var rows = items.Rows.Cast<DataRow>();
+        // مسح رقم تسلسلي (IMEI): يضيف الجهاز نفسه. البيع يتطلب رقمًا متوفرًا، وإرجاع البيع رقمًا مُباعًا
+        var sr = serials?.Rows.Cast<DataRow>().FirstOrDefault(x => string.Equals(Db.S(x["serial"]), t, StringComparison.OrdinalIgnoreCase));
+        if (sr != null && (IsOut || type == "SaleReturn"))
+        {
+            bool sold = Db.L(sr["invoice_id"]) > 0;
+            if (IsOut && sold) { Ui.Warn($"الرقم التسلسلي {t} مُباع مسبقًا."); return; }
+            if (type == "SaleReturn" && !sold) { Ui.Warn($"الرقم التسلسلي {t} غير مُباع، لا يمكن إرجاعه."); return; }
+            if (grid.Rows.Cast<DataGridViewRow>().Any(g => (Convert.ToString(g.Cells["serials"].Value) ?? "").Split(',').Contains(Db.S(sr["serial"]))))
+            { Ui.Warn($"الرقم التسلسلي {t} موجود في الفاتورة."); return; }
+            var ir = ItemRow(Db.L(sr["item_id"]));
+            if (ir != null) { AddItem(ir, Db.S(sr["serial"])); txtFind.Clear(); txtFind.Focus(); return; }
+        }
         var r = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t || Db.S(x["code"]) == t || Db.S(x["name"]) == t)
              ?? rows.FirstOrDefault(x => Db.S(x["name"]).Contains(t, StringComparison.OrdinalIgnoreCase));
         if (r == null) { Ui.Warn("لم يتم العثور على المادة: " + t); return; }
@@ -231,7 +258,7 @@ public class InvoiceForm : BaseForm
         txtFind.Focus();
     }
 
-    void AddItem(DataRow r)
+    void AddItem(DataRow r, string serial = null)
     {
         long id = Db.L(r["id"]);
         bool measure = Db.L(r["by_measure"]) == 1;
@@ -240,14 +267,23 @@ public class InvoiceForm : BaseForm
                 if (Db.L(gr.Cells["item_id"].Value) == id)
                 {
                     gr.Cells["qty"].Value = Ui.V(gr.Cells["qty"].Value) + 1;
+                    if (serial != null) AppendSerial(gr, serial);
                     RecalcRow(gr.Index); Totals(); ShowInfo(r, false);
                     return;
                 }
 
         var g = AddLine(r, measure ? 1.0 : 0.0, 0.0, 1.0, PriceFor(r), "");
+        if (serial != null) AppendSerial(g, serial);
         Totals();
         grid.CurrentCell = measure ? g.Cells["len"] : g.Cells["qty"];
         ShowInfo(r, true);
+    }
+
+    static void AppendSerial(DataGridViewRow g, string serial)
+    {
+        var cur = Convert.ToString(g.Cells["serials"].Value) ?? "";
+        g.Cells["serials"].Value = cur == "" ? serial : cur + "," + serial;
+        g.Cells["name"].ToolTipText = "الأرقام التسلسلية: " + g.Cells["serials"].Value;
     }
 
     DataGridViewRow AddLine(DataRow r, double len, double wid, double qty, double price, string expiry)
@@ -277,7 +313,7 @@ public class InvoiceForm : BaseForm
         var dt = Db.Query("SELECT * FROM invoices WHERE id=@p0", id);
         if (dt.Rows.Count == 0) { editId = 0; return; }
         var v = dt.Rows[0];
-        Text = $"تعديل فاتورة {Ui.TypeName(type)} رقم {id}";
+        Text = $"تعديل {Ui.DocTitle(type)} رقم {id}";
         if (HasParty) Ui.SelectId(cbParty, Db.L(v["party_id"]));
         Ui.SelectId(cbWh, Db.L(v["warehouse_id"]));
         if (SaleSide) { int li = cbLevel.Items.IndexOf(Db.S(v["price_level"])); if (li >= 0) cbLevel.SelectedIndex = li; }
@@ -301,7 +337,11 @@ public class InvoiceForm : BaseForm
             if (r == null) continue;
             double len = Db.D(l["length"]), wid = Db.D(l["width"]), qty = Db.D(l["qty"]);
             if (Db.L(r["by_measure"]) == 1 && Math.Abs(len * (wid > 0 ? wid : 1) - qty) > 1e-6) { len = qty; wid = 0; }
-            AddLine(r, len, wid, qty, Db.D(l["price"]), Db.S(l["expiry"]));
+            var g = AddLine(r, len, wid, qty, Db.D(l["price"]), Db.S(l["expiry"]));
+            // الأرقام التسلسلية المباعة بهذه الفاتورة تُربط بأول سطر للمادة
+            if (IsOut && !grid.Rows.Cast<DataGridViewRow>().Any(x => x != g && Db.L(x.Cells["item_id"].Value) == Db.L(r["id"])))
+                foreach (DataRow sr in Db.Query("SELECT serial FROM item_serials WHERE invoice_id=@p0 AND item_id=@p1", id, Db.L(r["id"])).Rows)
+                    AppendSerial(g, Db.S(sr["serial"]));
         }
         nDisc.Value = (decimal)Db.D(v["discount"]);
         Totals();
@@ -317,11 +357,22 @@ public class InvoiceForm : BaseForm
         {
             case "Sale":
             case "SaleReturn":
-                var col = Convert.ToString(cbLevel.SelectedItem) switch { "جملة" => "price_wholesale", "خاص" => "price_special", _ => "price_retail" };
-                return Db.D(r[col]);
+                {
+                    var col = Convert.ToString(cbLevel.SelectedItem) switch { "جملة" => "price_wholesale", "خاص" => "price_special", _ => "price_retail" };
+                    double p = Db.D(r[col]);
+                    if (type == "Sale" && Convert.ToString(cbPay.SelectedItem) == "أقساط" && Db.D(r["price_installment"]) > 0) p = Db.D(r["price_installment"]);
+                    // مادة مسعّرة بالدولار: تُحوَّل إلى الدينار بسعر الصرف الحالي
+                    return Db.S(r["sell_currency"]) == "USD" ? p * Ui.Rate("USD") : p;
+                }
             case "Purchase":
             case "PurchaseReturn":
-                return Db.D(Db.Scalar("SELECT cost FROM batches WHERE item_id=@p0 ORDER BY id DESC LIMIT 1", id));
+            case "StockIn":
+                {
+                    double last = Db.D(Db.Scalar("SELECT cost FROM batches WHERE item_id=@p0 ORDER BY id DESC LIMIT 1", id));
+                    if (last > 0) return last;
+                    double pb = Db.D(r["price_buy"]);
+                    return Db.S(r["buy_currency"]) == "USD" ? pb * Ui.Rate("USD") : pb;
+                }
             default:
                 return StockOps.AvgCost(id);
         }
@@ -410,7 +461,8 @@ public class InvoiceForm : BaseForm
                 exp = d.ToString(Ui.DFmt);
             }
             list.Add(new Line(Db.L(g.Cells["item_id"].Value), Convert.ToString(g.Cells["name"].Value),
-                Ui.V(g.Cells["len"].Value), Ui.V(g.Cells["wid"].Value), Ui.V(g.Cells["qty"].Value), Ui.V(g.Cells["price"].Value), exp));
+                Ui.V(g.Cells["len"].Value), Ui.V(g.Cells["wid"].Value), Ui.V(g.Cells["qty"].Value), Ui.V(g.Cells["price"].Value), exp,
+                Convert.ToString(g.Cells["serials"].Value) ?? ""));
         }
         return list;
     }
@@ -477,15 +529,26 @@ public class InvoiceForm : BaseForm
                 const string insLine = "INSERT INTO invoice_lines(invoice_id,item_id,batch_id,length,width,qty,price,cost,expiry) VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8)";
                 foreach (var l in lines)
                 {
-                    if (IsOut)
+                    var ir = ItemRow(l.ItemId);
+                    if (ir != null && Db.S(ir["item_type"]) == "خدمية")
                     {
+                        // مادة خدمية: لا مخزون ولا وجبات
+                        tx.Exec(insLine, inv, l.ItemId, null, l.Len, l.Wid, l.Qty, l.Price, 0.0, null);
+                    }
+                    else if (IsOut)
+                    {
+                        // «معدل الكلفة»: كلفة موحدة للمادة؛ وإلا كلفة كل وجبة كما هي
+                        double avg = ir != null && Db.S(ir["cost_method"]) == "معدل الكلفة" ? StockOps.AvgCost(tx, l.ItemId) : -1;
                         // FEFO: الأقرب انتهاءً أولًا، ثم الوجبات بلا تاريخ
                         foreach (var t in StockOps.TakeFefo(tx, l.ItemId, wh, l.Qty))
-                            tx.Exec(insLine, inv, l.ItemId, t.BatchId, l.Len, l.Wid, t.Qty, type == "Damage" ? t.Cost : l.Price, t.Cost, t.Expiry);
+                        {
+                            double c = avg >= 0 ? avg : t.Cost;
+                            tx.Exec(insLine, inv, l.ItemId, t.BatchId, l.Len, l.Wid, t.Qty, CostDoc ? c : l.Price, c, t.Expiry);
+                        }
                     }
                     else
                     {
-                        double cost = type == "Purchase" ? l.Price : StockOps.AvgCost(tx, l.ItemId);
+                        double cost = type is "Purchase" or "StockIn" ? l.Price : StockOps.AvgCost(tx, l.ItemId);
                         long bid = tx.Insert("INSERT INTO batches(item_id,warehouse_id,expiry,qty,cost,created) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",
                             l.ItemId, wh, l.Expiry == "" ? null : l.Expiry, l.Qty, cost, Ui.Now);
                         tx.Exec(insLine, inv, l.ItemId, bid, l.Len, l.Wid, l.Qty, l.Price, cost, l.Expiry == "" ? null : l.Expiry);
@@ -499,8 +562,14 @@ public class InvoiceForm : BaseForm
                     tx.Exec(@"INSERT INTO cash_moves(date,kind,cashbox_id,amount,rate,party_id,cost_center_id,invoice_id,note,user_id)
                               VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9)",
                         dtDate.Value.ToString(Ui.DtFmt), "دفعة فاتورة", box, sign * paid / rate, rate, Db.N(party), Db.N(cc), inv,
-                        $"فاتورة {Ui.TypeName(type)} رقم {inv}", Session.UserId);
+                        $"{Ui.DocTitle(type)} رقم {inv}", Session.UserId);
                 }
+
+                // الأرقام التسلسلية: البيع يحجزها لهذه الفاتورة، وإرجاع البيع يعيدها متوفرة
+                foreach (var l in lines.Where(x => x.Serials != ""))
+                    foreach (var sn in l.Serials.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                        tx.Exec("UPDATE item_serials SET invoice_id=@p0 WHERE item_id=@p1 AND serial=@p2",
+                            IsOut ? (object)inv : null, l.ItemId, sn);
 
                 if (plan != null)
                     foreach (var p in plan)
@@ -511,17 +580,17 @@ public class InvoiceForm : BaseForm
             }
             catch (InvalidOperationException ex) { Ui.Warn(ex.Message); return; }
         }
-        if (editing) Db.Audit("تعديل فاتورة", $"{Ui.TypeName(type)} رقم {inv} — الصافي {Ui.M(net)}");
+        if (editing) Db.Audit("تعديل فاتورة", $"{Ui.DocTitle(type)} رقم {inv} — الصافي {Ui.M(net)}");
         lastId = inv;
         editId = 0;
-        Text = "فاتورة " + Ui.TypeName(type);
+        Text = Ui.DocTitle(type);
 
         string pmode = Settings.Get("print_after_save", "2");
         bool told = false;
         if (Session.Can("print") && pmode != "0")
         {
             told = pmode == "2";
-            if (pmode == "1" || Ui.Confirm($"تم حفظ الفاتورة رقم {inv}. هل تريد طباعتها؟")) InvoiceOps.BuildPrint(inv)?.Print();
+            if (pmode == "1" || Ui.Confirm($"تم حفظ {Ui.DocTitle(type)} رقم {inv}. هل تريد {(Ui.IsStockDoc(type) ? "طباعته" : "طباعتها")}؟")) InvoiceOps.BuildPrint(inv)?.Print();
         }
 
         var pr = Ui.GetRow(cbParty);
@@ -533,7 +602,7 @@ public class InvoiceForm : BaseForm
                       $"\nالصافي: {Ui.M(net)}\nالمدفوع: {Ui.M(paid)}\nرصيدكم الحالي: {Ui.M(Ui.PartyBalance(party))}";
             _ = WhatsApp.Send(phone, msg);
         }
-        else if (!told) Ui.Info($"تم حفظ فاتورة {Ui.TypeName(type)} رقم {inv} بنجاح.");
+        else if (!told) Ui.Info($"تم حفظ {Ui.DocTitle(type)} رقم {inv} بنجاح.");
         Reset();
     }
 
