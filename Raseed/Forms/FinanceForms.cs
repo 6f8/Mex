@@ -68,6 +68,14 @@ public class VoucherForm : BaseForm
         };
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
+        grid.CellDoubleClick += (s, e) =>
+        {
+            if (e.RowIndex < 0) return;
+            var v = Db.Query("SELECT v.id, v.kind FROM cash_moves m JOIN vouchers v ON v.id=m.voucher_id WHERE m.id=@p0", Db.L(grid.Rows[e.RowIndex].Cells["id"].Value));
+            if (v.Rows.Count == 0) return;
+            string k = Db.S(v.Rows[0]["kind"]);
+            MainForm.Instance?.Open((k == "قبض" ? "سند قبض رقم " : "سند دفع رقم ") + Db.L(v.Rows[0]["id"]), new ReceiptVoucherForm(k, Db.L(v.Rows[0]["id"])));
+        };
 
         cbKind.SelectedIndex = kind == null ? 0 : Math.Max(0, cbKind.Items.IndexOf(kind));
         if (kind != null)
@@ -176,7 +184,16 @@ public class VoucherForm : BaseForm
     {
         if (grid.CurrentRow == null || !Session.Guard("delete")) return;
         long id = Db.L(grid.CurrentRow.Cells["id"].Value);
-        var r = Db.Query("SELECT invoice_id, installment_id, repair_id, ref, amount, rate FROM cash_moves WHERE id=@p0", id).Rows[0];
+        var r = Db.Query("SELECT invoice_id, installment_id, repair_id, ref, amount, rate, voucher_id FROM cash_moves WHERE id=@p0", id).Rows[0];
+        // حركة من سند قبض/دفع: يُحذف السند كاملًا (الدينار والدولار والخصم)
+        if (Db.L(r["voucher_id"]) > 0)
+        {
+            long vid = Db.L(r["voucher_id"]);
+            if (!Ui.Confirm($"هذه الحركة جزء من سند رقم {vid}. حذف السند كاملًا؟")) return;
+            Vouchers.Delete(vid);
+            LoadGrid();
+            return;
+        }
         string rf = Db.S(r["ref"]);
         if (Db.L(r["invoice_id"]) > 0) { Ui.Warn("هذا المبلغ مرتبط بفاتورة — عدّل الفاتورة أو احذفها من سجل الفواتير."); return; }
         if (Db.L(r["repair_id"]) > 0) { Ui.Warn("هذا المبلغ مرتبط بوصل صيانة ولا يُحذف من هنا."); return; }
@@ -460,5 +477,95 @@ public class BalanceEntryDialog : DialogShell
         Toast.Show($"تم حفظ سند تعديل الرصيد رقم {entryId} — الرصيد الآن {Ui.M(Ui.PartyBalance(partyId))}");
         DialogResult = DialogResult.OK;
         Close();
+    }
+}
+
+/// <summary>سقف الذمة / فترة التسديد للحساب: السقف بالدينار والدولار، التنبيه أو منع التعامل عند التجاوز، والتنبيه عند تأخر التسديد</summary>
+public class CreditDialog : DialogShell
+{
+    readonly long partyId;
+    readonly Toggle tgLimit = new() { Text = "تفعيل سقف الذمة", Width = 330, Height = 34 }, tgUnify = new() { Text = "توحيد المبلغ (الدولار بسعر الصرف)", Width = 330, Height = 34 },
+                    tgPeriod = new() { Text = "تفعيل فترة التسديد", Width = 280, Height = 34 };
+    readonly NumericUpDown nIqd = Ui.Num(190, 2), nUsd = Ui.Num(190, 2), nDays = Ui.Num(110);
+    readonly RadioButton rWarn = new() { Text = "التنبيه عند التعامل", AutoSize = true, Checked = true, Margin = new Padding(6, 8, 12, 0) },
+                         rBlock = new() { Text = "منع التعامل", AutoSize = true, Margin = new Padding(6, 8, 6, 0) };
+
+    public CreditDialog(long party) : base("سقف الذمة / فترة التسديد", 820, 420, "shield-check")
+    {
+        partyId = party;
+        foreach (var n in new[] { nIqd, nUsd, nDays }) n.Minimum = 0;
+        var r = Db.Query("SELECT name, credit_limit, credit_limit_usd, credit_mode, pay_period_days FROM parties WHERE id=@p0", party).Rows[0];
+
+        Control Row(string caption, Control c, int capW = 140, string unit = null)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 3, 0, 3) };
+            row.Controls.Add(new Label { Text = caption, AutoSize = false, Width = capW, Height = 40, Font = Theme.FS(10), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft });
+            var f = Ui.Wrap(c); f.Margin = new Padding(4, 0, 4, 0);
+            row.Controls.Add(f);
+            if (unit != null) row.Controls.Add(new Label { Text = unit, AutoSize = false, Width = 50, Height = 40, Font = Theme.F(10), ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft });
+            return row;
+        }
+        FlowLayoutPanel Col(int leftMargin = 0) => new() { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(leftMargin, 0, 0, 0) };
+
+        var name = new TextBox { Width = 560, ReadOnly = true, Text = Db.S(r["name"]) };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        flow.Controls.Add(Row("اسم الحساب", name));
+
+        var cols = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
+        var limit = Col();
+        limit.Controls.Add(tgLimit);
+        limit.Controls.Add(tgUnify);
+        limit.Controls.Add(Row("المبلغ دينار / لنا", nIqd));
+        limit.Controls.Add(Row("المبلغ دولار / لنا", nUsd));
+        var radios = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Surface };
+        radios.Controls.Add(rWarn);
+        radios.Controls.Add(rBlock);
+        limit.Controls.Add(radios);
+        var period = Col(36);
+        period.Controls.Add(tgPeriod);
+        period.Controls.Add(Row("التنبيه خلال", nDays, 110, "يوم"));
+        period.Controls.Add(new Label { Text = "يظهر تنبيه «تأخر التسديد» إذا بقي على الحساب\nمبلغ ولم يسدّد خلال هذه المدة.", AutoSize = false, Width = 300, Height = 44, ForeColor = Theme.Muted, Font = Theme.F(9), Margin = new Padding(0, 6, 0, 0) });
+        cols.Controls.Add(limit);
+        cols.Controls.Add(period);
+        flow.Controls.Add(cols);
+        Body.Controls.Add(flow);
+
+        tgLimit.Checked = Db.D(r["credit_limit"]) > 0 || Db.D(r["credit_limit_usd"]) > 0;
+        nIqd.Value = (decimal)Db.D(r["credit_limit"]);
+        nUsd.Value = (decimal)Db.D(r["credit_limit_usd"]);
+        rBlock.Checked = Db.S(r["credit_mode"]) == "منع";
+        rWarn.Checked = !rBlock.Checked;
+        tgPeriod.Checked = Db.L(r["pay_period_days"]) > 0;
+        nDays.Value = Db.L(r["pay_period_days"]);
+
+        void Sync()
+        {
+            nIqd.Enabled = rWarn.Enabled = rBlock.Enabled = tgUnify.Enabled = tgLimit.Checked;
+            nUsd.Enabled = tgLimit.Checked && !tgUnify.Checked;
+            nDays.Enabled = tgPeriod.Checked;
+        }
+        // توحيد المبلغ: السقف بالدولار يساوي سقف الدينار بسعر الصرف
+        void Unify() { if (tgUnify.Checked) nUsd.Value = Math.Round(nIqd.Value / (decimal)Ui.Rate("USD"), 2); }
+        tgLimit.CheckedChanged += (s, e) => Sync();
+        tgPeriod.CheckedChanged += (s, e) => Sync();
+        tgUnify.CheckedChanged += (s, e) => { Unify(); Sync(); };
+        nIqd.ValueChanged += (s, e) => Unify();
+        Sync();
+
+        var bSave = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
+        AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
+        AcceptButton = bSave;
+        bSave.Click += (s, e) =>
+        {
+            if (!Session.Guard("parties")) return;
+            // مع التوحيد يكون السقف بالدينار فقط (الدولار للعرض) حتى لا يُحسب مرتين
+            double iqd = tgLimit.Checked ? (double)nIqd.Value : 0, usd = tgLimit.Checked && !tgUnify.Checked ? (double)nUsd.Value : 0;
+            Db.Exec("UPDATE parties SET credit_limit=@p0, credit_limit_usd=@p1, credit_mode=@p2, pay_period_days=@p3 WHERE id=@p4",
+                iqd, usd, rBlock.Checked ? "منع" : "تنبيه", tgPeriod.Checked ? (long)nDays.Value : 0, partyId);
+            Db.Audit("سقف الذمة", $"{name.Text}: دينار {Ui.M(iqd)}، دولار {Ui.M(usd)}، {(rBlock.Checked ? "منع" : "تنبيه")}، فترة التسديد {(tgPeriod.Checked ? nDays.Value : 0)} يوم");
+            Toast.Show("تم حفظ سقف الذمة وفترة التسديد");
+            DialogResult = DialogResult.OK;
+            Close();
+        };
     }
 }

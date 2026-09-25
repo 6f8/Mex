@@ -310,8 +310,8 @@ public class MainForm : BaseForm
 
             new("الأقساط", "installments", "calendar-clock", "الأقساط", "متابعة الأقساط وتسديدها وتذكير العملاء والكفلاء", () => new InstallmentsForm()),
 
-            new("سند قبض", "vouchers", "hand-coins", "السندات", "استلام مبلغ من زبون أو جهة", () => new VoucherForm("قبض")),
-            new("سند صرف", "vouchers", "banknote", "السندات", "دفع مبلغ لمجهز أو جهة", () => new VoucherForm("صرف")),
+            new("سند قبض", "vouchers", "hand-coins", "السندات", "استلام مبلغ من حساب بالدينار أو الدولار مع الخصم", () => new ReceiptVoucherForm("قبض")),
+            new("سند دفع", "vouchers", "banknote", "السندات", "دفع مبلغ إلى حساب بالدينار أو الدولار مع الخصم", () => new ReceiptVoucherForm("صرف")),
             new("سند مصروف", "vouchers", "receipt", "السندات", "مصاريف المحل حسب نوع المصروف", () => new VoucherForm("مصروف")),
             new("سند راتب", "hr", "id-card", "السندات", "صرف راتب موظف", () => new VoucherForm("راتب")),
             new("تحويل بين الصناديق", "vouchers", "repeat", "السندات", "نقل مبلغ من صندوق إلى آخر بنفس العملة", () => new VoucherForm("تحويل")),
@@ -358,9 +358,16 @@ public class MainForm : BaseForm
 
             new("المستخدمون والصلاحيات", "users", "shield-check", "المستخدمين", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
 
-            new("الإعدادات", "settings", "settings", "الأدوات", "بيانات المحل والطباعة والنسخ الاحتياطي وواتساب والميزان", () => new SettingsForm()),
+            new("الطابعة الافتراضية", "settings", "printer", "الأدوات", "الطابعة وحجم الورق والطباعة بعد الحفظ", () => new SettingsForm("الطباعة والتقارير")),
+            new("الإعدادات", "settings", "settings", "الأدوات", "بيانات المحل وصوره ونسب الربح وأنظمة البرنامج", () => new SettingsForm()),
+            new("إعدادات التقارير", "settings", "file-text", "الأدوات", "رأس المطبوعات (الشعار أو صورة الترويسة) وتذييلها", () => new SettingsForm("إعدادات النظام")),
+            new("النسخ الاحتياطي", "backup", "database", "الأدوات", "نسخ البيانات واستعادتها والنسخ السحابي", () => new SettingsForm("النسخ الاحتياطي")),
             new("مدير المهام", "tasks", "list-todo", "الأدوات", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
             new("التعريفات", "settings", "layers", "الأدوات", "مراكز الكلفة وشركات التوصيل والشركاء", () => new DefsHubForm()),
+            new("سجل التحديثات", null, "history", "الأدوات", "ما الجديد في كل إصدار", () => new ChangelogForm()),
+            new("الاختصارات", null, "keyboard", "الأدوات", "اختصارات لوحة المفاتيح", () => new ShortcutsForm()),
+            new("الدعم", null, "headset", "الأدوات", "الدعم والمساعدة", () => { ShowHelp(); return null; }),
+            new("الحاسبة", null, "calculator", "الأدوات", "حاسبة ويندوز", () => { Shell("calc.exe"); return null; }),
         };
         if (Session.IsAdmin)
             list.Insert(list.FindIndex(p => p.Group == "الصيانة والموظفون"),
@@ -377,7 +384,8 @@ public class MainForm : BaseForm
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1180, 720);
         KeyPreview = true;
-        Pages = BuildPages().Where(p => Session.Can(p.Perm)).ToList();
+        // الشاشات حسب الصلاحيات، وحسب أنظمة البرنامج المفعّلة في الإعدادات
+        Pages = BuildPages().Where(p => Session.Can(p.Perm) && (!PageFeature.TryGetValue(p.Text, out var f) || Features.On(f))).ToList();
 
         // ---------- الشعار ----------
         var logo = new Panel { Dock = DockStyle.Top, Height = 96, BackColor = Theme.Sidebar };
@@ -528,7 +536,7 @@ public class MainForm : BaseForm
         try
         {
             top.Bell.Badge = (int)(Stats.ItemAlertsCount(Settings.Int("expiry_days", 30)) +
-                                   Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady());
+                                   Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady() + Credit.AlertsCount());
             top.Bell.Invalidate();
         }
         catch { }
@@ -576,9 +584,25 @@ public class MainForm : BaseForm
     // ---------- التبويبات ----------
     public void Navigate(Page p)
     {
-        if (open.ContainsKey(p.Text)) Activate(p.Text);
-        else Open(p.Text, p.Make(), p);
+        if (open.ContainsKey(p.Text)) { Activate(p.Text); return; }
+        // بعض عناصر الأدوات إجراءات مباشرة (الحاسبة، الدعم) لا تفتح تبويبًا
+        var f = p.Make();
+        if (f != null) Open(p.Text, f, p);
     }
+
+    /// <summary>الشاشات التابعة لأنظمة يمكن إيقافها من الإعدادات</summary>
+    static readonly Dictionary<string, string> PageFeature = new()
+    {
+        ["المخازن"] = "feat_warehouses", ["نقل بين المخازن"] = "feat_warehouses",
+        ["الشركات"] = "feat_companies",
+        ["الأقساط"] = "feat_installments", ["حساب الكفلاء"] = "feat_installments",
+        ["حساب الخزائن"] = "feat_boxes", ["تحويل بين الصناديق"] = "feat_boxes", ["صيرفة"] = "feat_boxes",
+        ["تحليل البيانات"] = "feat_analysis",
+        ["الصيانة المُسلَّمة"] = "feat_followup", ["سجل العمليات"] = "feat_followup",
+        ["الصيانة"] = "feat_repairs",
+        ["الموارد البشرية"] = "feat_hr", ["حساب الموظفين"] = "feat_hr", ["سند راتب"] = "feat_hr",
+        ["قائمة عرض سعر"] = "feat_quotes", ["عروض الأسعار"] = "feat_quotes",
+    };
 
     /// <summary>الانتقال إلى شاشة باسمها (إن كانت ضمن صلاحيات المستخدم)</summary>
     public bool Go(string pageText)
