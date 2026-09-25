@@ -1,0 +1,175 @@
+using System.Diagnostics;
+using System.Text;
+using static Workshop.Txt;
+
+namespace Workshop;
+
+/// <summary>
+/// الطباعة: الفاتورة وملصق الجهاز ووصل الاستلام والتقارير تُكتب كصفحة HTML بنفس تصميم النسخة السابقة
+/// وتُفتح في المتصفح مع نافذة الطباعة مباشرة (تدعم أي طابعة، والطباعة إلى PDF).
+/// </summary>
+public static class Printer
+{
+    static string FontFace()
+    {
+        var dir = Path.Combine(Store.DataDir, "fonts");
+        string Url(string f) => new Uri(Path.Combine(dir, f)).AbsoluteUri;
+        return $@"@font-face{{font-family:'Plex';src:url('{Url("IBMPlexSansArabic-Regular.ttf")}');font-weight:400}}
+@font-face{{font-family:'Plex';src:url('{Url("IBMPlexSansArabic-SemiBold.ttf")}');font-weight:600}}
+@font-face{{font-family:'Plex';src:url('{Url("IBMPlexSansArabic-Bold.ttf")}');font-weight:700}}";
+    }
+
+    public static void Doc(string bodyHtml, string title, string width = "680px", string extraCss = "")
+    {
+        var html = $@"<!DOCTYPE html><html lang=""ar"" dir=""rtl""><head><meta charset=""UTF-8""><title>{Esc(title)}</title>
+<style>
+{FontFace()}
+*{{box-sizing:border-box}}
+body{{font-family:'Plex','IBM Plex Sans Arabic',Tahoma,Arial,sans-serif;margin:0;padding:22px;color:#172033;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-variant-numeric:tabular-nums}}
+.doc{{max-width:{width};margin:0 auto}}
+.hdr{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:14px;border-bottom:3px solid #2B55C9;margin-bottom:16px}}
+.shop{{font-size:21px;font-weight:700;color:#1C3C95}}
+.shop-sub{{font-size:12px;color:#5A6478;margin-top:2px}}
+.doc-title{{font-size:15px;font-weight:700;text-align:left}}
+.ref{{display:inline-block;margin-top:6px;background:#FCF0DC;color:#8A5610;border:1px solid #E9C58F;border-radius:4px 10px 10px 4px;padding:3px 10px;font-weight:700;direction:ltr;letter-spacing:.03em}}
+.grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;background:#F5F7FA;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px}}
+.grid b{{font-weight:600}}
+.k{{color:#5A6478}}
+.row{{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed #DCE1EA;font-size:13.5px}}
+.row.total{{border-bottom:2px solid #172033;font-size:16px;font-weight:700;padding:10px 0}}
+.box{{border:1px solid #DCE1EA;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7;margin-bottom:12px}}
+.foot{{margin-top:18px;padding-top:10px;border-top:1px solid #DCE1EA;font-size:11.5px;color:#5A6478;line-height:1.8}}
+.thanks{{text-align:center;font-weight:700;color:#1C3C95;margin-top:14px}}
+.good{{color:#1D8657}}.bad{{color:#C43F2C}}
+table.t{{width:100%;border-collapse:collapse;font-size:11.5px}}
+table.t th{{background:#2B55C9;color:#fff;padding:6px;text-align:right}}
+table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
+.bar{{display:flex;gap:8px;justify-content:center;margin-bottom:16px}}
+.bar button{{font:inherit;padding:8px 18px;border-radius:8px;border:0;cursor:pointer;font-weight:700}}
+.bar .p{{background:#2B55C9;color:#fff}}.bar .c{{background:#E9EDF3}}
+@media print{{ body{{padding:0}} .bar{{display:none}} @page{{margin:10mm}} }}
+{extraCss}
+</style></head><body>
+<div class=""bar""><button class=""p"" onclick=""window.print()"">طباعة</button><button class=""c"" onclick=""window.close()"">إغلاق</button></div>
+<div class=""doc"">{bodyHtml}</div>
+<script>window.addEventListener('load',function(){{setTimeout(function(){{window.print()}},350)}});</script>
+</body></html>";
+        try
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "WorkshopPrint");
+            Directory.CreateDirectory(dir);
+            foreach (var old in Directory.GetFiles(dir, "*.html").Where(f => File.GetCreationTime(f) < DateTime.Now.AddDays(-1)))
+                try { File.Delete(old); } catch { }
+            var safe = string.Concat(title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+            var file = Path.Combine(dir, $"{safe}_{DateTime.Now:HHmmssfff}.html");
+            File.WriteAllText(file, html, new UTF8Encoding(false));
+            Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+        }
+        catch (Exception ex) { Raseed.Dialogs.Warn("تعذّرت الطباعة: " + ex.Message); }
+    }
+
+    // ---------- باركود Code 128 (B) كصورة SVG يقرؤها أي قارئ باركود ----------
+    static readonly string[] C128 = ("212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112").Split(' ');
+
+    public static string Code128Svg(string text, int height = 44, double module = 2, double maxWidth = 0)
+    {
+        var chars = (text ?? "").Where(c => c >= 32 && c <= 126).ToList();
+        var codes = new List<int> { 104 };
+        codes.AddRange(chars.Select(c => c - 32));
+        int check = 104;
+        for (int i = 1; i < codes.Count; i++) check += codes[i] * i;
+        codes.Add(check % 103);
+        codes.Add(106);
+        int units = 11 * (codes.Count - 1) + 13 + 20;
+        if (maxWidth > 0 && units * module > maxWidth) module = Math.Max(1, Math.Floor(maxWidth / units * 4) / 4);
+        double x = 10 * module;
+        var bars = new StringBuilder();
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        foreach (var c in codes)
+        {
+            var w = C128[c];
+            for (int i = 0; i < w.Length; i++)
+            {
+                double bw = (w[i] - '0') * module;
+                if (i % 2 == 0) bars.Append($"<rect x=\"{x.ToString(inv)}\" y=\"0\" width=\"{bw.ToString(inv)}\" height=\"{height}\"/>");
+                x += bw;
+            }
+        }
+        double W = x + 10 * module;
+        return $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {W.ToString(inv)} {height}\" width=\"{W.ToString(inv)}\" height=\"{height}\" style=\"display:block;margin:0 auto;max-width:100%;height:auto\"><rect width=\"{W.ToString(inv)}\" height=\"{height}\" fill=\"#fff\"/><g fill=\"#000\">{bars}</g></svg>";
+    }
+
+    public static string Header(string title, string refNo = null)
+    {
+        var sub = string.Join(" — ", new[] { Store.ShopAddress, Store.ShopPhone }.Where(x => x != ""));
+        return $@"<div class=""hdr""><div><div class=""shop"">{Esc(Store.ShopName)}</div><div class=""shop-sub"">{Esc(sub)}</div></div>
+<div style=""text-align:left""><div class=""doc-title"">{Esc(title)}</div>{(refNo != null ? $"<div class=\"ref\">{Esc(refNo)}</div>" : "")}<div class=""shop-sub"">{Esc(FmtDate(Today))}</div></div></div>";
+    }
+
+    public static string Row(string k, string v, string cls = "") => $"<div class=\"row\"><span class=\"k\">{k}</span><b class=\"{cls}\">{Esc(v)}</b></div>";
+
+    // ---------- فاتورة الصيانة ----------
+    public static void Invoice(Order o)
+    {
+        double rem = Calc.RemainingOf(o);
+        var we = Calc.WarrantyEnd(o);
+        var src = Calc.Find(o.WarrantyOf);
+        var sb = new StringBuilder(Header("فاتورة صيانة", o.RefNo));
+        sb.Append($@"<div class=""grid"">
+<div><span class=""k"">الزبون: </span><b>{Esc(o.CustomerName)}</b></div><div><span class=""k"">الهاتف: </span><b dir=""ltr"">{Esc(o.Phone == "" ? "—" : o.Phone)}</b></div>
+<div><span class=""k"">الجهاز: </span><b>{Esc(o.Device)}</b></div><div><span class=""k"">نوع العطل: </span><b>{Esc(o.IssueType)}</b></div>
+{(o.Imei != "" ? $"<div><span class=\"k\">IMEI: </span><b dir=\"ltr\">{Esc(o.Imei)}</b></div><div></div>" : "")}
+<div><span class=""k"">تاريخ الاستلام: </span><b>{FmtDate(o.DateReceived)}</b></div><div><span class=""k"">{(o.DateDelivered != "" ? "تاريخ التسليم" : "التسليم المتوقع")}: </span><b>{FmtDate(o.DateDelivered != "" ? o.DateDelivered : o.DateEstimated)}</b></div>
+</div>
+<div class=""box""><span class=""k"">وصف العطل: </span>{Esc(o.Issue == "" ? "—" : o.Issue)}</div>");
+        if (o.ChecksNA || o.Checks.Count > 0)
+            sb.Append($"<div class=\"box\"><span class=\"k\">حالة الجهاز عند الاستلام: </span>{(o.ChecksNA ? "الجهاز لا يعمل، لم يُفحص" : string.Join(" &nbsp;·&nbsp; ", K.Checks.Where(c => o.Checks.ContainsKey(c.Key)).Select(c => (o.Checks[c.Key] == "ok" ? "✓ " : "✕ ") + Esc(c.Title))))}</div>");
+        if (o.Parts.Count > 0) sb.Append(Row("القطع المستبدلة", string.Join("، ", o.Parts.Select(p => p.Name).Where(n => n != ""))).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
+        if (o.Accessories.Count > 0) sb.Append(Row("الملحقات المستلمة", string.Join("، ", o.Accessories)).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
+        sb.Append(Row("الضمان", o.Warranty + (we != "" ? " — حتى " + FmtDate(we) : "")));
+        if (src != null) sb.Append(Row("طلب ضمان", "للطلب " + src.RefNo));
+        sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص (الطلب ملغى)" : "مبلغ الصيانة", Money(Calc.ChargeOf(o))));
+        sb.Append(Row("المدفوع", Money(o.Paid), "good"));
+        sb.Append($"<div class=\"row total\"><span>المتبقي</span><span class=\"{(rem > 0 ? "bad" : "good")}\">{(rem > 0 ? Esc(Money(rem)) : "مسدد بالكامل")}</span></div>");
+        if (Store.Terms != "") sb.Append($"<div class=\"foot\">{Esc(Store.Terms)}</div>");
+        sb.Append("<div class=\"thanks\">شكراً لثقتكم</div>");
+        sb.Append($"<div style=\"margin-top:14px\">{Code128Svg(o.RefNo, 40, 2, 320)}</div>");
+        Doc(sb.ToString(), "فاتورة " + o.RefNo);
+    }
+
+    // ---------- ملصق الجهاز (يُلصق على الجهاز داخل الورشة) ----------
+    public static void Label(Order o)
+    {
+        var sb = new StringBuilder($@"<div style=""border:2px dashed #172033;border-radius:10px;padding:12px"">
+<div style=""display:flex;justify-content:space-between;align-items:center""><b style=""font-size:13px"">{Esc(Store.ShopName)}</b><span style=""font-size:11px;color:#5A6478"">{FmtDate(o.DateReceived)}</span></div>
+<div style=""text-align:center;margin:8px 0;padding:6px;border:2px solid #172033;border-radius:8px"">{Code128Svg(o.RefNo, 46, 2, 250)}
+<div style=""font-size:24px;font-weight:700;letter-spacing:.06em;direction:ltr;margin-top:4px"">{Esc(o.RefNo)}</div></div>");
+        sb.Append(Row("الزبون", o.CustomerName));
+        sb.Append(Row("الهاتف", o.Phone == "" ? "—" : o.Phone).Replace("<b class=\"\">", "<b dir=\"ltr\">"));
+        sb.Append(Row("الجهاز", o.Device));
+        sb.Append(Row("العطل", o.IssueType));
+        if (o.Imei != "") sb.Append(Row("IMEI", o.Imei).Replace("<b class=\"\">", "<b dir=\"ltr\">"));
+        if (o.Passcode != "" && Store.LabelPasscode) sb.Append(Row("رمز القفل", o.Passcode).Replace("<b class=\"\">", "<b dir=\"ltr\">"));
+        if (o.Accessories.Count > 0) sb.Append(Row("ملحقات", string.Join("، ", o.Accessories)));
+        sb.Append($"<div class=\"row\" style=\"border:0\"><span class=\"k\">الموعد</span><b>{FmtDate(o.DateEstimated)}</b></div></div>");
+        Doc(sb.ToString(), "ملصق " + o.RefNo, "300px", ".row{font-size:12px;padding:5px 0}");
+    }
+
+    // ---------- وصل استلام مبلغ ----------
+    public static void Receipt(Order o)
+    {
+        double legacy = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
+        var sb = new StringBuilder(Header("وصل استلام مبلغ", o.RefNo));
+        sb.Append($"<div class=\"grid\"><div><span class=\"k\">الزبون: </span><b>{Esc(o.CustomerName)}</b></div><div><span class=\"k\">الجهاز: </span><b>{Esc(o.Device)}</b></div></div>");
+        if (legacy > 0) sb.Append(Row("دفعة سابقة " + FmtDate(o.DateReceived), Money(legacy)));
+        foreach (var p in o.PaymentHistory) sb.Append(Row($"دفعة {FmtDate(p.Date)} — {Esc(p.Method)}{(p.Note != "" ? " — " + Esc(p.Note) : "")}", Money(p.Amount)));
+        sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص" : "المبلغ الكلي", Money(Calc.ChargeOf(o))));
+        sb.Append($"<div class=\"row total\"><span>المبلغ المستلم</span><span class=\"good\">{Esc(Money(o.Paid))}</span></div>");
+        sb.Append("<div style=\"text-align:center;margin-top:14px;padding:10px;border-radius:8px;background:#E1F3EA;color:#1D8657;font-weight:700\">تم سداد كامل المبلغ</div>");
+        sb.Append("<div class=\"thanks\">شكراً لتعاملكم معنا</div>");
+        Doc(sb.ToString(), "وصل " + o.RefNo, "460px");
+    }
+
+    public static string Table(string[] head, IEnumerable<string[]> rows) =>
+        $"<table class=\"t\"><thead><tr>{string.Concat(head.Select(h => $"<th>{Esc(h)}</th>"))}</tr></thead><tbody>{string.Concat(rows.Select(r => "<tr>" + string.Concat(r.Select(c => $"<td>{Esc(c)}</td>")) + "</tr>"))}</tbody></table>";
+}

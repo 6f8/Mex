@@ -7,8 +7,7 @@ namespace Raseed;
 /// <summary>طبقة قاعدة البيانات (SQLite) — ملف واحد محلي سهل النسخ الاحتياطي.</summary>
 public static class Db
 {
-    public static readonly string DataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Raseed");
+    public static string DataDir => AppPaths.DataDir;
 
     public static string FilePath => Path.Combine(DataDir, "raseed.db");
 

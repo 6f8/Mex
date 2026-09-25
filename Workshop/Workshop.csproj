@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Workshop</AssemblyName>
+    <RootNamespace>Workshop</RootNamespace>
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <Version>1.0.0</Version>
+    <Product>ورشة الصيانة</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- مكتبة الواجهة مشتركة مع برنامج رصيد (نفس الأزرار والبطاقات والجداول والخطوط والأيقونات) -->
+    <Compile Include="..\Raseed\UiKit\*.cs" Link="UiKit\%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\Raseed\Assets\*.ttf" Link="Assets\%(Filename)%(Extension)" />
+    <None Include="..\Raseed\Assets\*.txt" Link="Assets\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -12,6 +12,12 @@ namespace Raseed;
 /// كخط خاص بالبرنامج فقط. التحميل من ملف أولًا (الأكثر ثباتًا على ويندوز)، ومن الذاكرة احتياطًا.
 /// إن تعذر كل ذلك يُستخدم Segoe UI، ويُكتب السبب في fonts.log داخل مجلد البيانات.
 /// </summary>
+/// <summary>مجلد بيانات البرنامج الذي يستعمل مكتبة الواجهة (رصيد، أو ورشة الصيانة) — يُضبط قبل FontKit.Init</summary>
+public static class AppPaths
+{
+    public static string DataDir { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Raseed");
+}
+
 public static class FontKit
 {
     [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] static extern int AddFontResourceEx(string name, uint fl, IntPtr res);
@@ -37,7 +43,7 @@ public static class FontKit
         string dir = null;
         try
         {
-            dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Raseed", "fonts");
+            dir = Path.Combine(AppPaths.DataDir, "fonts");
             Directory.CreateDirectory(dir);
         }
         catch (Exception ex) { log.Add("fonts dir: " + ex.Message); dir = null; }
@@ -113,8 +119,8 @@ public static class FontKit
     {
         try
         {
-            Directory.CreateDirectory(Db.DataDir);
-            File.AppendAllText(Path.Combine(Db.DataDir, "fonts.log"),
+            Directory.CreateDirectory(AppPaths.DataDir);
+            File.AppendAllText(Path.Combine(AppPaths.DataDir, "fonts.log"),
                 $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}] {string.Join(" | ", log)}\r\n");
         }
         catch { }
