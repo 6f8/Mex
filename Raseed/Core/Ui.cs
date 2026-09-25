@@ -89,7 +89,32 @@ public static class Ui
 
     public const string TypeCaseSql = "CASE {0} WHEN 'Sale' THEN 'بيع' WHEN 'Purchase' THEN 'شراء' WHEN 'SaleReturn' THEN 'إرجاع بيع' WHEN 'PurchaseReturn' THEN 'إرجاع شراء' WHEN 'StockIn' THEN 'إدخال مخزني' WHEN 'StockOut' THEN 'إخراج مخزني' WHEN 'Quote' THEN 'عرض سعر' ELSE 'إتلاف' END";
 
-    public static string M(double v) => (Math.Abs(v) < 0.005 ? 0 : v).ToString("#,0.##");
+    public static string M(double v) => (!double.IsFinite(v) || Math.Abs(v) < 0.005 ? 0 : v).ToString("#,0.##");
+
+    /// <summary>أول n حرف من النص (بدون استثناء إذا كان النص أقصر، مثل تاريخ فارغ)</summary>
+    public static string Cut(string s, int n) => string.IsNullOrEmpty(s) ? "" : s.Length > n ? s[..n] : s;
+
+    /// <summary>
+    /// ضبط قيمة حقل رقمي بأمان: القيمة خارج حدود الحقل (سالبة في حقل يبدأ من الصفر مثلًا) كانت توقف البرنامج برسالة خطأ
+    /// </summary>
+    public static void SetNum(NumericUpDown n, double v)
+    {
+        if (!double.IsFinite(v)) v = 0;
+        decimal d = v >= (double)n.Maximum ? n.Maximum : v <= (double)n.Minimum ? n.Minimum : (decimal)v;
+        if (n.Value != d) n.Value = d;
+    }
+
+    /// <summary>
+    /// تأخير البحث حتى يتوقف المستخدم عن الكتابة لحظة: كان كل حرف يعيد تحميل الجدول كاملًا من قاعدة البيانات فيبطئ الكتابة
+    /// </summary>
+    public static void OnTextIdle(TextBox box, Action action, int ms = 300)
+    {
+        var timer = new System.Windows.Forms.Timer { Interval = ms };
+        timer.Tick += (s, e) => { timer.Stop(); if (!box.IsDisposed) action(); };
+        box.TextChanged += (s, e) => { timer.Stop(); timer.Start(); };
+        box.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter && timer.Enabled) { timer.Stop(); action(); } };
+        box.Disposed += (s, e) => timer.Dispose();
+    }
     public static double V(object o) => o is double d ? d : double.TryParse(Convert.ToString(o), out var x) ? x : 0;
 
     public static ComboBox Combo(int width = 200) => new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = width, Font = Theme.F(10) };
@@ -185,7 +210,7 @@ public static class Ui
     {
         using var f = new DialogShell(title, 420, hint == null ? 250 : 290, "calculator");
         var n = Num(372, 2);
-        n.Value = (decimal)def;
+        SetNum(n, def);
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(0, 6, 0, 0) };
         flow.Controls.Add(Labeled(caption, n));
         if (hint != null)
@@ -241,7 +266,13 @@ public static class Ui
         return s;
     }
 
-    public static double Rate(string currency) => currency == "USD" ? Settings.Dbl("usd_rate", 1500) : 1;
+    /// <summary>سعر الصرف (لا يكون صفرًا أو سالبًا حتى لا تحدث قسمة على صفر)</summary>
+    public static double Rate(string currency)
+    {
+        if (currency != "USD") return 1;
+        double r = Settings.Dbl("usd_rate", 1500);
+        return r > 0 ? r : 1500;
+    }
     public static string BoxCurrency(long boxId) => Db.S(Db.Scalar("SELECT currency FROM cashboxes WHERE id=@p0", boxId));
     public static double BoxRate(long boxId) => Rate(BoxCurrency(boxId));
     public static double PartyBalance(long partyId) => Db.D(Db.Scalar("SELECT balance FROM v_party_balance WHERE id=@p0", partyId));

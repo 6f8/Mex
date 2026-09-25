@@ -16,6 +16,8 @@ public class ModernButton : Button
     BtnKind kind = BtnKind.Primary;
     bool hover, down;
     int fitMin;
+    int natural;          // العرض المطلوب للزر (بالبكسل الفعلي) كما حدده الكود، لا كما صغّرته لوحات الترتيب
+    bool layoutSizing;    // التغيير الحالي في العرض من لوحة ترتيب مؤقتًا (لا يغيّر العرض المطلوب)
 
     [DefaultValue(BtnKind.Primary)]
     public BtnKind Kind { get => kind; set { kind = value; Invalidate(); } }
@@ -52,8 +54,33 @@ public class ModernButton : Button
     /// <summary>العرض المحسوب من قياس النص هو بالبكسل الفعلي أصلًا: لا يُضرب مرة ثانية</summary>
     protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
     {
+        // العرض المطلوب يُكبَّر بنفسه (قد يكون الزر مصغّرًا مؤقتًا لحظة التكبير)
+        int before = natural;
         base.ScaleControl(factor, specified);
+        if (before > 0 && (specified & BoundsSpecified.Width) != 0) natural = (int)Math.Round(before * factor.Width);
         if (fitMin > 0) Width = FitCalc();
+    }
+
+    /// <summary>
+    /// العرض الذي يطلبه الزر لنفسه. لوحات الترتيب المتجاوبة تصغّر الزر مؤقتًا عند ضيق المساحة
+    /// (مثل لحظة بناء الشاشة قبل أن تأخذ حجمها الحقيقي) ثم تعيده إلى هذا العرض، فلا يبقى النص مقصوصًا «كشف الح...».
+    /// </summary>
+    public int NaturalWidth => fitMin > 0 ? FitCalc() : natural > 0 ? natural : Width;
+
+    /// <summary>عرض مؤقت من لوحة الترتيب (لا يغيّر NaturalWidth)</summary>
+    internal void SetLayoutBounds(int x, int y, int w, int h)
+    {
+        layoutSizing = true;
+        try { SetBounds(x, y, w, h); }
+        finally { layoutSizing = false; }
+    }
+
+    internal void SetLayoutWidth(int w) => SetLayoutBounds(Left, Top, w, Height);
+
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        base.SetBoundsCore(x, y, width, height, specified);
+        if (!layoutSizing && (specified & BoundsSpecified.Width) != 0) natural = width;
     }
 
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }

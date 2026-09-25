@@ -16,8 +16,10 @@ public static class ScaleCode
         int need = prefix.Length + codeLen + valueLen;
         if (prefix == "" || codeLen <= 0 || valueLen <= 0 || !code.StartsWith(prefix) || code.Length < need || code.Length > need + 1) return false;
         if (!code.All(char.IsAsciiDigit)) return false;
-        plu = long.Parse(code.Substring(prefix.Length, codeLen));
-        qty = long.Parse(code.Substring(prefix.Length + codeLen, valueLen)) / (double)divisor;
+        // إعدادات بأطوال كبيرة جدًا كانت تسبب تجاوز حد الرقم وتوقف البرنامج عند المسح
+        if (!long.TryParse(code.AsSpan(prefix.Length, codeLen), out plu) ||
+            !long.TryParse(code.AsSpan(prefix.Length + codeLen, valueLen), out long raw)) { plu = 0; return false; }
+        qty = raw / (double)Math.Max(1, divisor);
         return qty > 0;
     }
 }

@@ -168,13 +168,30 @@ public static class Settings
         ("api_token", "رمز الربط", ""),
     };
 
+    // الإعدادات تُقرأ من الذاكرة: كانت كل قراءة (حتى أثناء الرسم كل ثانية) تفتح قاعدة البيانات وتنفّذ استعلامًا
+    // null = المفتاح غير موجود في قاعدة البيانات. آمنة للاستخدام من أكثر من خيط (ربط الهاتف والمهام في الخلفية)
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> cache = new();
+
     public static string Get(string key, string def = "")
     {
-        var v = Db.Scalar("SELECT value FROM settings WHERE key=@p0", key);
-        return v == null || v is DBNull ? def : Convert.ToString(v);
+        if (!cache.TryGetValue(key, out var v))
+        {
+            var o = Db.Scalar("SELECT value FROM settings WHERE key=@p0", key);
+            v = o == null || o is DBNull ? null : Convert.ToString(o, CultureInfo.InvariantCulture);
+            cache[key] = v;
+        }
+        return v ?? def;
     }
 
-    public static int Int(string key, int def) => int.TryParse(Get(key), out var v) ? v : def;
-    public static double Dbl(string key, double def) => double.TryParse(Get(key), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : def;
-    public static void Set(string key, string value) => Db.Exec("INSERT OR REPLACE INTO settings(key,value) VALUES(@p0,@p1)", key, value);
+    public static int Int(string key, int def) => int.TryParse(Get(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : def;
+    public static double Dbl(string key, double def) => double.TryParse(Get(key), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : def;
+
+    public static void Set(string key, string value)
+    {
+        Db.Exec("INSERT OR REPLACE INTO settings(key,value) VALUES(@p0,@p1)", key, value);
+        cache[key] = value;
+    }
+
+    /// <summary>تفريغ الذاكرة (بعد استعادة نسخة احتياطية مثلًا)</summary>
+    public static void Reload() => cache.Clear();
 }

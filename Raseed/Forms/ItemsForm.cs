@@ -110,7 +110,7 @@ public class ItemsForm : BaseForm
         bNew.Click += (s, e) => New();
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
-        search.TextChanged += (s, e) => LoadList();
+        Ui.OnTextIdle(search, LoadList);
         list.CellClick += (s, e) => { if (list.CurrentRow != null) LoadItem(Db.L(list.CurrentRow.Cells["id"].Value)); };
         list.KeyUp += (s, e) => { if (e.KeyCode is Keys.Up or Keys.Down && list.CurrentRow != null) LoadItem(Db.L(list.CurrentRow.Cells["id"].Value)); };
         cbType.SelectedIndexChanged += (s, e) => UpdateState();
@@ -372,7 +372,7 @@ public class ItemsForm : BaseForm
 
     static string Cur(ComboBox cb) => cb.SelectedIndex == 1 ? "USD" : "IQD";
     static void SetCur(ComboBox cb, string v) => cb.SelectedIndex = v == "USD" ? 1 : 0;
-    static void SetNum(NumericUpDown n, double v) => n.Value = (decimal)Math.Max((double)n.Minimum, Math.Min((double)n.Maximum, v));
+    static void SetNum(NumericUpDown n, double v) => Ui.SetNum(n, v);
 
     static void SetAlert(Toggle chk, NumericUpDown n, double v)
     {
@@ -396,7 +396,7 @@ public class ItemsForm : BaseForm
         foreach (var n in new[] { nQty, nBuy, nRetail, nWholesale, nSpecial, nInst, nWarranty }) n.Value = 0;
         tgMeasure.Checked = false; tgActive.Checked = true; tgSerial.Checked = false; tgScale.Checked = false;
         SetAlert(cMin, nMin, 0); SetAlert(cMax, nMax, 0); SetAlert(cSafety, nSafety, 0); SetAlert(cStagnant, nStagnant, 0); SetAlert(cTarget, nTarget, 0);
-        cExpiry.Checked = false; nAlertDays.Value = Settings.Int("expiry_days", 30); nAlertDays.Enabled = false;
+        cExpiry.Checked = false; SetNum(nAlertDays, Settings.Int("expiry_days", 30)); nAlertDays.Enabled = false;
         dExpiry.Value = DateTime.Today.AddYears(1);
         formCard.Title = "إضافة المواد";
         formCard.Subtitle = "مادة جديدة";
@@ -445,7 +445,7 @@ public class ItemsForm : BaseForm
         long alertDays = Db.L(r["expiry_alert_days"]);
         cExpiry.Checked = nearest != "" || alertDays > 0;
         if (DateTime.TryParse(nearest, out var ne)) dExpiry.Value = ne;
-        nAlertDays.Value = alertDays > 0 ? alertDays : Settings.Int("expiry_days", 30);
+        SetNum(nAlertDays, alertDays > 0 ? alertDays : Settings.Int("expiry_days", 30));
         nAlertDays.Enabled = cExpiry.Checked;
         formCard.Title = "تعديل المادة";
         formCard.Subtitle = $"{tName.Text} — رقم {id}";
@@ -520,26 +520,28 @@ public class ItemsForm : BaseForm
                             "use_scale,origin,warehouse_id,max_qty,safety_qty,stagnant_days,sales_target,expiry_alert_days";
         var colList = cols.Split(',');
         bool isNew = id == 0;
+        long saved = id;
         using (var tx = new Tx())
         {
+            // رقم المادة الجديدة يُعتمد بعد نجاح الحفظ فقط (عند فشل المعاملة كان يبقى رقمًا لمادة غير موجودة)
             if (isNew)
             {
-                id = tx.Insert($"INSERT INTO items({cols}) VALUES({string.Join(",", colList.Select((c, i) => "@p" + i))})", vals);
+                long newId = saved = tx.Insert($"INSERT INTO items({cols}) VALUES({string.Join(",", colList.Select((c, i) => "@p" + i))})", vals);
                 if (qty > 0 && !service)
                 {
                     // رصيد أول المدة: سند إدخال مخزني بكلفة سعر الشراء (بالدينار)
                     double cost = Cur(cbBuyCur) == "USD" ? buy * Ui.Rate("USD") : buy;
-                    StockOps.StockIn(tx, wh, new[] { (id, qty, cost, cExpiry.Checked ? dExpiry.Value.ToString(Ui.DFmt) : "") },
+                    StockOps.StockIn(tx, wh, new[] { (newId, qty, cost, cExpiry.Checked ? dExpiry.Value.ToString(Ui.DFmt) : "") },
                         "رصيد أول المدة — " + name);
                 }
             }
             else
-                tx.Exec($"UPDATE items SET {string.Join(",", colList.Select((c, i) => $"{c}=@p{i}"))} WHERE id=@p{colList.Length}", vals.Append(id).ToArray());
-            Barcodes.Save(tx, id, codes);
+                tx.Exec($"UPDATE items SET {string.Join(",", colList.Select((c, i) => $"{c}=@p{i}"))} WHERE id=@p{colList.Length}", vals.Append(saved).ToArray());
+            Barcodes.Save(tx, saved, codes);
             tx.Commit();
         }
+        id = saved;
         Toast.Show(isNew ? $"تمت إضافة المادة «{name}»" : $"تم حفظ المادة «{name}»");
-        long saved = id;
         FillLookups();
         LoadList();
         LoadItem(saved);

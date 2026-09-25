@@ -537,7 +537,7 @@ public class MainForm : BaseForm
             MobileApi.Start();
             timer.Start();
             Scheduler.Tick();
-            RefreshAlerts();
+            RefreshAlerts(force: true);
         };
         FormClosing += (s, e) =>
         {
@@ -549,6 +549,9 @@ public class MainForm : BaseForm
             tray.Dispose();
         };
     }
+
+    /// <summary>إخفاء أيقونة شريط المهام قبل الخروج المباشر (حتى لا تبقى أيقونة معلّقة)</summary>
+    public void HideTray() { tray.Visible = false; tray.Dispose(); }
 
     protected override void OnHandleCreated(EventArgs e)
     {
@@ -576,15 +579,32 @@ public class MainForm : BaseForm
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    public void RefreshAlerts()
+    bool alertsBusy;
+    long alertsVersion = -1;
+    DateTime alertsAt;
+
+    /// <summary>
+    /// عدد التنبيهات على الجرس. الاستعلامات ثقيلة مع كثرة المواد، فتُحسب في الخلفية (كانت تجمّد الشاشة كل 30 ثانية)،
+    /// وتُعاد فقط إذا تغيّرت البيانات أو مرّت بضع دقائق (التنبيهات المرتبطة بالتاريخ)
+    /// </summary>
+    public async void RefreshAlerts(bool force = false)
     {
+        if (alertsBusy) return;
+        long ver = Db.Version;
+        if (!force && ver == alertsVersion && (DateTime.Now - alertsAt).TotalMinutes < 5) return;
+        alertsBusy = true;
         try
         {
-            top.Bell.Badge = (int)(Stats.ItemAlertsCount(Settings.Int("expiry_days", 30)) +
-                                   Stats.DueInstallments(Settings.Int("reminder_days", 3)) + Stats.RepairsReady() + Credit.AlertsCount());
+            int exp = Settings.Int("expiry_days", 30), rem = Settings.Int("reminder_days", 3);
+            long n = await Task.Run(() => Stats.ItemAlertsCount(exp) + Stats.DueInstallments(rem) + Stats.RepairsReady() + Credit.AlertsCount());
+            alertsVersion = ver;
+            alertsAt = DateTime.Now;
+            if (IsDisposed) return;
+            top.Bell.Badge = (int)Math.Clamp(n, 0, int.MaxValue);
             top.Bell.Invalidate();
         }
         catch { }
+        finally { alertsBusy = false; }
     }
 
     void ShowPalette()
@@ -702,6 +722,7 @@ public class MainForm : BaseForm
         }
         Host(f);
         open[key] = (f, page);
+        StampHome(key);
         tabs.Set(key, key, page?.Icon ?? "square-pen", key != HomeKey);
         // عنوان التبويب يتبع عنوان الشاشة (مثل «تعديل فاتورة» ← «فاتورة بيع» بعد الحفظ)
         if (page == null) f.TextChanged += (s, e) => { if (open.ContainsKey(key) && f.Text != "") tabs.Set(key, f.Text, "square-pen", true); };
@@ -722,17 +743,29 @@ public class MainForm : BaseForm
 
     void Activate(string key) => Activate(key, false);
 
+    long homeVersion = -1;
+    DateTime homeBuilt;
+    void StampHome(string key)
+    {
+        if (key != HomeKey) return;
+        homeVersion = Db.Version;
+        homeBuilt = DateTime.Now;
+    }
+
     void Activate(string key, bool fresh)
     {
         if (!open.TryGetValue(key, out var entry)) return;
-        // لوحة التحكم تُبنى من جديد عند الرجوع إليها لتعرض أحدث الأرقام
-        if (!fresh && key == HomeKey && activeKey != HomeKey && entry.Page != null)
+        // لوحة التحكم تُبنى من جديد عند الرجوع إليها لتعرض أحدث الأرقام — فقط إذا تغيّرت البيانات منذ بنائها
+        // (إعادة بنائها مع كل نقرة على «الرئيسية» كانت تشغّل كل استعلامات التنبيهات والمؤشرات من جديد)
+        if (!fresh && key == HomeKey && activeKey != HomeKey && entry.Page != null &&
+            (Db.Version != homeVersion || (DateTime.Now - homeBuilt).TotalMinutes >= 5 || homeBuilt.Date != DateTime.Today))
         {
             var f = entry.Page.Make();
             Host(f);
             Detach(entry.Form);
             entry = (f, entry.Page);
             open[key] = entry;
+            StampHome(key);
         }
         content.SuspendLayout();
         entry.Form.Show();
@@ -759,8 +792,9 @@ public class MainForm : BaseForm
         Host(f);
         Detach(entry.Form);
         open[activeKey] = (f, entry.Page);
+        StampHome(activeKey);
         Activate(activeKey, fresh: true);
-        RefreshAlerts();
+        RefreshAlerts(force: true);
     }
 
     public bool CloseTab(string key)
@@ -1297,7 +1331,9 @@ public class UsersForm : BaseForm
     {
         if (grid.CurrentRow == null) return;
         id = Db.L(grid.CurrentRow.Cells["id"].Value);
-        var r = Db.Query("SELECT * FROM users WHERE id=@p0", id).Rows[0];
+        var found = Db.Query("SELECT * FROM users WHERE id=@p0", id);
+        if (found.Rows.Count == 0) { LoadGrid(); New(); return; }
+        var r = found.Rows[0];
         tUser.Text = Db.S(r["username"]);
         tName.Text = Db.S(r["full_name"]);
         tPass.Clear();
@@ -1321,19 +1357,21 @@ public class UsersForm : BaseForm
         try
         {
             using var tx = new Tx();
-            if (id == 0)
-                id = tx.Insert("INSERT INTO users(username,pass_hash,full_name,is_admin,active) VALUES(@p0,@p1,@p2,@p3,@p4)",
+            long uid = id;
+            if (uid == 0)
+                uid = tx.Insert("INSERT INTO users(username,pass_hash,full_name,is_admin,active) VALUES(@p0,@p1,@p2,@p3,@p4)",
                     u, Session.HashPassword(p), tName.Text.Trim(), cAdmin.Checked ? 1 : 0, cActive.Checked ? 1 : 0);
             else
             {
                 tx.Exec("UPDATE users SET username=@p0, full_name=@p1, is_admin=@p2, active=@p3 WHERE id=@p4",
-                    u, tName.Text.Trim(), cAdmin.Checked ? 1 : 0, cActive.Checked ? 1 : 0, id);
-                if (p != "") tx.Exec("UPDATE users SET pass_hash=@p0 WHERE id=@p1", Session.HashPassword(p), id);
+                    u, tName.Text.Trim(), cAdmin.Checked ? 1 : 0, cActive.Checked ? 1 : 0, uid);
+                if (p != "") tx.Exec("UPDATE users SET pass_hash=@p0 WHERE id=@p1", Session.HashPassword(p), uid);
             }
-            tx.Exec("DELETE FROM user_perms WHERE user_id=@p0", id);
+            tx.Exec("DELETE FROM user_perms WHERE user_id=@p0", uid);
             foreach (int i in perms.CheckedIndices)
-                tx.Exec("INSERT INTO user_perms(user_id,perm) VALUES(@p0,@p1)", id, Session.AllPerms[i].Key);
+                tx.Exec("INSERT INTO user_perms(user_id,perm) VALUES(@p0,@p1)", uid, Session.AllPerms[i].Key);
             tx.Commit();
+            id = uid;
             tPass.Clear();
             LoadGrid();
             Toast.Show("تم حفظ المستخدم " + u);

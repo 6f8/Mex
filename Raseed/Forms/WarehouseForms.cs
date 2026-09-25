@@ -10,6 +10,7 @@ public class TransferForm : BaseForm
     readonly TextBox txtNotes = new() { Width = 300 };
     readonly DataGridView grid = Ui.NewGrid(false), history = Ui.NewGrid();
     DataTable items;
+    long itemsVersion = -1;
 
     public TransferForm()
     {
@@ -49,7 +50,12 @@ public class TransferForm : BaseForm
         Controls.Add(head);
 
         bAdd.Click += (s, e) => FindAndAdd();
-        bDel.Click += (s, e) => { if (grid.CurrentRow != null) grid.Rows.Remove(grid.CurrentRow); };
+        bDel.Click += (s, e) =>
+        {
+            if (grid.CurrentRow == null) return;
+            if (grid.IsCurrentCellInEditMode) grid.CancelEdit();
+            grid.Rows.Remove(grid.CurrentRow);
+        };
         bSave.Click += (s, e) => Save();
         txtFind.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; FindAndAdd(); } };
         cbFrom.SelectedIndexChanged += (s, e) => RefreshAvailable();
@@ -65,12 +71,13 @@ public class TransferForm : BaseForm
         Shown += (s, e) => txtFind.Focus();
     }
 
-    public override void OnPageActivated() => LoadItems();
+    public override void OnPageActivated() { if (itemsVersion != Db.ItemsVersion) LoadItems(); RefreshAvailable(); }
 
     public override bool ConfirmClose() => grid.Rows.Count == 0 || Ui.Confirm("توجد مواد في قائمة النقل لم تُنفَّذ. إغلاق الشاشة؟");
 
     void LoadItems()
     {
+        itemsVersion = Db.ItemsVersion;
         items = Db.Query("SELECT id, code, barcode, name FROM items WHERE active=1 AND IFNULL(item_type,'اعتيادية')<>'خدمية' ORDER BY name");
         var src = new AutoCompleteStringCollection();
         foreach (DataRow r in items.Rows) { src.Add(Db.S(r["name"])); if (Db.S(r["barcode"]) != "") src.Add(Db.S(r["barcode"])); }

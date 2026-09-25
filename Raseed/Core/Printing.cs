@@ -379,6 +379,9 @@ public static class LabelPrinter
         if (labels.Count == 0) return;
         double wmm = Settings.Dbl("label_w", 40), hmm = Settings.Dbl("label_h", 25);
         bool sheet = Settings.Get("label_mode") == "A4";
+        // مقاس صفر أو سالب في الإعدادات كان يسبب قسمة على صفر
+        if (!(wmm >= 10)) wmm = 40;
+        if (!(hmm >= 10)) hmm = 25;
         int W = (int)(wmm / 25.4 * 100), H = (int)(hmm / 25.4 * 100);
         var pd = new PrintDocument { DocumentName = "Raseed Labels" };
         var printer = Settings.Get("label_printer");

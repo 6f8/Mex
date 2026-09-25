@@ -64,7 +64,7 @@ public class VoucherForm : BaseForm
         cbEmp.SelectedIndexChanged += (s, e) =>
         {
             var r = Ui.GetRow(cbEmp);
-            if (r != null && cbKind.Text == "راتب") { nAmt.Value = (decimal)Db.D(r["salary"]); txtNote.Text = $"راتب شهر {DateTime.Now:yyyy/MM}"; }
+            if (r != null && cbKind.Text == "راتب") { Ui.SetNum(nAmt, Db.D(r["salary"])); txtNote.Text = $"راتب شهر {DateTime.Now:yyyy/MM}"; }
         };
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
@@ -184,7 +184,9 @@ public class VoucherForm : BaseForm
     {
         if (grid.CurrentRow == null || !Session.Guard("delete")) return;
         long id = Db.L(grid.CurrentRow.Cells["id"].Value);
-        var r = Db.Query("SELECT invoice_id, installment_id, repair_id, ref, amount, rate, voucher_id FROM cash_moves WHERE id=@p0", id).Rows[0];
+        var found = Db.Query("SELECT invoice_id, installment_id, repair_id, ref, amount, rate, voucher_id FROM cash_moves WHERE id=@p0", id);
+        if (found.Rows.Count == 0) { LoadGrid(); return; }   // حُذف من شاشة أخرى
+        var r = found.Rows[0];
         // حركة من سند قبض/دفع: يُحذف السند كاملًا (الدينار والدولار والخصم)
         if (Db.L(r["voucher_id"]) > 0)
         {
@@ -308,7 +310,8 @@ public class InstallmentsForm : BaseForm
         long id = Db.L(Row.Cells["id"].Value);
         _ = WhatsApp.Send(phone, text).ContinueWith(t =>
         {
-            if (t.Result) Db.Exec("UPDATE installments SET notified=@p0 WHERE id=@p1", Ui.Today, id);
+            try { if (t.Status == TaskStatus.RanToCompletion && t.Result) Db.Exec("UPDATE installments SET notified=@p0 WHERE id=@p1", Ui.Today, id); }
+            catch { }
         });
     }
 }
@@ -344,7 +347,7 @@ public class StockForm : BaseForm
 
         cbWh.SelectedIndexChanged += (s, e) => LoadGrid();
         cbView.SelectedIndexChanged += (s, e) => LoadGrid();
-        search.TextChanged += (s, e) => LoadGrid();
+        Ui.OnTextIdle(search, LoadGrid);
         bMove.Click += (s, e) => { if (Session.Guard("stock")) main.Go("نقل بين المخازن"); };
         bDamage.Click += (s, e) => { if (Session.Guard("damage")) main.Go("المواد التالفة"); };
         grid.CellFormatting += (s, e) =>
@@ -457,8 +460,8 @@ public class BalanceEntryDialog : DialogShell
             entryId = Db.L(r["id"]);
             if (DateTime.TryParse(Db.S(r["date"]), out var d)) dDate.Value = d;
             double iq = Db.D(r["iqd"]), us = Db.D(r["usd"]);
-            nIqdFor.Value = (decimal)Math.Max(0, iq); nIqdAgainst.Value = (decimal)Math.Max(0, -iq);
-            nUsdFor.Value = (decimal)Math.Max(0, us); nUsdAgainst.Value = (decimal)Math.Max(0, -us);
+            Ui.SetNum(nIqdFor, Math.Max(0, iq)); Ui.SetNum(nIqdAgainst, Math.Max(0, -iq));
+            Ui.SetNum(nUsdFor, Math.Max(0, us)); Ui.SetNum(nUsdAgainst, Math.Max(0, -us));
             tNote.Text = Db.S(r["note"]);
         }
         else dDate.Value = DateTime.Today;
@@ -494,7 +497,9 @@ public class CreditDialog : DialogShell
     {
         partyId = party;
         foreach (var n in new[] { nIqd, nUsd, nDays }) n.Minimum = 0;
-        var r = Db.Query("SELECT name, credit_limit, credit_limit_usd, credit_mode, pay_period_days FROM parties WHERE id=@p0", party).Rows[0];
+        var pr = Db.Query("SELECT name, credit_limit, credit_limit_usd, credit_mode, pay_period_days FROM parties WHERE id=@p0", party);
+        if (pr.Rows.Count == 0) { Load += (s, e) => { Ui.Warn("الحساب غير موجود (ربما حُذف)."); Close(); }; return; }
+        var r = pr.Rows[0];
 
         Control Row(string caption, Control c, int capW = 140, string unit = null)
         {
@@ -531,12 +536,12 @@ public class CreditDialog : DialogShell
         Body.Controls.Add(flow);
 
         tgLimit.Checked = Db.D(r["credit_limit"]) > 0 || Db.D(r["credit_limit_usd"]) > 0;
-        nIqd.Value = (decimal)Db.D(r["credit_limit"]);
-        nUsd.Value = (decimal)Db.D(r["credit_limit_usd"]);
+        Ui.SetNum(nIqd, Db.D(r["credit_limit"]));
+        Ui.SetNum(nUsd, Db.D(r["credit_limit_usd"]));
         rBlock.Checked = Db.S(r["credit_mode"]) == "منع";
         rWarn.Checked = !rBlock.Checked;
         tgPeriod.Checked = Db.L(r["pay_period_days"]) > 0;
-        nDays.Value = Db.L(r["pay_period_days"]);
+        Ui.SetNum(nDays, Db.L(r["pay_period_days"]));
 
         void Sync()
         {
@@ -545,7 +550,7 @@ public class CreditDialog : DialogShell
             nDays.Enabled = tgPeriod.Checked;
         }
         // توحيد المبلغ: السقف بالدولار يساوي سقف الدينار بسعر الصرف
-        void Unify() { if (tgUnify.Checked) nUsd.Value = Math.Round(nIqd.Value / (decimal)Ui.Rate("USD"), 2); }
+        void Unify() { if (tgUnify.Checked) Ui.SetNum(nUsd, Math.Round((double)nIqd.Value / Ui.Rate("USD"), 2)); }
         tgLimit.CheckedChanged += (s, e) => Sync();
         tgPeriod.CheckedChanged += (s, e) => Sync();
         tgUnify.CheckedChanged += (s, e) => { Unify(); Sync(); };

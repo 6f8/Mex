@@ -4,6 +4,18 @@ namespace Raseed;
 
 static class Program
 {
+    /// <summary>وسيط التشغيل بعد الاستعادة (ينتظر إغلاق النسخة السابقة)</summary>
+    public const string RestartArg = "--restarted";
+
+    /// <summary>إعادة تشغيل البرنامج (بعد استعادة نسخة احتياطية)</summary>
+    public static void Restart()
+    {
+        try { MainForm.Instance?.HideTray(); } catch { }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Application.ExecutablePath, RestartArg) { UseShellExecute = false }); }
+        catch { }
+        Environment.Exit(0);
+    }
+
     [STAThread]
     static void Main()
     {
@@ -14,6 +26,13 @@ static class Program
 
         // نسخة واحدة فقط: تشغيل نسختين معًا يسبب تعارض الكتابة على قاعدة البيانات ومنفذ ربط الهاتف
         using var mutex = new Mutex(true, @"Local\Raseed.SingleInstance", out bool first);
+        // بعد استعادة نسخة احتياطية يُعاد تشغيل البرنامج والنسخة القديمة ما زالت تُغلق: ننتظرها قليلًا
+        // (كان التشغيل الجديد يظهر «البرنامج يعمل مسبقًا» ويُغلق، فيبقى المستخدم بلا برنامج)
+        if (!first && Environment.GetCommandLineArgs().Contains(RestartArg))
+        {
+            try { first = mutex.WaitOne(TimeSpan.FromSeconds(15)); }
+            catch (AbandonedMutexException) { first = true; }
+        }
         if (!first)
         {
             MessageBox.Show("البرنامج يعمل مسبقًا على هذا الجهاز.", "رصيد", MessageBoxButtons.OK, MessageBoxIcon.Information,

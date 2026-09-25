@@ -39,8 +39,16 @@ public static class WhatsApp
         }
 
         if (!interactive) return false;
-        Process.Start(new ProcessStartInfo($"https://wa.me/{to}?text={Uri.EscapeDataString(message)}") { UseShellExecute = true });
-        return true;
+        try
+        {
+            Process.Start(new ProcessStartInfo($"https://wa.me/{to}?text={Uri.EscapeDataString(message ?? "")}") { UseShellExecute = true });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Dialogs.Warn("تعذّر فتح واتساب: " + ex.Message);
+            return false;
+        }
     }
 
     public static string InstallmentText(string name, long seq, double amount, string due) =>
@@ -94,7 +102,10 @@ public static class Backup
     public static string Run()
     {
         Directory.CreateDirectory(LocalDir);
-        var file = Path.Combine(LocalDir, $"raseed_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var file = Path.Combine(LocalDir, $"raseed_{stamp}.db");
+        // نسختان في نفس الثانية (مثل نسخة الأمان قبل الاستعادة) لا تكتب إحداهما فوق الأخرى
+        for (int k = 2; File.Exists(file); k++) file = Path.Combine(LocalDir, $"raseed_{stamp}_{k}.db");
         using (var src = Db.Open())
         using (var dst = new SqliteConnection($"Data Source={file};Pooling=False"))
         {
@@ -143,8 +154,20 @@ public static class Backup
     {
         if (!IsValidBackup(file, out var err)) throw new InvalidOperationException(err);
         try { Run(); } catch { }           // نسخة أمان قبل الاستعادة
+        // دمج سجل WAL في الملف ثم إغلاق كل الاتصالات، وحذف ملفات السجل القديمة حتى لا تُطبَّق على النسخة المستعادة
+        try
+        {
+            using var c = Db.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            cmd.ExecuteNonQuery();
+        }
+        catch { }
         SqliteConnection.ClearAllPools();
         File.Copy(file, Db.FilePath, true);
+        foreach (var ext in new[] { "-wal", "-shm" })
+            try { File.Delete(Db.FilePath + ext); } catch { }
+        Settings.Reload();
     }
 }
 
@@ -189,7 +212,8 @@ public static class Scheduler
         switch (kind)
         {
             case "نسخ احتياطي":
-                var f = Backup.Run();
+                // في الخلفية: نسخ قاعدة بيانات كبيرة كان يجمّد البرنامج
+                var f = await Task.Run(Backup.Run);
                 Notify?.Invoke("نسخ احتياطي", "تم حفظ النسخة: " + Path.GetFileName(f));
                 break;
             case "تذكير الأقساط":
@@ -197,7 +221,7 @@ public static class Scheduler
                 if (n > 0) Notify?.Invoke("تذكير الأقساط", $"تم إرسال {n} رسالة تذكير.");
                 break;
             case "فحص الصلاحية":
-                long exp = Stats.Expiring(Settings.Int("expiry_days", 30)), low = Stats.LowStock();
+                var (exp, low) = await Task.Run(() => (Stats.Expiring(Settings.Int("expiry_days", 30)), Stats.LowStock()));
                 if (exp + low > 0) Notify?.Invoke("تنبيه المخزون", $"مواد قاربت على الانتهاء: {exp} — مواد تحت حد الطلب: {low}");
                 break;
             default:
@@ -303,10 +327,14 @@ public static class MobileApi
         if (path0 is "" or "/index.html" or "/manifest.json")
         {
             bool man = path0 == "/manifest.json";
-            var page = Encoding.UTF8.GetBytes(man ? MobileWeb.Manifest(Settings.Get("shop_name")) : MobileWeb.Html);
-            ctx.Response.ContentType = man ? "application/manifest+json; charset=utf-8" : "text/html; charset=utf-8";
-            ctx.Response.OutputStream.Write(page, 0, page.Length);
-            ctx.Response.Close();
+            try
+            {
+                var page = Encoding.UTF8.GetBytes(man ? MobileWeb.Manifest(Settings.Get("shop_name")) : MobileWeb.Html);
+                ctx.Response.ContentType = man ? "application/manifest+json; charset=utf-8" : "text/html; charset=utf-8";
+                ctx.Response.OutputStream.Write(page, 0, page.Length);
+                ctx.Response.Close();
+            }
+            catch { try { ctx.Response.Abort(); } catch { } }   // الهاتف قطع الاتصال
             return;
         }
         try
@@ -346,13 +374,17 @@ public static class MobileApi
         }
         catch (Exception ex) { code = 500; result = new { error = ex.Message }; }
 
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result, opts));
-        var res = ctx.Response;
-        res.StatusCode = code;
-        res.ContentType = "application/json; charset=utf-8";
-        res.AddHeader("Access-Control-Allow-Origin", "*");
-        res.OutputStream.Write(bytes, 0, bytes.Length);
-        res.Close();
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result, opts));
+            var res = ctx.Response;
+            res.StatusCode = code;
+            res.ContentType = "application/json; charset=utf-8";
+            res.AddHeader("Access-Control-Allow-Origin", "*");
+            res.OutputStream.Write(bytes, 0, bytes.Length);
+            res.Close();
+        }
+        catch { try { ctx.Response.Abort(); } catch { } }
     }
 
     static List<Dictionary<string, object>> Rows(DataTable dt) =>
