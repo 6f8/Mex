@@ -52,6 +52,7 @@ public static class Db
                 t.Exec("INSERT OR IGNORE INTO settings(key,value) VALUES(@p0,@p1)", s.Key, s.Def);
             Migrate(t);
             t.Exec("CREATE INDEX IF NOT EXISTS ix_cash_repair ON cash_moves(repair_id)");
+            t.Exec("CREATE INDEX IF NOT EXISTS ix_cash_voucher ON cash_moves(voucher_id)");
             t.Exec(BalanceView);
             if (L(t.Scalar("SELECT COUNT(*) FROM users")) == 0) Seed(t);
             t.Commit();
@@ -92,6 +93,12 @@ public static class Db
             ("cash_moves", "expense_type_id", "INTEGER"),
             // الإصدار 6
             ("invoice_lines", "note", "TEXT"),
+            // الإصدار 7: سقف الذمة بالدينار والدولار وفترة التسديد، وربط السندات
+            ("parties", "credit_limit_usd", "REAL DEFAULT 0"),
+            ("parties", "credit_mode", "TEXT DEFAULT 'تنبيه'"),
+            ("parties", "pay_period_days", "INTEGER DEFAULT 0"),
+            ("cash_moves", "voucher_id", "INTEGER"),
+            ("balance_entries", "voucher_id", "INTEGER"),
         };
         foreach (var (table, col, def) in cols)
         {
@@ -210,6 +217,12 @@ CREATE TABLE IF NOT EXISTS expense_types(id INTEGER PRIMARY KEY, name TEXT NOT N
 CREATE TABLE IF NOT EXISTS balance_entries(id INTEGER PRIMARY KEY, date TEXT NOT NULL, party_id INTEGER NOT NULL REFERENCES parties(id),
     iqd REAL DEFAULT 0, usd REAL DEFAULT 0, rate REAL DEFAULT 1, note TEXT, user_id INTEGER);
 CREATE INDEX IF NOT EXISTS ix_balance_entries_party ON balance_entries(party_id);
+
+-- الإصدار 7: سند القبض / الدفع (دينار ودولار وخصم) — حركاته في cash_moves وخصمه في balance_entries
+CREATE TABLE IF NOT EXISTS vouchers(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, date TEXT NOT NULL, party_id INTEGER NOT NULL REFERENCES parties(id),
+    box_id INTEGER, box_usd_id INTEGER, iqd REAL DEFAULT 0, usd REAL DEFAULT 0, disc_iqd REAL DEFAULT 0, disc_usd REAL DEFAULT 0,
+    rate REAL DEFAULT 1, note TEXT, user_id INTEGER);
+CREATE INDEX IF NOT EXISTS ix_vouchers_party ON vouchers(party_id);
 
 -- فهارس الأداء: رصيد الجهات وكشوف الحساب والتقارير تبحث بهذه الأعمدة باستمرار
 CREATE INDEX IF NOT EXISTS ix_invoices_party ON invoices(party_id);

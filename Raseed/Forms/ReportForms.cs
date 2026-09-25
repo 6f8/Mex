@@ -10,12 +10,13 @@ public class ReportsForm : BaseForm
     string A => dFrom.Value.ToString(Ui.DFmt);
     string B => dTo.Value.ToString(Ui.DFmt) + " 23:59:59";
 
-    readonly long preItem;
+    readonly long preItem, preParty;
 
     /// <summary>كل التقارير كتبويبات، أو تقرير واحد فقط (عند فتحه من القائمة الجانبية)</summary>
-    public ReportsForm(string only = null, long itemId = 0)
+    public ReportsForm(string only = null, long itemId = 0, long partyId = 0)
     {
         preItem = itemId;
+        preParty = partyId;
         dFrom.Value = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         dTo.Value = DateTime.Today;
         var bar = Theme.Bar();
@@ -108,6 +109,13 @@ public class ReportsForm : BaseForm
         top.Controls.Add(bShow);
         top.Controls.Add(bWa);
         double closing = 0;
+        // فتح الكشف من شاشة أخرى (سند قبض مثلًا): الحساب محدد والكشف معروض من البداية
+        if (preParty > 0)
+        {
+            Ui.SelectId(cb, preParty);
+            dFrom.Value = new DateTime(2000, 1, 1);
+            Load += (s, e) => bShow.PerformClick();
+        }
 
         bShow.Click += (s, e) =>
         {
@@ -616,7 +624,8 @@ public class DashboardForm : BaseForm
             FROM installments t JOIN parties p ON p.id=t.party_id
             WHERE t.amount-t.paid>0.001 AND t.due_date<=date('now','localtime','+'||@p1||' day')
             UNION ALL
-            SELECT 'جهاز جاهز للتسليم', r.customer, r.device||'  —  وصل رقم '||r.id||'  —  '||IFNULL(r.phone,'') FROM repairs r WHERE r.status='جاهز'", expDays, remDays);
+            SELECT 'جهاز جاهز للتسليم', r.customer, r.device||'  —  وصل رقم '||r.id||'  —  '||IFNULL(r.phone,'') FROM repairs r WHERE r.status='جاهز'"
+            + (Credit.Enabled ? " UNION ALL " + Credit.AlertsSql.Replace("@p9", Ui.Rate("USD").ToString(System.Globalization.CultureInfo.InvariantCulture)) : ""), expDays, remDays);
         alertsCard.Controls.Add(grid);
         alertsCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
         alertsCard.Controls.Add(chips);

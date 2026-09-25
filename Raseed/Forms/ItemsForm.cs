@@ -66,7 +66,8 @@ public class ItemsForm : BaseForm
         var tabs = new ModernTabs { Dock = DockStyle.Fill };
         tabs.Add("المعلومات الأساسية", Page(BasicPage()), "file-text");
         tabs.Add("البيانات الإضافية", Page(ExtraPage()), "sliders-horizontal");
-        tabs.Add("الرقم التسلسلي", Page(SerialPage()), "hash");
+        var serialPage = Page(SerialPage());   // يُبنى دائمًا (حقوله تُحفظ)، ويظهر تبويبه إن كان النظام مفعّلًا
+        if (Features.On("feat_serials")) tabs.Add("الرقم التسلسلي", serialPage, "hash");
         tabs.Add("تأريخ الصلاحية", Page(ExpiryPage()), "calendar-clock");
         tabs.Add("التنبيهات", Page(AlertsPage()), "bell");
         formCard.Controls.Add(tabs);
@@ -108,6 +109,9 @@ public class ItemsForm : BaseForm
         list.CellClick += (s, e) => { if (list.CurrentRow != null) LoadItem(Db.L(list.CurrentRow.Cells["id"].Value)); };
         list.KeyUp += (s, e) => { if (e.KeyCode is Keys.Up or Keys.Down && list.CurrentRow != null) LoadItem(Db.L(list.CurrentRow.Cells["id"].Value)); };
         cbType.SelectedIndexChanged += (s, e) => UpdateState();
+        // نسب الربح من الإعدادات: سعر البيع يُقترح من سعر الشراء ما لم يغيّره المستخدم
+        nBuy.ValueChanged += (s, e) => SuggestPrices();
+        foreach (var n in new[] { nRetail, nWholesale, nSpecial }) n.ValueChanged += (s, e) => { if (!suggesting) n.Tag = null; };
         KeyDown += (s, e) =>
         {
             if (e.KeyCode == Keys.F10) { Save(); e.Handled = true; }
@@ -182,7 +186,7 @@ public class ItemsForm : BaseForm
             long nid = QuickAdd.Ask("مخزن جديد", "اسم المخزن", "warehouses");
             if (nid > 0) { Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id"); Ui.SelectId(cbWh, nid); }
         };
-        st.Controls.Add(Row("اسم الشركة", cbCompany, addCompany));
+        if (Features.On("feat_companies")) st.Controls.Add(Row("اسم الشركة", cbCompany, addCompany));
         st.Controls.Add(Row("المخزن", cbWh, addWh));
         st.Controls.Add(Row("نوع المادة", cbType));
         st.Controls.Add(Row("اسم المادة", tName));
@@ -194,8 +198,11 @@ public class ItemsForm : BaseForm
         st.Controls.Add(lblQtyHint);
         st.Controls.Add(Row("سعر الشراء", nBuy));
         st.Controls.Add(Row("سعر البيع (مفرد)", nRetail));
-        st.Controls.Add(Row("سعر الجملة", nWholesale));
-        st.Controls.Add(Row("السعر الخاص", nSpecial));
+        if (Features.On("feat_three_prices"))
+        {
+            st.Controls.Add(Row("سعر الجملة", nWholesale));
+            st.Controls.Add(Row("السعر الخاص", nSpecial));
+        }
         st.Controls.Add(Row("سعر الأقساط", nInst));
         return st;
     }
@@ -341,6 +348,25 @@ public class ItemsForm : BaseForm
         listCard.Subtitle = $"{list.Rows.Count} مادة";
     }
 
+    bool suggesting;
+
+    void SuggestPrices()
+    {
+        if (suggesting || loadingItem) return;
+        suggesting = true;
+        double buy = (double)nBuy.Value;
+        foreach (var (n, key) in new[] { (nRetail, "margin_retail"), (nWholesale, "margin_wholesale"), (nSpecial, "margin_special") })
+        {
+            // يُملأ الحقل الفارغ، أو الذي ملأناه سابقًا تلقائيًا
+            if (n.Value != 0 && n.Tag as string != "auto") continue;
+            double m = Settings.Dbl(key, 0);
+            if (m <= 0 || buy <= 0) continue;
+            SetNum(n, Math.Round(buy * (1 + m / 100)));
+            n.Tag = "auto";
+        }
+        suggesting = false;
+    }
+
     static string Cur(ComboBox cb) => cb.SelectedIndex == 1 ? "USD" : "IQD";
     static void SetCur(ComboBox cb, string v) => cb.SelectedIndex = v == "USD" ? 1 : 0;
     static void SetNum(NumericUpDown n, double v) => n.Value = (decimal)Math.Max((double)n.Minimum, Math.Min((double)n.Maximum, v));
@@ -356,6 +382,7 @@ public class ItemsForm : BaseForm
 
     void New()
     {
+        foreach (var n in new[] { nRetail, nWholesale, nSpecial }) n.Tag = null;
         id = 0;
         Ui.SelectId(cbCompany, 0);
         Ui.SelectId(cbWh, Ui.DefaultWarehouse());
@@ -376,7 +403,16 @@ public class ItemsForm : BaseForm
         tName.Focus();
     }
 
+    bool loadingItem;
+
     void LoadItem(long itemId)
+    {
+        loadingItem = true;
+        try { LoadItemCore(itemId); } finally { loadingItem = false; }
+        foreach (var n in new[] { nRetail, nWholesale, nSpecial }) n.Tag = null;
+    }
+
+    void LoadItemCore(long itemId)
     {
         var dt = Db.Query("SELECT * FROM items WHERE id=@p0", itemId);
         if (dt.Rows.Count == 0) return;

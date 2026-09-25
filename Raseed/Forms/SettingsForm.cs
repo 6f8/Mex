@@ -7,19 +7,33 @@ public class SettingsForm : BaseForm
     readonly ModernTabs tabs = new(vertical: true) { Dock = DockStyle.Fill };
     FlowLayoutPanel cur;
 
-    public SettingsForm()
-    {
-        Section("بيانات المحل", "store", "تظهر في رأس الفواتير والوصولات المطبوعة");
-        TextField("shop_name", 360);
-        TextField("shop_phone", 360);
-        TextField("shop_address", 736);
-        TextField("invoice_footer", 736);
+    readonly List<string> sections = new();
+    readonly List<FlowLayoutPanel> flows = new();
 
-        Section("الطباعة", "printer", "طريقة طباعة الفواتير والسندات");
+    /// <summary>الإعدادات، أو قسم محدد منها (مثل «الطباعة والتقارير» من قسم الأدوات)</summary>
+    public SettingsForm(string section = null)
+    {
+        Section("إعدادات النظام", "store", "بيانات المحل وصوره ونسب الربح وأنظمة البرنامج");
+        Images();
+        TextField("shop_name", 360);
+        TextField("shop_city", 360);
+        TextField("shop_phone", 360);
+        TextField("shop_activity", 360);
+        TextField("shop_address", 736);
+        Number("usd_rate", 175);
+        Number("margin_retail", 175);
+        Number("margin_wholesale", 175);
+        Number("margin_special", 175);
+        Hint("نسب الربح تُستخدم لاقتراح أسعار البيع تلقائيًا عند إدخال سعر الشراء في شاشة المواد.");
+        FeatureSwitches();
+
+        Section("الطباعة والتقارير", "printer", "طريقة طباعة القوائم والسندات والتقارير");
         Choice("print_mode", ("A4", "ورق A4 عادي"), ("80mm", "طابعة إيصالات حرارية 80 ملم"));
         Choice("print_after_save", ("2", "اسألني كل مرة"), ("1", "اطبع تلقائيًا"), ("0", "لا تطبع"));
         Printer("printer_name");
         Switch("print_preview", "عرض معاينة قبل الطباعة");
+        TextField("invoice_footer", 736);
+        Hint("رأس المطبوعات: صورة الترويسة إن وُجدت (من «إعدادات النظام»)، وإلا الشعار واسم المحل وبياناته.");
         Act("طباعة صفحة تجريبية", "printer", TestPrint);
 
         Section("ملصقات الباركود", "barcode", "مقاس الملصق ونوع الطابعة");
@@ -29,8 +43,7 @@ public class SettingsForm : BaseForm
         Number("label_h", 175);
         Switch("label_price", "إظهار السعر على الملصق");
 
-        Section("العملة والتنبيهات", "coins", "سعر الصرف ومواعيد التنبيه");
-        Number("usd_rate", 240);
+        Section("الإشعارات", "bell", "مواعيد التنبيه بالصلاحية والأقساط");
         Number("expiry_days", 240);
         Number("reminder_days", 240);
 
@@ -93,6 +106,9 @@ public class SettingsForm : BaseForm
 
         Controls.Add(tabs);
         Controls.Add(bar);
+        if (section != null && sections.IndexOf(section) is var si and >= 0) tabs.SelectedIndex = si;
+        // الأقسام تبدأ من أعلاها (لا تمرير تلقائي إلى أول زر)
+        Shown += (s, e) => { ActiveControl = null; foreach (var f in flows) f.AutoScrollPosition = Point.Empty; };
     }
 
     // ---------------- بناء الأقسام ----------------
@@ -100,6 +116,7 @@ public class SettingsForm : BaseForm
     {
         var card = new CardPanel { Title = title, Subtitle = subtitle, IconName = icon, Dock = DockStyle.Top };
         cur = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface, AutoScroll = true, Padding = new Padding(0, 4, 0, 4) };
+        flows.Add(cur);
         var flow = cur;
         // الحقول العريضة تتبع عرض البطاقة (لا شريط تمرير أفقي في الشاشات الصغيرة)
         flow.Resize += (s, e) =>
@@ -114,6 +131,54 @@ public class SettingsForm : BaseForm
         card.Dock = DockStyle.Fill;
         page.Controls.Add(card);
         tabs.Add(title, page, icon);
+        sections.Add(title);
+    }
+
+    /// <summary>الشعار وصورة ترويسة القوائم (20 × 4.5 سم) مع «تغيير الصورة» و«إزالة»</summary>
+    void Images()
+    {
+        Control Box(string caption, string path, int w, int h)
+        {
+            var host = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(6, 4, 18, 8) };
+            var pic = new PictureBox { Size = new Size(w, h), SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.SurfaceAlt, Image = Branding.Load(path) };
+            host.Controls.Add(new Label { Text = caption, AutoSize = false, Width = w, Height = 24, Font = Theme.FS(9.5f), ForeColor = Theme.Text2 });
+            host.Controls.Add(pic);
+            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
+            var bSet = new ModernButton { Text = "تغيير الصورة", IconName = "folder-open", Kind = BtnKind.Success, Height = 38, Margin = new Padding(0, 0, 6, 0) }; bSet.FitWidth(130);
+            var bClear = new ModernButton { Text = "إزالة", IconName = "trash-2", Kind = BtnKind.Secondary, Height = 38 }; bClear.FitWidth(90);
+            bSet.Click += (s, e) =>
+            {
+                if (!Session.Guard("settings")) return;
+                using var ofd = new OpenFileDialog { Filter = "صور|*.png;*.jpg;*.jpeg;*.bmp" };
+                if (ofd.ShowDialog() != DialogResult.OK) return;
+                try { Branding.Set(path, ofd.FileName); pic.Image = Branding.Load(path); Toast.Show("تم تغيير الصورة"); }
+                catch (Exception ex) { Ui.Warn(ex.Message); }
+            };
+            bClear.Click += (s, e) => { if (Session.Guard("settings")) { Branding.Clear(path); pic.Image = null; } };
+            row.Controls.Add(bSet);
+            row.Controls.Add(bClear);
+            host.Controls.Add(row);
+            return host;
+        }
+        Add(Box("صورة ترويسة القوائم (20 × 4.5 سم) — تحل محل اسم المحل في رأس المطبوعات", Branding.HeaderPath, 440, 100));
+        Add(Box("الشعار", Branding.LogoPath, 130, 100));
+        cur.SetFlowBreak(cur.Controls[^1], true);
+    }
+
+    /// <summary>أنظمة البرنامج: إيقاف ما لا يحتاجه المحل يُخفي شاشاته من القائمة (يُطبّق بعد إعادة التشغيل)</summary>
+    void FeatureSwitches()
+    {
+        cur.SetFlowBreak(cur.Controls[^1], true);
+        var title = new Label { Text = "أنظمة البرنامج", AutoSize = false, Width = 736, Height = 32, Font = Theme.FS(11), ForeColor = Theme.Brand, TextAlign = ContentAlignment.BottomLeft, Margin = new Padding(6, 12, 6, 2) };
+        Add(title);
+        cur.SetFlowBreak(title, true);
+        foreach (var (key, caption) in Features.All)
+        {
+            var t = new Toggle { Text = caption, Width = 390, Checked = Features.On(key), Margin = new Padding(6, 4, 6, 4) };
+            Add(t);
+            getters[key] = () => t.Checked ? "1" : "0";
+        }
+        Hint("إيقاف نظام يُخفي شاشاته من القائمة الجانبية بعد إعادة تشغيل البرنامج، ولا يحذف أي بيانات.");
     }
 
     static string Caption(string key) => Settings.All.First(x => x.Key == key).Caption;

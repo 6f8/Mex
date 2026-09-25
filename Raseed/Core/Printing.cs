@@ -3,6 +3,33 @@ using System.Drawing.Printing;
 
 namespace Raseed;
 
+/// <summary>صور المحل في المطبوعات: الشعار، وترويسة القوائم (20 × 4.5 سم) — تُحفظ بجانب قاعدة البيانات</summary>
+public static class Branding
+{
+    public static string LogoPath => Path.Combine(Db.DataDir, "logo.png");
+    public static string HeaderPath => Path.Combine(Db.DataDir, "header.png");
+
+    public static Image Load(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            using var fs = File.OpenRead(path);
+            using var img = System.Drawing.Image.FromStream(fs);
+            return new Bitmap(img);   // نسخة في الذاكرة حتى لا يبقى الملف مقفلًا
+        }
+        catch { return null; }
+    }
+
+    public static void Set(string target, string source)
+    {
+        using var img = Load(source) ?? throw new InvalidOperationException("الملف المختار ليس صورة.");
+        img.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    public static void Clear(string target) { try { if (File.Exists(target)) File.Delete(target); } catch { } }
+}
+
 /// <summary>
 /// مستند طباعة بسيط (عناوين، أزواج، جداول، خطوط، باركود) يُطبع على A4 أو ورق حراري 80 ملم،
 /// مع تقسيم تلقائي للصفحات وتكرار رأس الجدول.
@@ -16,6 +43,7 @@ public class PrintDoc
     class LineEl : El { }
     class SpaceEl : El { public float H; }
     class BarcodeEl : El { public string Code; }
+    class ImageEl : El { public Image Img; public float MaxH; }
 
     readonly List<El> els = new();
     public bool Landscape;
@@ -28,13 +56,23 @@ public class PrintDoc
     public PrintDoc Line() { els.Add(new LineEl()); return this; }
     public PrintDoc Space(float h = 8) { els.Add(new SpaceEl { H = h }); return this; }
     public PrintDoc Barcode(string code) { els.Add(new BarcodeEl { Code = code }); return this; }
+    /// <summary>صورة بعرض الصفحة (أو أصغر) مع الحفاظ على النسبة — الارتفاع الأقصى بوحدة 1/100 بوصة</summary>
+    public PrintDoc Image(Image img, float maxH) { if (img != null) els.Add(new ImageEl { Img = img, MaxH = maxH }); return this; }
 
+    /// <summary>رأس المطبوعات: صورة الترويسة إن وُجدت، وإلا الشعار واسم المحل وعنوانه وهاتفه</summary>
     public static PrintDoc Header(string title)
     {
         var d = new PrintDoc();
-        d.Text(Settings.Get("shop_name"), 16, true, StringAlignment.Center);
-        var sub = string.Join("  —  ", new[] { Settings.Get("shop_address"), Settings.Get("shop_phone") }.Where(x => x != ""));
-        if (sub != "") d.Text(sub, 9, false, StringAlignment.Center);
+        var banner = Branding.Load(Branding.HeaderPath);
+        if (banner != null) d.Image(banner, 190);
+        else
+        {
+            d.Image(Branding.Load(Branding.LogoPath), 80);
+            d.Text(Settings.Get("shop_name"), 16, true, StringAlignment.Center);
+            if (Settings.Get("shop_activity") != "") d.Text(Settings.Get("shop_activity"), 9.5f, false, StringAlignment.Center);
+        }
+        var sub = string.Join("  —  ", new[] { Settings.Get("shop_city"), Settings.Get("shop_address"), Settings.Get("shop_phone") }.Where(x => x != ""));
+        if (sub != "" && banner == null) d.Text(sub, 9, false, StringAlignment.Center);
         d.Line();
         d.Text(title, 13, true, StringAlignment.Center);
         d.Space(4);
@@ -93,6 +131,13 @@ public class PrintDoc
                     break;
                 case SpaceEl s:
                     items.Add(new Item((g, w) => s.H, (g, r) => { }, null, false));
+                    break;
+                case ImageEl im:
+                    items.Add(new Item((g, w) => Math.Min(im.MaxH, w * im.Img.Height / Math.Max(1f, im.Img.Width)) + 6, (g, r) =>
+                    {
+                        float h = r.Height - 6, w = Math.Min(r.Width, h * im.Img.Width / Math.Max(1f, im.Img.Height));
+                        g.DrawImage(im.Img, new RectangleF(r.X + (r.Width - w) / 2, r.Y + 2, w, h));
+                    }, null, false));
                     break;
                 case BarcodeEl b:
                     items.Add(new Item((g, w) => 58, (g, r) => Code128.Draw(g, b.Code, new RectangleF(r.X, r.Y + 4, r.Width, 36), true), null, false));

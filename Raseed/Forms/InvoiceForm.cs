@@ -84,7 +84,7 @@ public class InvoiceForm : BaseForm
         {
             cbLevel.Items.AddRange(new object[] { "مفرد", "جملة", "خاص" });
             cbLevel.SelectedIndex = 0;
-            head.Controls.Add(Ui.Labeled("نوع السعر", cbLevel));
+            if (Features.On("feat_three_prices")) head.Controls.Add(Ui.Labeled("نوع السعر", cbLevel));
         }
         if (HasPayment)
         {
@@ -139,7 +139,7 @@ public class InvoiceForm : BaseForm
         AddCol("price", PriceCaption, !Session.Can("edit_price") || type is "Damage" or "StockOut", 75);
         AddCol("expiry", "الصلاحية (yyyy-mm-dd)", false, 95, UsesExpiry);
         AddCol("total", "المجموع", true, 85);
-        AddCol("serials", "الرقم التسلسلي", true, 110, type is "Sale" or "SaleReturn");   // الأرقام الممسوحة لهذا السطر
+        AddCol("serials", "الرقم التسلسلي", true, 110, type is "Sale" or "SaleReturn" && Features.On("feat_serials"));   // الأرقام الممسوحة لهذا السطر
         AddCol("note", "الملاحظة", false, 110);
         grid.Columns["note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
         grid.Columns.Add(new DataGridViewButtonColumn
@@ -191,7 +191,7 @@ public class InvoiceForm : BaseForm
         chkPrint.Checked = Session.Can("print") && Settings.Get("print_after_save", "2") == "1";
         chkPrint.Visible = Session.Can("print");
         toggles.Controls.Add(chkPrint);
-        if (type == "Sale") toggles.Controls.Add(chkInst);
+        if (type == "Sale" && Features.On("feat_installments")) toggles.Controls.Add(chkInst);
 
         bool stockDoc = Ui.IsStockDoc(type);
         var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 44, Margin = new Padding(0, 0, 8, 0) }; bNew.FitWidth(120);
@@ -589,7 +589,7 @@ public class InvoiceForm : BaseForm
             int i = cbLevel.Items.IndexOf(Db.S(r["price_level"]));
             if (i >= 0) cbLevel.SelectedIndex = i;
         }
-        double lim = r == null ? 0 : Db.D(r["credit_limit"]);
+        double lim = r == null || !Credit.Enabled ? 0 : Credit.Of(Db.L(r["id"])).Limit;
         lblPrev.ValueColor = lim > 0 && prevBalance > lim ? Theme.Danger : Theme.Ink;
         Totals();
     }
@@ -664,15 +664,16 @@ public class InvoiceForm : BaseForm
         if (HasPayment && SaleSide && party == 0 && paid < net - 0.001)
         { Ui.Warn("الزبون النقدي يجب أن يدفع (أو يُعاد له) كامل المبلغ.\nلتسجيل الباقي دينًا اختر حساب الزبون."); return false; }
 
-        // سقف الذمة
-        if (type == "Sale" && party > 0)
+        // سقف الذمة: تنبيه أو منع حسب إعداد الحساب (ومن لديه صلاحية التجاوز يُسأل فقط)
+        if (type == "Sale" && party > 0 && Credit.Enabled)
         {
-            double limit = Db.D(Db.Scalar("SELECT credit_limit FROM parties WHERE id=@p0", party));
+            var cr = Credit.Of(party);
             double after = Ui.PartyBalance(party) - oldEffect + net - paid;
-            if (limit > 0 && after > limit + 0.001)
+            if (cr.Limit > 0 && after > cr.Limit + 0.001)
             {
-                if (!Session.Can("exceed_credit")) { Ui.Warn($"تجاوز سقف الذمة!\nالسقف: {Ui.M(limit)} — الرصيد بعد القائمة: {Ui.M(after)}"); return false; }
-                if (!Ui.Confirm($"تجاوز سقف الذمة ({Ui.M(limit)}). الرصيد بعد القائمة {Ui.M(after)}. هل تريد المتابعة؟")) return false;
+                string msg = $"تجاوز سقف الذمة!\nالسقف: {Ui.M(cr.Limit)} — الرصيد بعد القائمة: {Ui.M(after)}";
+                if (cr.Block && !Session.Can("exceed_credit")) { Ui.Warn(msg + "\nالتعامل مع هذا الحساب ممنوع عند التجاوز."); return false; }
+                if (!Ui.Confirm(msg + "\nهل تريد المتابعة؟")) return false;
             }
         }
 

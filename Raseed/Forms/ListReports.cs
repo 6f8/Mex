@@ -29,7 +29,7 @@ public class ListReportForm : BaseForm
     bool SaleSide => kind is Kind.Sales or Kind.Quotes or Kind.SalesPayments;
     bool IsInvoiceList => kind is Kind.Sales or Kind.Purchases or Kind.Quotes;
 
-    public ListReportForm(Kind k)
+    public ListReportForm(Kind k, long partyId = 0)
     {
         kind = k;
         Text = TitleOf(k);
@@ -42,6 +42,12 @@ public class ListReportForm : BaseForm
             Ui.FillCombo(cbParty, "SELECT id,name FROM parties WHERE kind IN (@p0,'عميل ومورد') ORDER BY name", true, "الكل", SaleSide ? "عميل" : "مورد");
             Ui.MakeSearchable(cbParty);
             bar.Controls.Add(Ui.Labeled("الحساب", cbParty));
+            if (partyId > 0)
+            {
+                // من سند أو كشف: كل حركات الحساب منذ البداية
+                Ui.SelectId(cbParty, partyId);
+                dFrom.Value = new DateTime(2000, 1, 1);
+            }
         }
         Ui.FillCombo(cbUser, "SELECT id, IFNULL(NULLIF(full_name,''),username) FROM users ORDER BY id", true, "الكل");
         bar.Controls.Add(Ui.Labeled("المستخدم", cbUser));

@@ -23,8 +23,8 @@ public class EntityDef
     public Dictionary<string, object> Fixed = new();
     /// <summary>بعد الحفظ (مثل: إلغاء «الافتراضي» عن بقية المخازن)</summary>
     public Action<long> AfterSave;
-    /// <summary>زر في كل سطر من الجدول (مثل «تعديل رصيد»)</summary>
-    public (string Caption, Action<long> Run)? RowAction;
+    /// <summary>أزرار في كل سطر من الجدول (مثل «تعديل رصيد» و«سقف الذمة»)</summary>
+    public List<(string Caption, Action<long> Run)> RowActions = new();
 }
 
 /// <summary>
@@ -100,10 +100,10 @@ public class CrudForm : BaseForm
         bDel.Click += (s, e) => Delete();
         grid.CellClick += (s, e) =>
         {
-            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && grid.Columns[e.ColumnIndex].Name == "__action" && def.RowAction is { } act)
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && grid.Columns[e.ColumnIndex].Tag is int ai)
             {
                 long rid = Db.L(grid.Rows[e.RowIndex].Cells["id"].Value);
-                act.Run(rid);
+                def.RowActions[ai].Run(rid);
                 LoadList();
                 return;
             }
@@ -118,13 +118,17 @@ public class CrudForm : BaseForm
 
     void AddActionColumn()
     {
-        if (def.RowAction is not { } act || grid.Columns.Contains("__action")) return;
-        grid.Columns.Add(new DataGridViewButtonColumn
+        for (int i = 0; i < def.RowActions.Count; i++)
         {
-            Name = "__action", HeaderText = act.Caption, Text = act.Caption, UseColumnTextForButtonValue = true,
-            FlatStyle = FlatStyle.Flat, FillWeight = 60, MinimumWidth = 96,
-            DefaultCellStyle = { BackColor = Theme.BrandSoft, ForeColor = Theme.BrandDark, SelectionBackColor = Theme.BrandSoft2, SelectionForeColor = Theme.BrandDark }
-        });
+            var (caption, _) = def.RowActions[i];
+            if (grid.Columns.Contains("__action" + i)) continue;
+            grid.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "__action" + i, Tag = i, HeaderText = caption, Text = caption, UseColumnTextForButtonValue = true,
+                FlatStyle = FlatStyle.Flat, FillWeight = 60, MinimumWidth = 96,
+                DefaultCellStyle = { BackColor = Theme.BrandSoft, ForeColor = Theme.BrandDark, SelectionBackColor = Theme.BrandSoft2, SelectionForeColor = Theme.BrandDark }
+            });
+        }
     }
 
     static Label Caption(string text) => new()
@@ -335,10 +339,11 @@ public static class Defs
             F("name", "* اسم الحساب"),
             C("price_level", "نوع السعر", false, "مفرد", "جملة", "خاص"),
             F("address", "العنوان"), F("phone", "رقم الهاتف"), F("email", "البريد الإلكتروني"), F("city", "المدينة"),
-            F("credit_limit", "سقف الذمة", FType.Number),
             F("notes", "الملاحظات", FType.Memo),
         },
-        RowAction = ("تعديل رصيد", AdjustBalance),
+        RowActions = Credit.Enabled
+            ? new() { ("تعديل رصيد", AdjustBalance), ("سقف الذمة", CreditLimit) }
+            : new() { ("تعديل رصيد", AdjustBalance) },
     };
 
     /// <summary>سند تعديل رصيد (دينار/دولار، لنا/علينا)</summary>
@@ -346,6 +351,14 @@ public static class Defs
     {
         if (!Session.Guard("parties")) return;
         using var d = new BalanceEntryDialog(partyId);
+        d.ShowModal();
+    }
+
+    /// <summary>سقف الذمة وفترة التسديد للحساب</summary>
+    static void CreditLimit(long partyId)
+    {
+        if (!Session.Guard("parties")) return;
+        using var d = new CreditDialog(partyId);
         d.ShowModal();
     }
 
