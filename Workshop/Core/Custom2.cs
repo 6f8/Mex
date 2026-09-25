@@ -287,7 +287,7 @@ public static class Notify
     public static string TgChat => Store.Get("notify_tg_chat");
     public static bool TelegramOn => TgToken != "" && TgChat != "";
     public static bool EmailOn => Store.Get("notify_mail_host") != "" && Store.Get("notify_mail_to") != "";
-    public static bool Configured => Sender != null || TelegramOn || EmailOn;
+    public static bool Configured => Sender != null || (!Training.Active && (TelegramOn || EmailOn));
     public static bool DailyOn => Store.Flag("notify_daily");
     public static bool AlertOn(string kind) => Store.Flag("notify_alert_" + kind, true);
     public static string DailyTime => Store.Get("notify_daily_time", "22:00") is var t && TimeSpan.TryParse(t, out _) ? t : "22:00";

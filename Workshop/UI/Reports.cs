@@ -46,8 +46,11 @@ public class ReportsPage : StackPage
         head.Controls.Add(customBox);
         var bXls = W.Btn("Excel", "file-spreadsheet", BtnKind.Secondary, 90); bXls.Margin = new Padding(4, 26, 4, 4);
         var bPrint = W.Btn("طباعة", "printer", BtnKind.Secondary, 90); bPrint.Margin = new Padding(4, 26, 4, 4);
+        var bBranches = W.Btn("الفروع", "store", BtnKind.Secondary, 90); bBranches.Margin = new Padding(4, 26, 4, 4);
+        bBranches.Click += (s, e) => BranchReportDialog.Open();
         head.Controls.Add(bXls);
         head.Controls.Add(bPrint);
+        head.Controls.Add(bBranches);
         var headWrap = new Panel { Height = 96, BackColor = Theme.Bg };
         head.Dock = DockStyle.Top;
         headWrap.Controls.Add(head);

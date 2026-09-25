@@ -428,6 +428,8 @@ public class PaletteDialog : BaseForm
             new("أوامر", "تعريفات الطابعات", null, "printer", DriversDialog.Open),
             new("أوامر", "المحذوفات", null, "trash-2", TrashDialog.Open),
             new("أوامر", "القطع المعيبة ومرتجعات الموردين", null, "triangle-alert", DefectsDialog.Open),
+            new("أوامر", "التراجع عن آخر عملية", "Ctrl+Z", "rotate-ccw", UndoUi.Run),
+            new("أوامر", "تقرير الفروع المجمّع", null, "store", BranchReportDialog.Open),
             new("أوامر", "التذكيرات", null, "bell", RemindersDialog.Open),
             new("أوامر", "شاشة الفني", null, "wrench", () => main?.Go("tech")),
             new("أوامر", "الموظفون والرواتب", null, "id-card", () => main?.Go("staff")),
@@ -450,7 +452,7 @@ public class PaletteDialog : BaseForm
             res.AddRange(Calc.GetCustomers().Where(c => Txt.Fold(c.Name + " " + c.Phone).Contains(f)).Take(4)
                 .Select(c => new Item("زبائن", c.Name, c.Phone, "user", () => CustomerDialog.Open(c.Key))));
         }
-        res.AddRange(cmds.Take(f != "" ? 4 : 25));
+        res.AddRange(cmds.Take(f != "" ? 4 : 27));
         items = res;
         list.BeginUpdate();
         list.Items.Clear();

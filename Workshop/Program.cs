@@ -25,6 +25,9 @@ static class Program
 
         // بيانات الورشة في مجلد مستقل عن برنامج رصيد
         AppPaths.DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RaseedWorkshop");
+        // وضع التدريب: بيانات تجريبية في مجلد منفصل تماماً
+        Training.RealDir = AppPaths.DataDir;
+        if (File.Exists(Training.FlagFile)) { Training.Active = true; AppPaths.DataDir = Training.Dir; }
 
         using var mutex = new Mutex(true, @"Local\RaseedWorkshop.SingleInstance", out bool first);
         if (!first && Environment.GetCommandLineArgs().Contains(RestartArg))
@@ -53,6 +56,10 @@ static class Program
             return;
         }
         try { Theme.Apply(Store.Get("ui_theme", "corporate")); } catch { Theme.Apply("corporate"); }
+        // تكبير الواجهة (حجم الخط ووضع اللمس)
+        if (int.TryParse(Store.Get("ui_scale", "100"), out var zoom) && zoom != 100) Dpi.SetUserScale(zoom / 100f);
+        if (Training.Active && !Store.Flag("demo_seeded"))
+            try { Demo.Seed(); Store.NotifyChanged(); } catch (Exception ex) { Log(ex); }
 
         Application.Run(new MainForm());
     }

@@ -506,3 +506,130 @@ public partial class SettingsDialog
         foreach (var (k, v) in termsEdits) IssueTerms.Set(k, v);
     }
 }
+
+/// <summary>الهاتف والرسائل: صفحة الفني على الهاتف، مزوّد SMS، تكبير الواجهة، وضع التدريب</summary>
+public partial class SettingsDialog
+{
+    readonly Toggle tgWeb = new() { Text = "تفعيل صفحة الفني على الهاتف (داخل شبكة المحل)", Width = 700 };
+    readonly TextBox tWebPin = new() { Width = 160, PlaceholderText = "4 أرقام أو أكثر" }, tWebPort = new() { Width = 100 };
+    readonly Label webInfo = W.Note("", 780, 66);
+    readonly TextBox tSmsUrl = new() { Width = 760, PlaceholderText = "https://api.provider.com/send?to={phone_intl}&msg={text}&key=..." };
+    readonly ComboBox cbSmsMethod = W.Combo(120, new[] { "GET", "POST" });
+    readonly TextBox tSmsBody = new() { Width = 760, Height = 60, Multiline = true, PlaceholderText = "للطريقة POST فقط: {\"to\":\"{phone_intl}\",\"text\":\"{text}\"}" };
+    readonly TextBox tSmsTest = new() { Width = 200, PlaceholderText = "رقم للتجربة" };
+    readonly ComboBox cbZoom = W.Combo(260, new[] { "100% (عادي)", "115% (خط أكبر)", "130% (وضع اللمس)", "150% (لمس / شاشة بعيدة)" });
+    static readonly int[] Zooms = { 100, 115, 130, 150 };
+
+    Control PhoneTab()
+    {
+        var p = Page();
+        p.Controls.Add(W.Head("صفحة الفني على الهاتف", 780));
+        p.Controls.Add(W.Note("يفتحها الفني من متصفح هاتفه وهو متصل بواي فاي المحل: يرى الأجهزة، يغيّر الحالة، يصوّر الجهاز، يشغّل التوقيت، ويسجّل فحص الجودة. عند أول تشغيل قد يسألك ويندوز عن السماح بالشبكة — اختر «السماح».", 780, 60));
+        p.Controls.Add(tgWeb);
+        var r = W.Flow(false);
+        r.Controls.Add(W.Labeled("رمز الدخول (PIN)", tWebPin, "key-round"));
+        r.Controls.Add(W.Labeled("المنفذ", tWebPort));
+        p.Controls.Add(r);
+        p.Controls.Add(webInfo);
+
+        p.Controls.Add(W.Head("رسائل SMS", 780));
+        p.Controls.Add(W.Note("بدون مزوّد: زر «SMS» في نافذة الرسالة يفتح تطبيق الرسائل في ويندوز (Phone Link) إن كان مربوطاً بهاتفك.\nمع مزوّد رسائل: الصق رابط الإرسال الذي يعطيك إياه، واكتب فيه {phone} أو {phone_intl} و{text}.", 780, 60));
+        p.Controls.Add(W.Labeled("رابط الإرسال", tSmsUrl, "link"));
+        var r2 = W.Flow(false);
+        r2.Controls.Add(W.Labeled("الطريقة", cbSmsMethod));
+        r2.Controls.Add(W.Labeled("رقم التجربة", tSmsTest, "phone"));
+        var bTest = W.Btn("إرسال تجربة", "send", BtnKind.Soft, 120); bTest.Margin = new Padding(4, 27, 4, 4);
+        r2.Controls.Add(bTest);
+        p.Controls.Add(r2);
+        p.Controls.Add(W.Labeled("نص الطلب (POST)", tSmsBody));
+
+        tgWeb.Checked = WebApp.Enabled;
+        tWebPin.Text = WebApp.Pin;
+        tWebPort.Text = WebApp.Port.ToString();
+        tSmsUrl.Text = Sms.Url;
+        W.Pick(cbSmsMethod, Sms.Post ? "POST" : "GET");
+        tSmsBody.Text = Sms.Body;
+        WebInfo();
+        bTest.Click += async (s, e) =>
+        {
+            SavePhone();
+            if (!Sms.Configured) { Dialogs.Warn("اكتب رابط الإرسال أولاً."); return; }
+            var err = await Sms.Send(tSmsTest.Text.Trim(), "رسالة تجربة من " + Store.ShopName);
+            if (err == "") Toast.Show("أُرسلت رسالة التجربة"); else Dialogs.Warn("تعذّر الإرسال: " + err);
+        };
+        return p;
+    }
+
+    void WebInfo()
+    {
+        if (Training.Active) { webInfo.Text = "غير متاحة في وضع التدريب."; return; }
+        var urls = WebApp.Urls();
+        webInfo.Text = WebApp.Running
+            ? "تعمل الآن. اكتب في متصفح الهاتف: " + (urls.Count > 0 ? string.Join("   أو   ", urls) : $"http://عنوان-الحاسوب:{WebApp.Port}")
+            : WebApp.LastError != "" ? "تعذّر التشغيل: " + WebApp.LastError : "متوقفة.";
+        webInfo.ForeColor = WebApp.Running ? Pal.Good : WebApp.LastError != "" ? Pal.Bad : Theme.Muted;
+    }
+
+    void SavePhone()
+    {
+        var pin = new string(Txt.LatinDigits(tWebPin.Text).Where(char.IsDigit).ToArray());
+        if (tgWeb.Checked && pin.Length < 4) { Toast.Show("رمز الدخول 4 أرقام على الأقل — لم تُفعَّل صفحة الهاتف", Tone.Warning); tgWeb.Checked = false; }
+        Store.SetFlag("web_on", tgWeb.Checked);
+        Store.Set("web_pin", pin);
+        Store.Set("web_port", int.TryParse(Txt.LatinDigits(tWebPort.Text), out var port) && port is > 1024 and < 65535 ? port.ToString() : "8095");
+        Store.Set("sms_url", tSmsUrl.Text.Trim());
+        Store.Set("sms_method", cbSmsMethod.Text);
+        Store.Set("sms_body", tSmsBody.Text.Trim());
+        WebApp.Start(SynchronizationContext.Current);
+        WebInfo();
+    }
+
+    // ---------------- التكبير ----------------
+    Control ZoomRow()
+    {
+        var box = W.Labeled("حجم الواجهة والخط (يُطبّق بعد إعادة التشغيل)", cbZoom, "sun");
+        cbZoom.SelectedIndex = Math.Max(0, Array.IndexOf(Zooms, int.TryParse(Store.Get("ui_scale", "100"), out var z) ? z : 100));
+        return box;
+    }
+
+    bool SaveZoom()
+    {
+        var v = Zooms[Math.Max(0, cbZoom.SelectedIndex)].ToString();
+        if (Store.Get("ui_scale", "100") == v) return false;
+        Store.Set("ui_scale", v);
+        return true;
+    }
+
+    // ---------------- وضع التدريب ----------------
+    Control TrainingBox()
+    {
+        var p = W.Flow(false);
+        var b = W.Btn(Training.Active ? "الخروج من وضع التدريب" : "بدء وضع التدريب", "users", Training.Active ? BtnKind.Amber : BtnKind.Secondary, 180);
+        b.Click += (s, e) =>
+        {
+            if (!W.Confirm(Training.Active ? "الخروج من وضع التدريب" : "وضع التدريب",
+                Training.Active ? "يعود البرنامج إلى بيانات المحل الحقيقية." : "يُعاد تشغيل البرنامج ببيانات تجريبية منفصلة تماماً يتدرب عليها الموظف الجديد. بيانات المحل لا تتأثر.", "إعادة التشغيل")) return;
+            Training.Enable(!Training.Active);
+            Program.Restart();
+        };
+        p.Controls.Add(b);
+        if (Training.Active)
+        {
+            var r = W.Btn("إعادة البيانات التجريبية", "rotate-ccw", BtnKind.Ghost, 180);
+            r.Click += (s, e) =>
+            {
+                if (!W.Confirm("إعادة البيانات التجريبية", "تُحذف كل تجارب التدريب وتبدأ من بيانات تجريبية جديدة.", "إعادة", true)) return;
+                SqliteReset();
+            };
+            p.Controls.Add(r);
+        }
+        return p;
+    }
+
+    static void SqliteReset()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        Training.ResetData();
+        Program.Restart();
+    }
+}

@@ -261,22 +261,24 @@ public static class Calc
     public static bool InRange(string d, string a, string b) => !string.IsNullOrEmpty(d) && string.CompareOrdinal(d, a) >= 0 && string.CompareOrdinal(d, b) <= 0;
 
     /// <summary>الحسابات تتبع يوم الإغلاق: المسلَّم بيوم تسليمه، والملغى بيوم إلغائه</summary>
-    public static Summary Summarize(string a, string b)
+    public static Summary Summarize(string a, string b, List<Order> orders = null, List<Expense> expenses = null)
     {
+        orders ??= Store.Orders;
+        expenses ??= Store.Expenses;
         bool inR(string d) => InRange(d, a, b);
-        var list = Store.Orders.Where(o => (o.Status == K.Done || o.Status == K.Cancelled) && inR(ClosedDate(o))).ToList();
+        var list = orders.Where(o => (o.Status == K.Done || o.Status == K.Cancelled) && inR(ClosedDate(o))).ToList();
         var active = list.Where(o => o.Status == K.Done).ToList();
-        var exps = Store.Expenses.Where(e => inR(e.Date)).ToList();
+        var exps = expenses.Where(e => inR(e.Date)).ToList();
         var s = new Summary
         {
-            List = list, Active = active, Received = Store.Orders.Where(o => inR(o.DateReceived)).ToList(), Exps = exps,
+            List = list, Active = active, Received = orders.Where(o => inR(o.DateReceived)).ToList(), Exps = exps,
             Revenue = list.Sum(RevenueOf), Parts = active.Sum(PartsCost),
             Fees = list.Where(o => o.Status == K.Cancelled).Sum(RevenueOf),
             Expenses = exps.Sum(e => e.Amount),
             Loss = list.Where(o => o.Status == K.Cancelled).Sum(PartsCost),
-            Cash = Store.Orders.Sum(o => PaymentsInRange(o, inR)),
+            Cash = orders.Sum(o => PaymentsInRange(o, inR)),
             Debt = list.Where(o => o.AccountId == null).Sum(RemainingOf),
-            Refunds = -Store.Orders.SelectMany(o => o.PaymentHistory).Where(p => p.IsRefund && inR(p.Date)).Sum(p => p.Amount),
+            Refunds = -orders.SelectMany(o => o.PaymentHistory).Where(p => p.IsRefund && inR(p.Date)).Sum(p => p.Amount),
         };
         s.Profit = s.Revenue - s.Parts - s.Expenses - s.Loss;
         return s;

@@ -143,6 +143,16 @@ public class MainForm : BaseForm
 
         var main = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
         main.Controls.Add(content);
+        if (Training.Active)
+        {
+            var banner = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Pal.AmberSoft, Padding = new Padding(12, 4, 12, 4) };
+            var exit = new ModernButton { Text = "الخروج من وضع التدريب", Kind = BtnKind.Amber, Dock = DockStyle.Left, TabStop = false };
+            exit.FitWidth(180);
+            exit.Click += (s, e) => { if (W.Confirm("الخروج من وضع التدريب", "يعود البرنامج إلى بيانات المحل الحقيقية.", "خروج")) { Training.Enable(false); Program.Restart(); } };
+            banner.Controls.Add(new Label { Text = "🎓 وضع التدريب — البيانات هنا تجريبية ولا تمس بيانات المحل. جرّب كل شيء بحرية.", Dock = DockStyle.Fill, Font = Theme.FS(10), ForeColor = Pal.AmberInk, TextAlign = ContentAlignment.MiddleLeft });
+            banner.Controls.Add(exit);
+            main.Controls.Add(banner);
+        }
         main.Controls.Add(top);
         Controls.Add(main);
         Controls.Add(side);
@@ -156,6 +166,7 @@ public class MainForm : BaseForm
             timer.Start();
             AutoBackup.Schedule();
             Notify.Tick();
+            WebApp.Start(SynchronizationContext.Current);
             if (Reminders.DueCount > 0) Toast.Show($"لديك {Reminders.DueCount} تذكير مستحق اليوم — من «التذكيرات»", Tone.Info);
         };
         FormClosing += (s, e) =>
@@ -164,6 +175,7 @@ public class MainForm : BaseForm
             Store.Changed -= QueueReload;
             if (AutoBackup.Dir != "") AutoBackup.Run();
             Notify.OnClosing();
+            WebApp.Stop();
         };
     }
 
@@ -181,7 +193,7 @@ public class MainForm : BaseForm
 
     public void UpdateShop()
     {
-        Text = $"ورشة الصيانة — {Store.ShopName}";
+        Text = $"ورشة الصيانة — {Store.ShopName}" + (Training.Active ? "   [وضع التدريب]" : "");
         logo?.Invalidate();
     }
 
@@ -300,9 +312,20 @@ public class MainForm : BaseForm
         {
             case Keys.Control | Keys.K: ShowPalette(); return true;
             case Keys.Control | Keys.N: Acts.New(); return true;
+            case Keys.Control | Keys.Z:
+                // داخل حقل نص: تراجع الكتابة العادي
+                if (FindFocused(this) is TextBoxBase or ComboBox or NumericUpDown) break;
+                UndoUi.Run();
+                return true;
             case Keys.F5: if (Current is Page p) Safe(p.Reload); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    static Control FindFocused(Control c)
+    {
+        while (c is ContainerControl cc && cc.ActiveControl != null) c = cc.ActiveControl;
+        return c;
     }
 
     // ---------------- قارئ الباركود ----------------

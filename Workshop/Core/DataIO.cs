@@ -160,6 +160,7 @@ public static class WebBackup
         public List<Reminder> Reminders = new();
         public List<Account> Accounts = new();
         public Dictionary<string, List<JsonObject>> Docs;
+        public string Branch = "";
         public Dictionary<string, string> Photos = new();
         public JsonObject Settings;
         public bool LegacyArray;
@@ -198,6 +199,7 @@ public static class WebBackup
             Reminders = ReadList(raw["reminders"], Json.Reminder), Accounts = ReadList(raw["accounts"], Json.Account),
             Docs = raw["docs"] is JsonObject dd ? Store.ExtraKinds.ToDictionary(k => k, k => (dd[k] as JsonArray)?.OfType<JsonObject>().Select(x => (JsonObject)x.DeepClone()).ToList() ?? new List<JsonObject>()) : null,
             Settings = raw["settings"] as JsonObject, LegacyArray = node is JsonArray,
+            Branch = raw["branch"]?.ToString() ?? "",
         };
         if (raw["photos"] is JsonObject ph)
             foreach (var (k, v) in ph) if (v != null) p.Photos[k] = v.ToString();
@@ -303,6 +305,7 @@ public static class WebBackup
             ["defects"] = new JsonArray(Store.Defects.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
             ["reminders"] = new JsonArray(Store.Reminders.Select(r => (JsonNode)Json.ToJson(r)).ToArray()),
             ["accounts"] = new JsonArray(Store.Accounts.Select(a => (JsonNode)Json.ToJson(a)).ToArray()),
+            ["branch"] = Branches.Current,
             ["docs"] = new JsonObject(Store.ExtraKinds.Select(k => KeyValuePair.Create(k, (JsonNode)new JsonArray(Store.Docs(k).Select(x => (JsonNode)x.DeepClone()).ToArray())))),
             ["settings"] = new JsonObject
             {

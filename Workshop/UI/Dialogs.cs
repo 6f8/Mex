@@ -258,6 +258,14 @@ public class WaDialog : DialogShell
         text.Text = templates[Math.Clamp(pick, 0, templates.Count - 1)].Text;
         var send = AddButton("فتح واتساب", DialogResult.None, BtnKind.Success, "send");
         AddButton("نسخ النص", DialogResult.None, BtnKind.Secondary, "copy").Click += (_, _) => W.Copy(text.Text);
+        AddButton("SMS", DialogResult.None, BtnKind.Secondary, "send").Click += async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(this.phone)) { Dialogs.Warn("لا يوجد رقم هاتف."); return; }
+            if (!Sms.Configured) { W.OpenUrl(Sms.AppUri(this.phone, text.Text)); return; }   // تطبيق الرسائل في ويندوز (Phone Link)
+            var err = await Sms.Send(this.phone, text.Text);
+            if (err == "") { Toast.Show("أُرسلت الرسالة SMS"); DialogResult = DialogResult.OK; Close(); }
+            else Dialogs.Warn("تعذّر إرسال SMS: " + err);
+        };
         AddButton("إلغاء", DialogResult.Cancel, BtnKind.Ghost);
         send.Click += (_, _) =>
         {

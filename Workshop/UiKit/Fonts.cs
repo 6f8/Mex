@@ -129,7 +129,7 @@ public static class FontKit
     /// <summary>خط النصوص بالنقاط (يكبر تلقائيًا مع دقة الشاشة). semibold = وزن متوسط للعناوين والأزرار</summary>
     public static Font Get(float size, FontStyle style = FontStyle.Regular, bool semibold = false)
     {
-        size = (float)Math.Round(size, 2);
+        size = (float)Math.Round(size * Dpi.UserScale, 2);
         var key = (size, style, semibold);
         if (cache.TryGetValue(key, out var f)) return f;
         try
@@ -265,6 +265,10 @@ public static class Dpi
 {
     static float value;
 
+    /// <summary>تكبير الواجهة الذي يختاره المستخدم (1 = 100%، 1.3 = 130% لشاشات اللمس)، فوق دقة الشاشة</summary>
+    public static float UserScale { get; private set; } = 1f;
+    public static void SetUserScale(float s) { UserScale = Math.Clamp(s, 0.8f, 2f); value = 0; }
+
     /// <summary>دقة الشاشة الفعلية (96 = 100%)</summary>
     public static float Value
     {
@@ -275,6 +279,7 @@ public static class Dpi
                 try { using var g = Graphics.FromHwnd(IntPtr.Zero); value = g.DpiX; }
                 catch { value = 96; }
                 if (value < 96) value = 96;
+                value *= UserScale;
             }
             return value;
         }

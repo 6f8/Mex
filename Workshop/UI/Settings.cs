@@ -31,6 +31,7 @@ public partial class SettingsDialog : DialogShell
         tabs.Add("الفنيون", TechsTab(), "wrench");
         tabs.Add("رسائل واتساب", MessagesTab(), "message-circle", "الرسائل");
         tabs.Add("التقرير اليومي والتنبيهات", NotifyTab(), "send", "التنبيهات");
+        tabs.Add("الهاتف والرسائل", PhoneTab(), "smartphone", "الهاتف");
         tabs.Add("الخصوصية والحماية", PrivacyTab(), "shield-check", "الحماية");
         tabs.Add("النسخ الاحتياطي والبيانات", DataTab(), "database", "البيانات");
         tabs.SelectedIndex = page switch { "lists" => 2, "workflow" => 3, "techs" => 4, "messages" => 5, "notify" => 6, _ => 0 };
@@ -76,6 +77,7 @@ public partial class SettingsDialog : DialogShell
     {
         var p = Page();
         p.Controls.Add(W.Labeled("ألوان البرنامج (تُطبّق بعد إعادة التشغيل)", palette, "sun"));
+        p.Controls.Add(ZoomRow());
         palette.SelectedIndexChanged += (s, e) => themeChanged = true;
         p.Controls.Add(compact);
         p.Controls.Add(labelAfterSave);
@@ -181,6 +183,9 @@ public partial class SettingsDialog : DialogShell
             r4.Controls.Add(bUndo);
         }
         p.Controls.Add(r4);
+        p.Controls.Add(W.Head("وضع التدريب", 640));
+        p.Controls.Add(W.Note("نسخة ببيانات تجريبية منفصلة يتدرب عليها الموظف الجديد دون أن يمس بيانات المحل.", 640));
+        p.Controls.Add(TrainingBox());
         p.Controls.Add(W.Note("مجلد البيانات: " + Store.DataDir, 640));
         return p;
     }
@@ -233,11 +238,13 @@ public partial class SettingsDialog : DialogShell
         Store.SetFlag("lock_delivered", lockDelivered.Checked);
         SaveNotify();
         SaveWorkflow();
+        SavePhone();
+        if (SaveZoom()) themeChanged = true;
         foreach (var (k, t) in dash) Store.SetFlag("dash_" + k, t.Checked);
         if (themeChanged && palette.SelectedIndex >= 0)
         {
             Store.Set("ui_theme", Theme.Palettes[palette.SelectedIndex].Key);
-            if (W.Confirm("تغيير الألوان", "تُطبّق الألوان الجديدة بعد إعادة تشغيل البرنامج. إعادة التشغيل الآن؟", "إعادة التشغيل"))
+            if (W.Confirm("تغيير المظهر", "تُطبّق الألوان وحجم الواجهة الجديد بعد إعادة تشغيل البرنامج. إعادة التشغيل الآن؟", "إعادة التشغيل"))
             {
                 Program.Restart();
                 return;

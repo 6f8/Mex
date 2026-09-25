@@ -49,7 +49,11 @@ public static class Store
 
     /// <summary>بعد أي تعديل: الشاشة الحالية تُحدَّث والعدادات في القائمة الجانبية</summary>
     public static event Action Changed;
-    public static void NotifyChanged() => Changed?.Invoke();
+    public static void NotifyChanged()
+    {
+        Undo.Close();
+        Changed?.Invoke();
+    }
 
     static string connStr;
     public static SqliteConnection Open()
@@ -80,6 +84,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
             cmd.ExecuteNonQuery();
         }
         LoadSettings();
+        Undo.Clear();
         LoadAll();
     }
 
@@ -112,7 +117,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         Accounts = Load(c, KAcc, Json.Account).OrderBy(a => a.Name, StringComparer.CurrentCulture).ToList();
         extraDocs = ExtraKinds.ToDictionary(k => k, k => Load(c, k, n => n as JsonObject));
         Defects = Load(c, KDef, Json.Defect).OrderByDescending(d => d.Date, StringComparer.Ordinal).ThenByDescending(d => d.Id, StringComparer.Ordinal).ToList();
-        // الأرقام المرجعية الناقصة تُكمَّل مرة واحدة
+        // الأرقام المرجعية الناقصة تُكمَّل مرة واحدة (لا تدخل سجل التراجع)
+        using var pause = Undo.Pause();
         var used = new HashSet<string>(Orders.Concat(Trash).Select(o => o.RefNo));
         foreach (var o in Orders.Concat(Trash).Where(o => o.RefNo == "").ToList())
         {
@@ -123,12 +129,24 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
     }
 
     // ================= الكتابة =================
+    /// <summary>القيمة المحفوظة حالياً (لسجل التراجع)</summary>
+    static string Current(string kind, string id, SqliteConnection c, SqliteTransaction t)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = t;
+        cmd.CommandText = "SELECT data FROM docs WHERE kind=$k AND id=$i";
+        cmd.Parameters.AddWithValue("$k", kind);
+        cmd.Parameters.AddWithValue("$i", id);
+        return cmd.ExecuteScalar() as string;
+    }
+
     static void Put(string kind, string id, JsonNode data, SqliteConnection c = null, SqliteTransaction t = null)
     {
         bool own = c == null;
         c ??= Open();
         try
         {
+            if (Undo.Recording) Undo.Record(kind, id, Current(kind, id, c, t));
             using var cmd = c.CreateCommand();
             cmd.Transaction = t;
             cmd.CommandText = "INSERT OR REPLACE INTO docs(kind,id,data) VALUES($k,$i,$d)";
@@ -146,6 +164,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         c ??= Open();
         try
         {
+            if (Undo.Recording) Undo.Record(kind, id, Current(kind, id, c, t));
             using var cmd = c.CreateCommand();
             cmd.Transaction = t;
             cmd.CommandText = "DELETE FROM docs WHERE kind=$k AND id=$i";
@@ -280,6 +299,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
                                   List<Reminder> reminders = null, List<Account> accounts = null, Dictionary<string, List<JsonObject>> docs = null)
     {
         docs ??= ExtraKinds.ToDictionary(k => k, k => Docs(k).Select(x => (JsonObject)x.DeepClone()).ToList());
+        Undo.Clear();
+        using var pause = Undo.Pause();
         defects ??= Defects.ToList();
         reminders ??= Reminders.ToList();
         accounts ??= Accounts.ToList();
@@ -399,6 +420,12 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
 
     public static string Get(string key, string def = "") => settings.TryGetValue(key, out var v) ? v : def;
     public static bool Flag(string key, bool def = false) => settings.TryGetValue(key, out var v) ? v == "1" : def;
+
+    /// <summary>كتابة سجل كما هو (للتراجع)</summary>
+    internal static void Raw(string kind, string id, string json)
+    {
+        if (json == null) Del(kind, id); else Put(kind, id, JsonNode.Parse(json));
+    }
 
     public static void Set(string key, string value)
     {

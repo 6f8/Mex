@@ -152,6 +152,10 @@ public partial class OrderForm : DialogShell
         }
         var r4 = Row();
         r4.Controls.Add(W.Labeled("IMEI / الرقم التسلسلي", tImei, "hash"));
+        var bOcr = W.IconBtn("scan-barcode", "قراءة IMEI من صورة (ملصق العلبة أو شاشة ‎*#06#‎)", BtnKind.Soft);
+        bOcr.Margin = new Padding(0, 26, 6, 4);
+        bOcr.Click += (s, e) => OcrUi.Pick(bOcr, v => tImei.Text = v);
+        r4.Controls.Add(bOcr);
         cbTech.Items.Add(NoTech);
         cbTech.Items.AddRange(Techs.All.Select(t => (object)t.Name).ToArray());
         if (src.Technician != "" && Techs.Find(src.Technician) == null) cbTech.Items.Add(src.Technician);

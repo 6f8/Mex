@@ -315,3 +315,87 @@ public static class Branches
     /// <summary>اسم هذا الفرع (يُكتب على كل طلب جديد)</summary>
     public static string Current => Store.Get("branch_name");
 }
+
+// ============================== التراجع عن آخر عملية ==============================
+/// <summary>
+/// كل عملية من المستخدم (حفظ طلب، حذف، دفعة، تغيير حالة...) تُسجَّل قيم السجلات التي غيّرتها قبل التغيير.
+/// «تراجع» يعيدها كما كانت (مع الكميات في المخزون وحسابات الموردين). يعمل لآخر 20 عملية خلال 15 دقيقة.
+/// </summary>
+public static class Undo
+{
+    record Entry(string Kind, string Id, string Prev);
+    public record Step(DateTime At, string Label, List<(string Kind, string Id, string Prev)> Items);
+
+    static readonly List<Entry> current = new();
+    static readonly List<Step> stack = new();
+    static int paused;
+    public const int Minutes = 15;
+
+    public static bool Recording => paused == 0;
+
+    public static void Record(string kind, string id, string prev)
+    {
+        // أول قيمة للسجل في هذه العملية هي ما نعود إليه
+        if (!current.Any(e => e.Kind == kind && e.Id == id)) current.Add(new Entry(kind, id, prev));
+    }
+
+    /// <summary>نهاية عملية المستخدم (يُستدعى من NotifyChanged)</summary>
+    public static void Close()
+    {
+        if (current.Count == 0) return;
+        stack.Add(new Step(DateTime.Now, Describe(current), current.Select(e => (e.Kind, e.Id, e.Prev)).ToList()));
+        current.Clear();
+        if (stack.Count > 20) stack.RemoveAt(0);
+    }
+
+    public static void Clear() { current.Clear(); stack.Clear(); }
+
+    public static IDisposable Pause() { paused++; return new Resume(); }
+    sealed class Resume : IDisposable { bool done; public void Dispose() { if (!done) { done = true; paused--; } } }
+
+    public static Step Last => stack.Count > 0 && (DateTime.Now - stack[^1].At).TotalMinutes <= Minutes ? stack[^1] : null;
+
+    static string Describe(List<Entry> items)
+    {
+        string RefOf(Entry e)
+        {
+            try
+            {
+                var now = Store.Orders.Concat(Store.Trash).FirstOrDefault(o => o.Id == e.Id);
+                if (now != null) return now.RefNo;
+                return e.Prev != null ? JsonNode.Parse(e.Prev)?["refNo"]?.ToString() : null;
+            }
+            catch { return null; }
+        }
+        var orders = items.Where(e => e.Kind is "orders" or "trash").Select(RefOf).Where(r => r != null).Distinct().ToList();
+        bool moved = items.Any(e => e.Kind == "trash");
+        var kinds = items.Select(e => e.Kind).Distinct().ToList();
+        if (orders.Count > 0) return (moved ? "حذف أو استعادة الطلب " : "تعديل الطلب ") + string.Join("، ", orders.Take(3));
+        return kinds.FirstOrDefault() switch
+        {
+            "expenses" => "إضافة أو حذف مصروف",
+            "supplierTx" => "حركة مورد",
+            "inventory" => "تعديل قطع الغيار",
+            "defects" => "قطعة معيبة",
+            "reminders" => "تذكير",
+            "accounts" => "حساب تاجر",
+            "employees" or "attendance" or "advances" or "salaries" => "الموظفون والرواتب",
+            _ => "آخر عملية",
+        };
+    }
+
+    /// <summary>إعادة السجلات كما كانت قبل آخر عملية</summary>
+    public static bool Revert()
+    {
+        var step = Last;
+        if (step == null) return false;
+        stack.RemoveAt(stack.Count - 1);
+        using (Pause())
+        {
+            foreach (var (kind, id, prev) in step.Items.AsEnumerable().Reverse()) Store.Raw(kind, id, prev);
+        }
+        Store.LoadAll();
+        current.Clear();
+        return true;
+    }
+}
