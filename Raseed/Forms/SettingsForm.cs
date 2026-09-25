@@ -25,6 +25,8 @@ public class SettingsForm : BaseForm
         Number("margin_wholesale", 175);
         Number("margin_special", 175);
         Hint("نسب الربح تُستخدم لاقتراح أسعار البيع تلقائيًا عند إدخال سعر الشراء في شاشة المواد.");
+        Choice("ui_theme", Theme.Palettes.Select(p => (p.Key, p.Name)).ToArray());
+        Hint("يُطبَّق المظهر الجديد بعد إعادة تشغيل البرنامج.");
         FeatureSwitches();
 
         Section("الطباعة والتقارير", "printer", "طريقة طباعة القوائم والسندات والتقارير");

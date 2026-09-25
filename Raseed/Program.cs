@@ -34,6 +34,8 @@ static class Program
             Dialogs.Error("تعذر فتح قاعدة البيانات:\n" + ex.Message, "رصيد");
             return;
         }
+        // المظهر المختار من الإعدادات (يُطبَّق قبل بناء أي شاشة)
+        try { Theme.Apply(Settings.Get("ui_theme", "classic")); } catch { Theme.Apply("classic"); }
 
         // حلقة الدخول: «تسجيل الخروج» يعيد إلى شاشة الدخول بدل إغلاق البرنامج
         while (true)

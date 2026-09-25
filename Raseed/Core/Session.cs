@@ -130,6 +130,7 @@ public static class Settings
         ("shop_address", "عنوان المحل (يظهر في الطباعة)", ""),
         ("shop_city", "المدينة", ""),
         ("shop_activity", "النشاط التجاري", ""),
+        ("ui_theme", "مظهر البرنامج (الألوان)", "classic"),
         ("margin_retail", "نسبة الربح — مفرد (%)", "25"),
         ("margin_wholesale", "نسبة الربح — جملة (%)", "15"),
         ("margin_special", "نسبة الربح — خاص (%)", "10"),

@@ -134,7 +134,7 @@ public class LoginForm : BaseForm
         public BrandPanel()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            BackColor = ColorTranslator.FromHtml("#E9571F");   // لون التدرج عند زر الإغلاق (الأزرار تُرسم فوق لون الحاوية)
+            BackColor = Theme.Orange;   // لون التدرج عند زر الإغلاق (الأزرار تُرسم فوق لون الحاوية)
         }
 
         protected override void OnPaintBackground(PaintEventArgs e) { }
@@ -145,7 +145,7 @@ public class LoginForm : BaseForm
             Gfx.Hq(g);
             var rect = ClientRectangle;
             int S(int v) => Dpi.S(v);
-            using (var bg = new LinearGradientBrush(rect, ColorTranslator.FromHtml("#E8531F"), ColorTranslator.FromHtml("#F6A928"), 70f))
+            using (var bg = new LinearGradientBrush(rect, Theme.Orange, Gfx.Mix(Theme.Orange, Theme.Amber, 0.65f), 70f))
                 g.FillRectangle(bg, rect);
             // دوائر زخرفية ناعمة
             using (var b1 = new SolidBrush(Color.FromArgb(34, 255, 255, 255))) g.FillEllipse(b1, -S(120), Height - S(260), S(380), S(380));
@@ -158,7 +158,7 @@ public class LoginForm : BaseForm
             Gfx.FillRound(g, mark, S(16), Color.White);
             TextRenderer.DrawText(g, "ر", FontKit.GetPx(mark.Height * 0.52f, FontStyle.Bold), Rectangle.Round(new RectangleF(mark.X, mark.Y - S(3), mark.Width, mark.Height)), Theme.Orange, Gfx.Center);
             TextRenderer.DrawText(g, "رصيد", Theme.FS(30), new Rectangle(S(40), S(142), right - S(40), S(60)), Color.White, Gfx.RtlStart);
-            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(S(40), S(202), right - S(40), S(32)), ColorTranslator.FromHtml("#FFF1E6"), Gfx.RtlStart);
+            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(S(40), S(202), right - S(40), S(32)), Color.FromArgb(235, 255, 255, 255), Gfx.RtlStart);
 
             var features = new[]
             {
@@ -176,7 +176,7 @@ public class LoginForm : BaseForm
                 TextRenderer.DrawText(g, text, Theme.F(10.5f), new Rectangle(S(40), y, right - box - S(14) - S(40), box), Color.White, Gfx.RtlStart);
                 y += S(50);
             }
-            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(S(40), Height - S(50), right - S(40), S(24)), ColorTranslator.FromHtml("#FFE3CC"), Gfx.RtlStart);
+            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(S(40), Height - S(50), right - S(40), S(24)), Color.FromArgb(215, 255, 255, 255), Gfx.RtlStart);
         }
     }
 }
@@ -270,7 +270,13 @@ public class MainForm : BaseForm
     };
 
     /// <summary>لون القسم (لبطاقات الوصول السريع)</summary>
-    public static Color TintOf(string group) => Sections.FirstOrDefault(x => x.Name == group)?.Tint ?? Theme.Brand;
+    public static Color TintOf(string group) => Sections.FirstOrDefault(x => x.Name == group) is { } s ? SecTint(s) : Theme.Brand;
+
+    /// <summary>لون القسم حسب المظهر (المظهر البسيط: لون الهوية لكل الأقسام)</summary>
+    static Color SecTint(Section s) => Theme.MonoSections ? Theme.Brand : s.Tint;
+
+    /// <summary>لون «الرئيسية» ولون الصورة الرمزية: الهوية، أو لون التمييز إذا كان الشريط داكنًا</summary>
+    static Color HomeTint => Theme.DarkSidebar ? Theme.Orange : Theme.Brand;
 
     readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), BackColor = Theme.Bg };
     readonly TopBar top;
@@ -407,7 +413,7 @@ public class MainForm : BaseForm
             if (!rail)
             {
                 int tx = (int)mark.X - Dpi.S(12);
-                TextRenderer.DrawText(g, "رصيد", Theme.FS(15), new Rectangle(Dpi.S(12), (int)mark.Y - Dpi.S(4), tx - Dpi.S(12), Dpi.S(28)), Theme.Ink, Gfx.RtlStart);
+                TextRenderer.DrawText(g, "رصيد", Theme.FS(15), new Rectangle(Dpi.S(12), (int)mark.Y - Dpi.S(4), tx - Dpi.S(12), Dpi.S(28)), Theme.SidebarText, Gfx.RtlStart);
                 TextRenderer.DrawText(g, "المبيعات • المخازن • الحسابات", Theme.F(8.5f), new Rectangle(Dpi.S(12), (int)mark.Y + Dpi.S(22), tx - Dpi.S(12), Dpi.S(20)), Theme.SidebarMuted, Gfx.RtlStart);
             }
             using var pen = new Pen(Theme.SidebarBorder);
@@ -422,16 +428,16 @@ public class MainForm : BaseForm
             using (var pen = new Pen(Theme.SidebarBorder)) g.DrawLine(pen, Dpi.S(14), 0, userBox.Width - Dpi.S(14), 0);
             int a = Dpi.S(36);
             var av = rail ? new RectangleF((userBox.Width - a) / 2f, (userBox.Height - a) / 2f, a, a) : new RectangleF(userBox.Width - Dpi.S(20) - a, (userBox.Height - a) / 2f, a, a);
-            Avatar.Draw(g, av, Session.UserName, Theme.Brand);
+            Avatar.Draw(g, av, Session.UserName, HomeTint);
             if (rail) return;
             int left = Dpi.S(96), right = (int)av.X - Dpi.S(10);
             TextRenderer.DrawText(g, Session.UserName, Theme.FS(10), new Rectangle(left, (int)av.Y - Dpi.S(3), right - left, Dpi.S(22)), Theme.SidebarText, Gfx.RtlStart);
             TextRenderer.DrawText(g, Session.IsAdmin ? "مدير النظام" : "مستخدم", Theme.F(8.5f), new Rectangle(left, (int)av.Y + Dpi.S(18), right - left, Dpi.S(20)), Theme.SidebarMuted, Gfx.RtlStart);
         };
-        var bLogout = new ModernButton { Kind = BtnKind.Ghost, IconName = "log-out", Size = new Size(36, 36), Location = new Point(12, 16), TabStop = false };
+        var bLogout = new ModernButton { Kind = BtnKind.SideGhost, IconName = "log-out", Size = new Size(36, 36), Location = new Point(12, 16), TabStop = false };
         navTip.SetToolTip(bLogout, "تسجيل الخروج");
         bLogout.Click += (s, e) => { if (Ui.Confirm("تسجيل الخروج من البرنامج؟") && CloseAllTabs()) { LoggedOut = true; Close(); } };
-        var bPwd = new ModernButton { Kind = BtnKind.Ghost, IconName = "key-round", Size = new Size(36, 36), Location = new Point(52, 16), TabStop = false };
+        var bPwd = new ModernButton { Kind = BtnKind.SideGhost, IconName = "key-round", Size = new Size(36, 36), Location = new Point(52, 16), TabStop = false };
         navTip.SetToolTip(bPwd, "تغيير كلمة المرور");
         bPwd.Click += (s, e) => { using var d = new PasswordDialog(); d.ShowModal(); };
         userBox.Controls.Add(bLogout);
@@ -444,7 +450,7 @@ public class MainForm : BaseForm
         var home = Pages.FirstOrDefault(p => p.Text == HomeKey);
         if (home != null)
         {
-            homeHead = new NavSection { Text = HomeKey, IconName = home.Icon, Tint = Theme.Brand, Expandable = false };
+            homeHead = new NavSection { Text = HomeKey, IconName = home.Icon, Tint = HomeTint, Expandable = false };
             homeHead.Click += (s, e) => Navigate(home);
             navTip.SetToolTip(homeHead, HomeKey);
             nav.Add(homeHead);
@@ -462,7 +468,7 @@ public class MainForm : BaseForm
                 nav.Add(label);
             }
             // قسم بشاشة واحدة يفتحها مباشرة (مثل «الأقساط» و«تقارير الأرباح»)
-            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint, Expandable = pages.Count > 1 };
+            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = SecTint(sec), Expandable = pages.Count > 1 };
             navTip.SetToolTip(head, sec.Name);
             var items = new List<NavItem>();
             nav.Add(head);
@@ -476,7 +482,7 @@ public class MainForm : BaseForm
             for (int i = 0; i < pages.Count; i++)
             {
                 var p = pages[i];
-                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = sec.Tint, Visible = false, Last = i == pages.Count - 1 };
+                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = SecTint(sec), Visible = false, Last = i == pages.Count - 1 };
                 item.Click += (s, e) => Navigate(p);
                 items.Add(item);
                 navItems.Add((item, p));
@@ -617,7 +623,7 @@ public class MainForm : BaseForm
     /// <summary>في الوضع المصغّر: قائمة منبثقة بشاشات القسم بجانب أيقونته</summary>
     void ShowFlyout(NavSection head, Section sec, List<Page> pages)
     {
-        var menu = new NavFlyout(sec.Name, sec.Tint);
+        var menu = new NavFlyout(sec.Name, SecTint(sec));
         foreach (var p in pages) menu.AddPage(p.Text, p.Icon, activeKey == p.Text, () => Navigate(p));
         menu.FormClosed += (s, e) => BeginInvoke(() => menu.Dispose());
         menu.ShowNear(head, this);
@@ -988,7 +994,7 @@ public class NavFlyout : Form
             var (text, icon, active, _) = items[i];
             var r = new RectangleF(Dpi.S(6), HeadH + i * ItemH + Dpi.S(3), Width - Dpi.S(12), ItemH - Dpi.S(6));
             if (active) Gfx.FillRound(g, r, Dpi.S(8f), Gfx.Mix(tint, Color.White, 0.86f));
-            else if (i == hover) Gfx.FillRound(g, r, Dpi.S(8f), Theme.SidebarHover);
+            else if (i == hover) Gfx.FillRound(g, r, Dpi.S(8f), Theme.SurfaceAlt);
             int ic = Dpi.S(17);
             var ir = new RectangleF(r.Right - Dpi.S(12) - ic, r.Y + (r.Height - ic) / 2f, ic, ic);
             Icons.Draw(g, icon, ir, active ? tint : Theme.Muted, 16);

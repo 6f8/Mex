@@ -9,7 +9,6 @@ namespace Raseed;
 public class HomeHero : Panel
 {
     public const string DefaultQuick = "المواد|قائمة بيع|قائمة شراء|سند قبض|الأقساط|حساب الزبائن";
-    static readonly Color Navy = ColorTranslator.FromHtml("#2B3A8F"), NavyDark = ColorTranslator.FromHtml("#1E2A6E");
     readonly MainForm main;
     readonly List<QuickTile> tiles = new();
     readonly ModernButton gear = new() { Kind = BtnKind.Glass, IconName = "settings", Size = new Size(34, 34), TabStop = false };
@@ -23,7 +22,7 @@ public class HomeHero : Panel
     {
         main = owner;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        BackColor = Navy;
+        BackColor = Theme.Hero1;
         ar.DateTimeFormat.Calendar = new System.Globalization.GregorianCalendar();
         new ToolTip().SetToolTip(gear, "اختيار شاشات الوصول السريع");
         Controls.Add(gear);
@@ -97,7 +96,7 @@ public class HomeHero : Panel
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        using (var bg = new LinearGradientBrush(ClientRectangle, Navy, NavyDark, 0f)) g.FillRectangle(bg, ClientRectangle);
+        using (var bg = new LinearGradientBrush(ClientRectangle, Theme.Hero1, Theme.Hero2, 0f)) g.FillRectangle(bg, ClientRectangle);
         Gfx.Hq(g);
         using (var b1 = new SolidBrush(Color.FromArgb(18, 255, 255, 255))) g.FillEllipse(b1, Width - Dpi.S(220), -Dpi.S(120), Dpi.S(300), Dpi.S(300));
         using (var b2 = new SolidBrush(Color.FromArgb(14, 247, 181, 44))) g.FillEllipse(b2, Width - GreetW - Dpi.S(90), Height - Dpi.S(110), Dpi.S(200), Dpi.S(200));
@@ -113,16 +112,16 @@ public class HomeHero : Panel
         string greet = now.Hour < 12 ? "صباح الخير" : "مساء الخير";
         bool small = Height < Dpi.S(220);
         int y = Dpi.S(small ? 12 : 20);
-        TextRenderer.DrawText(g, Settings.Get("shop_name"), Theme.F(10.5f), new Rectangle(x, y, w, Dpi.S(24)), ColorTranslator.FromHtml("#C7CEF0"), Gfx.RtlStart);
+        TextRenderer.DrawText(g, Settings.Get("shop_name"), Theme.F(10.5f), new Rectangle(x, y, w, Dpi.S(24)), Gfx.Mix(Color.White, Theme.Hero1, 0.22f), Gfx.RtlStart);
         y += Dpi.S(24);
-        TextRenderer.DrawText(g, greet, Theme.FS(small ? 20 : 24), new Rectangle(x, y, w, Dpi.S(small ? 40 : 48)), Theme.Amber, Gfx.RtlStart);
+        TextRenderer.DrawText(g, greet, Theme.FS(small ? 20 : 24), new Rectangle(x, y, w, Dpi.S(small ? 40 : 48)), Theme.HeroAccent, Gfx.RtlStart);
         y += Dpi.S(small ? 42 : 52);
         TextRenderer.DrawText(g, now.ToString("dddd، d MMMM yyyy", ar), Theme.F(10.5f), new Rectangle(x, y, w, Dpi.S(24)), Color.White, Gfx.RtlStart);
         y += Dpi.S(26);
         TextRenderer.DrawText(g, now.ToString("hh:mm:ss tt", ar), Theme.FS(small ? 16 : 19), new Rectangle(x, y, w, Dpi.S(36)), Color.White, Gfx.RtlStart);
         y += Dpi.S(40);
         if (y + Dpi.S(22) < Height)
-            TextRenderer.DrawText(g, $"مرحبًا {Session.UserName}  •  الإصدار {Application.ProductVersion.Split('+')[0]}", Theme.F(8.5f), new Rectangle(x, y, w, Dpi.S(22)), ColorTranslator.FromHtml("#AEB6E4"), Gfx.RtlStart);
+            TextRenderer.DrawText(g, $"مرحبًا {Session.UserName}  •  الإصدار {Application.ProductVersion.Split('+')[0]}", Theme.F(8.5f), new Rectangle(x, y, w, Dpi.S(22)), Gfx.Mix(Color.White, Theme.Hero1, 0.36f), Gfx.RtlStart);
     }
 }
 
