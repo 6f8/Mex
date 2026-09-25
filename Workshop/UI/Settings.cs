@@ -21,18 +21,19 @@ public partial class SettingsDialog : DialogShell
     readonly Label autoInfo = W.Note("", 640, 48);
     bool themeChanged;
 
-    SettingsDialog(string page = null) : base("الإعدادات", 980, 760, "settings")
+    SettingsDialog(string page = null) : base("الإعدادات", 1160, 780, "settings")
     {
-        var tabs = new ModernTabs { Dock = DockStyle.Fill };
+        var tabs = new ModernTabs(true) { Dock = DockStyle.Fill };
         tabs.Add("المحل", ShopTab(), "store");
         tabs.Add("المظهر", LookTab(), "sun");
         tabs.Add("القوائم", ListsTab(), "list");
+        tabs.Add("سير العمل", WorkflowTab(), "wrench");
         tabs.Add("الفنيون", TechsTab(), "wrench");
         tabs.Add("رسائل واتساب", MessagesTab(), "message-circle", "الرسائل");
         tabs.Add("التقرير اليومي والتنبيهات", NotifyTab(), "send", "التنبيهات");
         tabs.Add("الخصوصية والحماية", PrivacyTab(), "shield-check", "الحماية");
         tabs.Add("النسخ الاحتياطي والبيانات", DataTab(), "database", "البيانات");
-        tabs.SelectedIndex = page switch { "lists" => 2, "techs" => 3, "messages" => 4, "notify" => 5, _ => 0 };
+        tabs.SelectedIndex = page switch { "lists" => 2, "workflow" => 3, "techs" => 4, "messages" => 5, "notify" => 6, _ => 0 };
         Body.Controls.Add(tabs);
 
         AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save").Click += (s, e) => Save();
@@ -231,6 +232,7 @@ public partial class SettingsDialog : DialogShell
         Store.SetFlag("privacy_clear_passcode", clearPass.Checked);
         Store.SetFlag("lock_delivered", lockDelivered.Checked);
         SaveNotify();
+        SaveWorkflow();
         foreach (var (k, t) in dash) Store.SetFlag("dash_" + k, t.Checked);
         if (themeChanged && palette.SelectedIndex >= 0)
         {

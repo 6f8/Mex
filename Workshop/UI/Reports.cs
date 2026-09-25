@@ -20,7 +20,7 @@ public class ReportsPage : StackPage
     readonly DateTimePicker dExp = new() { Width = 140, Format = DateTimePickerFormat.Short };
     readonly DataGridView exps = W.Grid();
     readonly Box expBox;
-    readonly MeterList types = new(), devices = new(), methods = new();
+    readonly MeterList types = new(), devices = new(), methods = new(), sources = new(), areas = new();
     readonly Label retText = new() { Dock = DockStyle.Top, Height = 96, Font = Theme.F(9.5f), ForeColor = Theme.Text2, BackColor = Theme.Surface, TextAlign = ContentAlignment.TopLeft };
     readonly DataGridView quality = W.Grid(), suppliers = W.Grid(), techs = W.Grid();
     readonly Box retBox, supBox, listBox, techBox;
@@ -88,6 +88,9 @@ public class ReportsPage : StackPage
         var c2 = new Cols { MinCol = 380 };
         c2.Controls.Add(devBox);
         c2.Controls.Add(metBox);
+        var c2b = new Cols { MinCol = 380 };
+        c2b.Controls.Add(new Box("كيف عرف الزبائن بالمحل", sources, "users", "الطلبات المستلمة في الفترة"));
+        c2b.Controls.Add(new Box("المناطق", areas, "pin", "الطلبات المستلمة في الفترة"));
 
         // ---------- المرتجعات بالضمان وجودة الموردين ----------
         var retPanel = new Panel { Height = 320, BackColor = Theme.Surface };
@@ -145,6 +148,7 @@ public class ReportsPage : StackPage
         Stack.Controls.Add(chartBox);
         Stack.Controls.Add(c1);
         Stack.Controls.Add(c2);
+        Stack.Controls.Add(c2b);
         Stack.Controls.Add(c3);
         Stack.Controls.Add(techBox);
         Stack.Controls.Add(listBox);
@@ -248,6 +252,18 @@ public class ReportsPage : StackPage
         double mt = m.Values.Sum();
         methods.EmptyText = "لا توجد دفعات في هذه الفترة";
         methods.Set(m.Where(x => x.Value > 0).OrderByDescending(x => x.Value).Select(x => new MeterList.Row(x.Key, x.Value, $"{Txt.Money(x.Value)}  ({Math.Round(x.Value * 100 / Math.Max(1, mt))}%)")));
+
+        // مصادر الزبائن والمناطق
+        MeterList.Row[] Top(Func<Order, string> key)
+        {
+            var src = S1.Received.Where(o => key(o) != "").ToList();
+            return Calc.GroupByName(src, key).OrderByDescending(g => g.Items.Count).Take(8)
+                .Select(g => new MeterList.Row(g.Label, g.Items.Count, $"{g.Items.Count}  ({Math.Round(g.Items.Count * 100.0 / Math.Max(1, src.Count))}%) — إيراد {Txt.Money(g.Items.Where(o => o.Status == K.Done).Sum(o => o.Price))}")).ToArray();
+        }
+        sources.EmptyText = "لم يُسجَّل مصدر الزبون في طلبات الفترة";
+        sources.Set(Top(o => o.X.Source));
+        areas.EmptyText = "لم تُسجَّل مناطق في طلبات الفترة";
+        areas.Set(Top(o => o.X.Area));
 
         // المرتجعات بالضمان
         var rets = Store.Orders.Where(o => o.WarrantyOf != null && Calc.InRange(o.DateReceived, a, b)).ToList();

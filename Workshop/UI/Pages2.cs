@@ -143,13 +143,15 @@ public class InventoryPage : Page
         return i => { var k = Key(i); return cnt.GetValueOrDefault(k) > 1 && i.Cost > 0 && min.TryGetValue(k, out var m) && i.Cost <= m; };
     }
 
-    static string StockText(InvItem i) => Calc.StockState(i) switch
+    Dictionary<string, int> reserved = new();
+    string StockText(InvItem i) => (Calc.StockState(i) switch
     {
         "none" => "—", "out" => $"{i.Qty}  نفد", "low" => $"{i.Qty}  منخفض", _ => i.Qty.ToString()
-    };
+    }) + (reserved.GetValueOrDefault(i.Id) is int r && r > 0 ? $"   (+{r} محجوز لطلبات)" : "");
 
     public override void Reload()
     {
+        reserved = Reserved.Map();
         var all = Store.Inventory;
         double cost = all.Sum(i => i.Cost), sale = all.Sum(i => i.SalePrice);
         int models = all.Select(i => Txt.Fold(i.Compatible)).Where(x => x != "").Distinct().Count();

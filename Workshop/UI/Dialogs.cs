@@ -4,7 +4,7 @@ using static Raseed.Dpi;
 namespace Workshop;
 
 /// <summary>تفاصيل الطلب: مراحل العمل، تغيير الحالة بضغطة، البيانات، الصورة، القطع والحساب والدفعات</summary>
-public class OrderView : DialogShell
+public partial class OrderView : DialogShell
 {
     readonly string id;
     Control content;
@@ -24,10 +24,8 @@ public class OrderView : DialogShell
             bPay.Click += (s, e) => { QuickPayDialog.ForOrder(Calc.Find(id)); Refresh2(); };
         }
         AddButton("واتساب", DialogResult.None, BtnKind.Secondary, "message-circle").Click += (s, e) => Acts.WhatsApp(Calc.Find(id));
-        AddButton("فاتورة", DialogResult.None, BtnKind.Secondary, "printer").Click += (s, e) => { if (Calc.Find(id) is Order x) Printer.Invoice(x); };
-        AddButton("ملصق", DialogResult.None, BtnKind.Secondary, "tag").Click += (s, e) => { if (Calc.Find(id) is Order x) Printer.Label(x); };
-        if (o != null && o.PaymentStatus == K.PayFull && Calc.ChargeOf(o) > 0)
-            AddButton("وصل الاستلام", DialogResult.None, BtnKind.Secondary, "receipt").Click += (s, e) => { if (Calc.Find(id) is Order x) Printer.Receipt(x); };
+        var bPrint = AddButton("طباعة", DialogResult.None, BtnKind.Secondary, "printer");
+        bPrint.Click += (s, e) => { if (Calc.Find(id) is Order x) PrintMenu.Show(bPrint, x); };
         if (o != null && (o.Parts.Count > 0 || Calc.Find(o.WarrantyOf)?.Parts.Count > 0))
             AddButton("قطعة معيبة", DialogResult.None, BtnKind.Ghost, "triangle-alert").Click += (s, e) => { if (Calc.Find(id) is Order x) DefectDialog.ForOrder(x); };
         var bDel = AddButton("حذف", DialogResult.None, BtnKind.Danger, "trash-2");
@@ -134,6 +132,8 @@ public class OrderView : DialogShell
         if (o.Notes != "") grid.Controls.Add(KV("ملاحظات", o.Notes, 890, null, 80));
         flow.Controls.Add(grid);
 
+        BuildExtras(flow, o);
+
         if (o.PhotoRef != null && Store.LoadPhoto(o.PhotoRef) is Image img)
         {
             flow.Controls.Add(W.Head("صورة الجهاز عند الاستلام", 900));
@@ -145,7 +145,8 @@ public class OrderView : DialogShell
 
         flow.Controls.Add(W.Head("القطع والحساب", 900));
         if (o.Parts.Count == 0) flow.Controls.Add(W.Note("لا توجد قطع مسجّلة", 900));
-        foreach (var p in o.Parts) flow.Controls.Add(Line($"{(p.Name == "" ? "قطعة" : p.Name)}{(p.Supplier != "" ? $"  ({p.Supplier})" : "")}", Txt.Money(p.Cost)));
+        foreach (var i in o.X.Items) flow.Controls.Add(Line($"🔧 {i.Desc}{(i.Approved ? "" : "   — لم يوافق عليه الزبون")}", Txt.Money(i.Price), i.Approved ? null : Theme.Muted));
+        foreach (var p in o.Parts) flow.Controls.Add(Line($"{(p.Name == "" ? "قطعة" : p.Name)}{(p.Supplier != "" ? $"  ({p.Supplier})" : "")}{(p.Serial != "" ? $"  رقم {p.Serial}" : "")}", Txt.Money(p.Cost)));
         foreach (var d in Store.Defects.Where(d => d.OrderId == o.Id))
             flow.Controls.Add(Line($"⚠ قطعة معيبة: {d.PartName}{(d.Supplier != "" ? $"  ({d.Supplier})" : "")} — {Defects.StateText(d)}", Txt.Money(d.Cost), Pal.Bad));
         double rem = Calc.RemainingOf(o), cost = Calc.PartsCost(o), prof = Calc.ShownProfit(o);
@@ -165,10 +166,19 @@ public class OrderView : DialogShell
         }
         if (o.Paid > 0)
         {
+            var pr = W.Flow(false);
             var bRefund = W.Btn("إرجاع مبلغ للزبون", "rotate-ccw", BtnKind.Ghost, 150);
             bRefund.Click += (_, _) => RefundDialog.ForOrder(Calc.Find(id));
-            flow.Controls.Add(bRefund);
+            pr.Controls.Add(bRefund);
+            if (Refunds.Overpaid(o) > 0)
+            {
+                var bKeep = W.Btn($"حفظ الزائد ({Txt.Money(Refunds.Overpaid(o))}) رصيداً للزبون", "wallet", BtnKind.Soft, 220);
+                bKeep.Click += (_, _) => { if (Calc.Find(id) is Order x) { Credits.KeepOverpaid(x); Store.NotifyChanged(); Toast.Show("حُفظ الزائد رصيداً للزبون"); } };
+                pr.Controls.Add(bKeep);
+            }
+            flow.Controls.Add(pr);
         }
+        BuildAfterPayments(flow, o);
 
         // ---------- التذكيرات ----------
         var rems = Reminders.For(o.Id);
@@ -387,6 +397,7 @@ public class CustomerDialog : DialogShell
             new Ledger.Cell("الربح منه", Txt.Money(c.Profit), null, null, c.Profit >= 0 ? 1 : -1),
             new Ledger.Cell("دين عليه", Txt.Money(c.Debt), "أجهزة مُسلّمة", null, c.Debt > 0 ? -1 : 0),
             new Ledger.Cell("متوقع عند التسليم", Txt.Money(c.Expected), "أجهزة في الورشة"),
+            new Ledger.Cell("رصيده عندنا", Txt.Money(Credits.Balance(key)), "يُستعمل في طلبه القادم", Pal.Good),
         });
         var grid = new OrdersGrid();
         grid.Fill(c.Orders.OrderByDescending(o => o.CreatedAt, StringComparer.Ordinal));
@@ -397,6 +408,7 @@ public class CustomerDialog : DialogShell
         AddButton("طلب جديد له", DialogResult.None, BtnKind.Primary, "plus").Click += (s, e) => { Close(); Ui2.Later(() => Acts.New(new Order { CustomerName = c.Name, Phone = c.Phone })); };
         if (c.Debt > 0 || c.Expected > 0) AddButton("تسجيل دفعة", DialogResult.None, BtnKind.Success, "wallet").Click += (s, e) => QuickPayDialog.ForCustomer(key);
         if (c.Debt > 0) AddButton("تذكير بالدين", DialogResult.None, BtnKind.Secondary, "message-circle").Click += (s, e) => Acts.DebtReminder(c);
+        AddButton("ملف الزبون", DialogResult.None, BtnKind.Secondary, "printer").Click += (s, e) => Printer.CustomerFile(key);
         AddButton("إغلاق", DialogResult.Cancel, BtnKind.Ghost);
         void Changed()
         {
@@ -413,6 +425,7 @@ public class CustomerDialog : DialogShell
                     new Ledger.Cell("الربح منه", Txt.Money(c2.Profit), null, null, c2.Profit >= 0 ? 1 : -1),
                     new Ledger.Cell("دين عليه", Txt.Money(c2.Debt), "أجهزة مُسلّمة", null, c2.Debt > 0 ? -1 : 0),
                     new Ledger.Cell("متوقع عند التسليم", Txt.Money(c2.Expected), "أجهزة في الورشة"),
+                    new Ledger.Cell("رصيده عندنا", Txt.Money(Credits.Balance(key)), "يُستعمل في طلبه القادم", Pal.Good),
                 });
             });
         }

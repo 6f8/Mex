@@ -42,6 +42,8 @@ public static class Acts
         }
         var n = o.Clone();
         if (reason != null) Locking.Log(n, $"تغيير الحالة {prev} ← {status} — السبب: {reason}");
+        // فحص الجودة قبل أن يصبح الجهاز جاهزاً
+        if (status == K.Ready && QC.Required && !QC.Done(n) && !QcDialog.Run(n)) return;
         var now = Txt.Now;
         n.Status = status; n.UpdatedAt = now; n.StatusAt = now;
         n.ReadyAt = status == K.Ready ? now : null;

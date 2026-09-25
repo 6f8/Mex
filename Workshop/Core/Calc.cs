@@ -44,7 +44,7 @@ public static class Calc
         return e != "" && string.CompareOrdinal(on ?? Txt.Today, e) <= 0;
     }
 
-    public static bool IsOpen(Order o) => K.OpenStatuses.Contains(o.Status);
+    public static bool IsOpen(Order o) => o.Status != K.Done && o.Status != K.Cancelled;
     public static bool IsLate(Order o) => K.WorkStatuses.Contains(o.Status) && o.DateEstimated != "" && string.CompareOrdinal(o.DateEstimated, Txt.Today) < 0;
     public static int LateDays(Order o) => Txt.DaysBetween(o.DateEstimated, Txt.Today);
     /// <summary>أيام انتظار جهاز جاهز لم يُستلم</summary>
@@ -85,7 +85,7 @@ public static class Calc
     /// <summary>المقبوض فعلًا في فترة: الدفعات المؤرخة، وأي مبلغ قديم بلا تاريخ يُنسب ليوم الاستلام</summary>
     public static double PaymentsInRange(Order o, Func<string, bool> test)
     {
-        double sum = o.PaymentHistory.Where(p => test(p.Date)).Sum(p => p.Amount);
+        double sum = o.PaymentHistory.Where(p => !p.IsCredit && test(p.Date)).Sum(p => p.Amount);
         double undated = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
         if (undated > 0 && test(o.DateReceived)) sum += undated;
         return sum;
@@ -96,7 +96,7 @@ public static class Calc
         var m = K.PayMethods.ToDictionary(x => x, _ => 0.0);
         foreach (var o in Store.Orders)
         {
-            foreach (var p in o.PaymentHistory.Where(p => test(p.Date)))
+            foreach (var p in o.PaymentHistory.Where(p => !p.IsCredit && test(p.Date)))
                 m[p.Method ?? Lists.Cash] = m.GetValueOrDefault(p.Method ?? Lists.Cash) + p.Amount;
             double undated = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
             if (undated > 0 && test(o.DateReceived)) m[Lists.Cash] = m.GetValueOrDefault(Lists.Cash) + undated;
@@ -309,7 +309,7 @@ public static class Calc
         c.Parts = c.Delivered.Sum(PartsCost);
         c.Loss = c.Cancelled.Sum(PartsCost);
         c.NewDebt = closed.Where(o => o.AccountId == null).Sum(RemainingOf);
-        var all = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d).Select(p => (o, p))).ToList();
+        var all = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d && !p.IsCredit).Select(p => (o, p))).ToList();
         c.Payments = all.Where(x => !x.p.IsRefund).OrderByDescending(x => x.p.Amount).ToList();
         c.Refunds = all.Where(x => x.p.IsRefund).ToList();
         c.RefundTotal = -c.Refunds.Sum(x => x.P.Amount);

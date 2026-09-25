@@ -73,6 +73,7 @@ public partial class SettingsDialog
         var list = listEdits[CurList];
         if (v == "") { tItem.Focus(); return; }
         if (list.Any(x => Txt.Fold(x) == Txt.Fold(v))) { Toast.Show("موجود في القائمة مسبقاً", Tone.Warning); return; }
+        if (CurList == "statuses" && new[] { K.Check, K.Approval, K.Repair, K.Part, K.Ready, K.Done, K.Cancelled }.Contains(v)) { Toast.Show("هذه حالة أساسية موجودة أصلاً", Tone.Warning); return; }
         if (CurList == "warranties" && !v.Contains("بدون") && Calc.WarrantyDays(v) == 0)
             Toast.Show("اكتب المدة بالأرقام (مثل «10 أيام» أو «2 شهر») ليُحسب تاريخ انتهاء الضمان.", Tone.Warning);
         list.Add(v);
@@ -98,7 +99,7 @@ public partial class SettingsDialog
         var list = listEdits[CurList];
         if (i < 0) return;
         if (Locked(i)) { Toast.Show("«نقد» ثابت ولا يمكن حذفه", Tone.Info); return; }
-        if (list.Count <= 1) { Toast.Show("يجب أن يبقى عنصر واحد على الأقل", Tone.Warning); return; }
+        if (list.Count <= 1 && CurList != "statuses") { Toast.Show("يجب أن يبقى عنصر واحد على الأقل", Tone.Warning); return; }
         list.RemoveAt(i);
         tItem.Clear();
         RenderList(Math.Min(i, list.Count - 1));
@@ -263,6 +264,7 @@ public partial class SettingsDialog
     bool SaveCustom()
     {
         bool changed = false;
+        var oldCustom = K.Custom;
         foreach (var d in Lists.All)
         {
             var before = Lists.Get(d.Key);
@@ -273,6 +275,15 @@ public partial class SettingsDialog
         Techs.Save(techEdits);
         if (oldTechs != string.Join("|", Techs.All.Select(t => t.Name + t.Basis + t.Value))) changed = true;
         foreach (var (id, text) in msgEdits) Msg.Save(id, text);
+        // الطلبات التي كانت في حالة مخصصة حُذفت تعود إلى «قيد الإصلاح»
+        var removed = oldCustom.Except(K.Custom).ToHashSet();
+        foreach (var o in Store.Orders.Where(o => removed.Contains(o.Status)).ToList())
+        {
+            var n = o.Clone();
+            Locking.Log(n, $"حُذفت الحالة «{o.Status}» من الإعدادات فانتقل إلى «{K.Repair}»");
+            n.Status = K.Repair; n.StatusAt = n.UpdatedAt = Txt.Now;
+            Store.SaveOrder(n);
+        }
         return changed;
     }
 }
@@ -424,5 +435,55 @@ public partial class SettingsDialog
         if (tMailPass.Text != "") Store.Set("notify_mail_pass", Secret.Protect(tMailPass.Text));
         Store.Set("notify_mail_to", tMailTo.Text.Trim());
         foreach (var (k, t) in alertToggles) Store.SetFlag("notify_alert_" + k, t.Checked);
+    }
+}
+
+/// <summary>تبويب سير العمل: فحص الجودة، الطلبات المعلّقة، الفرع، الشروط الخاصة بكل عطل</summary>
+public partial class SettingsDialog
+{
+    readonly Toggle tgQc = new() { Text = "إلزام فحص الجودة قبل أن يصبح الجهاز «جاهز للاستلام»", Width = 760 };
+    readonly NumericUpDown nStale = new() { Width = 120, Minimum = 1, Maximum = 90, TextAlign = HorizontalAlignment.Center, Font = Theme.F(10) };
+    readonly TextBox tBranch = new() { Width = 300, PlaceholderText = "مثل: فرع المنصور" };
+    readonly ComboBox cbTermsType = W.Combo(260, Array.Empty<string>());
+    readonly TextBox tIssueTerms = new() { Width = 760, Height = 90, Multiline = true, ScrollBars = ScrollBars.Vertical };
+    readonly Dictionary<string, string> termsEdits = new();
+    string curTermsType;
+
+    Control WorkflowTab()
+    {
+        var p = Page();
+        p.Controls.Add(W.Head("فحص الجودة", 780));
+        p.Controls.Add(tgQc);
+        p.Controls.Add(W.Note("بنود الفحص تُعدَّل من «القوائم ← فحص الجودة قبل التسليم».", 780));
+        p.Controls.Add(W.Head("الطلبات المعلّقة", 780));
+        p.Controls.Add(W.Labeled("اقترح إلغاء الطلب «بانتظار الموافقة» بعد (يوم)", nStale, "clock"));
+        p.Controls.Add(W.Head("الفرع", 780));
+        p.Controls.Add(W.Labeled("اسم هذا الفرع (يُكتب على كل طلب جديد، ويظهر في التقرير المجمّع)", tBranch, "store"));
+        p.Controls.Add(W.Head("شروط خاصة لكل نوع عطل", 780));
+        p.Controls.Add(W.Note("تُطبع تحت الشروط العامة في فاتورة هذا النوع فقط — مثل: «أجهزة المياه بلا ضمان، وقد تتعطل أجزاء أخرى لاحقاً».", 780, 40));
+        p.Controls.Add(W.Labeled("نوع العطل", cbTermsType));
+        p.Controls.Add(W.Wrap(tIssueTerms));
+        tgQc.Checked = QC.Required;
+        nStale.Value = Stale.Days;
+        tBranch.Text = Branches.Current;
+        cbTermsType.Items.AddRange(K.IssueTypes.Cast<object>().ToArray());
+        foreach (var t in K.IssueTypes) termsEdits[t] = IssueTerms.For(t);
+        cbTermsType.SelectedIndexChanged += (s, e) =>
+        {
+            if (curTermsType != null) termsEdits[curTermsType] = tIssueTerms.Text;
+            curTermsType = cbTermsType.Text;
+            tIssueTerms.Text = termsEdits.GetValueOrDefault(curTermsType, "");
+        };
+        tIssueTerms.TextChanged += (s, e) => { if (curTermsType != null) termsEdits[curTermsType] = tIssueTerms.Text; };
+        if (cbTermsType.Items.Count > 0) cbTermsType.SelectedIndex = 0;
+        return p;
+    }
+
+    void SaveWorkflow()
+    {
+        Store.SetFlag("qc_required", tgQc.Checked);
+        Store.Set("stale_days", ((int)nStale.Value).ToString());
+        Store.Set("branch_name", tBranch.Text.Trim());
+        foreach (var (k, v) in termsEdits) IssueTerms.Set(k, v);
     }
 }

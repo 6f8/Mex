@@ -7,8 +7,19 @@ public static class K
 {
     public const string Check = "قيد الفحص", Approval = "بانتظار الموافقة", Repair = "قيد الإصلاح", Part = "بانتظار قطعة",
                         Ready = "جاهز للاستلام", Done = "تم التسليم", Cancelled = "ملغى";
-    public static readonly string[] Statuses = { Check, Approval, Repair, Part, Ready, Done, Cancelled };
-    public static readonly string[] OpenStatuses = Statuses.Where(s => s != Done && s != Cancelled).ToArray();
+    static readonly string[] CoreStatuses = { Check, Approval, Repair, Part, Ready, Done, Cancelled };
+    /// <summary>الحالات: الأساسية + الحالات المخصصة من الإعدادات (تُدرج قبل «جاهز للاستلام» وتُعدّ مفتوحة)</summary>
+    public static string[] Statuses
+    {
+        get
+        {
+            var custom = Custom;
+            if (custom.Length == 0) return CoreStatuses;
+            return CoreStatuses.Take(4).Concat(custom).Concat(CoreStatuses.Skip(4)).ToArray();
+        }
+    }
+    public static string[] Custom => Lists.Get("statuses").Where(x => !CoreStatuses.Contains(x)).ToArray();
+    public static string[] OpenStatuses => Statuses.Where(s => s != Done && s != Cancelled).ToArray();
     /// <summary>ما زال على طاولة العمل: تجاوز الموعد هنا تأخير من الورشة (انتظار موافقة الزبون أو استلامه ليس تأخيرًا)</summary>
     public static readonly string[] WorkStatuses = { Check, Repair, Part };
 
@@ -46,8 +57,10 @@ public static class K
         PayFull => (C("#1D8657"), C("#E1F3EA")),
         PayPart => (C("#94700F"), C("#FAF1D6")),
         PayNone => (C("#C43F2C"), C("#FBE8E4")),
-        _ => (Color.Empty, Color.Empty)
+        _ => Array.IndexOf(Custom, s) is var i && i >= 0 ? CustomColors[i % CustomColors.Length] : (Color.Empty, Color.Empty)
     };
+    static readonly (Color, Color)[] CustomColors =
+        { (C("#8A4B08"), C("#FDEBD7")), (C("#0F6E56"), C("#DDF3EC")), (C("#7A3E9D"), C("#F2E6F8")), (C("#35507A"), C("#E4EBF5")), (C("#9D2F5E"), C("#FAE3EC")) };
     static Color C(string h) => ColorTranslator.FromHtml(h);
 }
 
@@ -58,6 +71,8 @@ public class Part
     public string InventoryItemId;
     /// <summary>ضمان المورد على القطعة بالأيام (null = غير مسجل)</summary>
     public int? SupWarranty;
+    /// <summary>الرقم التسلسلي للقطعة المركّبة (يثبت في الضمان أنها قطعتك)</summary>
+    public string Serial = "";
 }
 
 /// <summary>دفعة من الزبون، أو مبلغ أُرجع له (المبلغ بالسالب)</summary>
@@ -65,7 +80,9 @@ public class Payment
 {
     public string Id, Date, Note = "", Method = Lists.Cash;
     public double Amount;
-    public bool IsRefund => Amount < 0;
+    /// <summary>استعمال رصيد الزبون أو تحويل زائد إلى رصيده: ليس نقداً داخلاً أو خارجاً من الصندوق</summary>
+    public bool IsCredit => Method == Lists.Credit;
+    public bool IsRefund => Amount < 0 && !IsCredit;
 }
 
 /// <summary>سطر في سجل تعديلات الطلب (تعديل طلب مُسلَّم، إرجاع مبلغ...)</summary>
@@ -80,6 +97,8 @@ public class Order
     /// <summary>حساب التاجر أو الشركة (null = زبون عادي يدفع عند الاستلام)</summary>
     public string AccountId;
     public List<Change> History = new();
+    /// <summary>التفاصيل الإضافية (فحص الجودة، التوقيت، الخدوش، البنود، الخدمة، التقسيط...)</summary>
+    public OrderExtra X = new();
     public Dictionary<string, string> Checks = new();
     public bool ChecksNA;
     public string WarrantyOf;
@@ -99,8 +118,9 @@ public class Order
         var o = (Order)MemberwiseClone();
         o.Checks = new(Checks);
         o.Accessories = new(Accessories);
-        o.Parts = Parts.Select(p => new Part { Name = p.Name, Supplier = p.Supplier, Cost = p.Cost, InventoryItemId = p.InventoryItemId, SupWarranty = p.SupWarranty }).ToList();
+        o.Parts = Parts.Select(p => new Part { Name = p.Name, Supplier = p.Supplier, Cost = p.Cost, InventoryItemId = p.InventoryItemId, SupWarranty = p.SupWarranty, Serial = p.Serial }).ToList();
         o.History = History.Select(h => new Change { At = h.At, Text = h.Text }).ToList();
+        o.X = Extra.Copy(X);
         o.PaymentHistory = PaymentHistory.Select(p => new Payment { Id = p.Id, Date = p.Date, Note = p.Note, Method = p.Method, Amount = p.Amount }).ToList();
         return o;
     }
@@ -168,7 +188,8 @@ public static class Json
         if (S(o, "paymentStatus") == K.PayFull && price > 0 && paid < price && hist.Count == 0 && S(o, "status") != K.Cancelled) paid = price;
         double histSum = hist.Sum(p => p.Amount);
         if (hist.Count > 0 && histSum > paid) paid = histSum;
-        var status = K.Statuses.Contains(S(o, "status")) ? S(o, "status") : K.Statuses[0];
+        // الحالة المحفوظة تبقى حتى لو حُذفت حالة مخصصة من الإعدادات
+        var status = OrNull(S(o, "status")) ?? K.Check;
         var checkFee = Math.Max(0, M(o, "checkFee"));
         double charge = status == K.Cancelled ? checkFee : price;
         var createdAt = OrNull(S(o, "createdAt")) ?? (received != "" ? received + "T09:00:00" : Txt.Now);
@@ -203,7 +224,8 @@ public static class Json
             Accessories = o["accessories"] is JsonArray acc ? acc.Select(x => Txt.Str(x?.ToString())).Where(x => x != "").ToList() : new(),
             Warranty = OrNull(warranty) ?? K.Warranties[0],
             Parts = o["parts"] is JsonArray pa ? pa.Where(p => p != null && (S(p, "name") != "" || M(p, "cost") != 0))
-                .Select(p => new Part { Name = S(p, "name"), Supplier = S(p, "supplier"), Cost = Math.Max(0, M(p, "cost")), InventoryItemId = OrNull(S(p, "inventoryItemId")), SupWarranty = Days(p, "supWarranty") }).ToList() : new(),
+                .Select(p => new Part { Name = S(p, "name"), Supplier = S(p, "supplier"), Cost = Math.Max(0, M(p, "cost")), InventoryItemId = OrNull(S(p, "inventoryItemId")), SupWarranty = Days(p, "supWarranty"), Serial = S(p, "serial") }).ToList() : new(),
+            X = Extra.From(o["x"]),
             AccountId = OrNull(S(o, "accountId")),
             History = o["history"] is JsonArray ha ? ha.OfType<JsonObject>().Where(h => S(h, "text") != "").Select(h => new Change { At = S(h, "at"), Text = S(h, "text") }).ToList() : new(),
             Price = price, Paid = paid, PaymentHistory = hist,
@@ -237,7 +259,8 @@ public static class Json
             ["checks"] = checks, ["checksNA"] = o.ChecksNA, ["warrantyOf"] = V(o.WarrantyOf),
             ["accessories"] = new JsonArray(o.Accessories.Select(a => (JsonNode)a).ToArray()),
             ["warranty"] = o.Warranty,
-            ["parts"] = new JsonArray(o.Parts.Select(p => (JsonNode)new JsonObject { ["name"] = p.Name, ["supplier"] = p.Supplier, ["cost"] = p.Cost, ["inventoryItemId"] = V(p.InventoryItemId), ["supWarranty"] = p.SupWarranty }).ToArray()),
+            ["parts"] = new JsonArray(o.Parts.Select(p => (JsonNode)new JsonObject { ["name"] = p.Name, ["supplier"] = p.Supplier, ["cost"] = p.Cost, ["inventoryItemId"] = V(p.InventoryItemId), ["supWarranty"] = p.SupWarranty, ["serial"] = p.Serial }).ToArray()),
+            ["x"] = Extra.ToJson(o.X),
             ["accountId"] = V(o.AccountId),
             ["history"] = new JsonArray(o.History.Select(h => (JsonNode)new JsonObject { ["at"] = h.At, ["text"] = h.Text }).ToArray()),
             ["price"] = o.Price, ["paid"] = o.Paid,
@@ -352,12 +375,13 @@ public static class Json
         {
             Id = OrNull(S(a, "id")) ?? Txt.Uid("ac"), Name = S(a, "name"), Phone = Txt.LatinDigits(S(a, "phone")), Kind = S(a, "kind") == "company" ? "company" : "dealer",
             Note = S(a, "note"), CreatedAt = OrNull(S(a, "createdAt")) ?? Txt.Now, Discount = Math.Clamp(M(a, "discount"), 0, 100),
+            CreditLimit = Math.Max(0, M(a, "creditLimit")),
         };
     }
 
     public static JsonObject ToJson(Account a) => new()
     {
-        ["id"] = a.Id, ["name"] = a.Name, ["phone"] = a.Phone, ["kind"] = a.Kind, ["note"] = a.Note, ["createdAt"] = V(a.CreatedAt), ["discount"] = a.Discount,
+        ["id"] = a.Id, ["name"] = a.Name, ["phone"] = a.Phone, ["kind"] = a.Kind, ["note"] = a.Note, ["createdAt"] = V(a.CreatedAt), ["discount"] = a.Discount, ["creditLimit"] = a.CreditLimit,
     };
 
     public static JsonObject ToJson(Driver d) => new() { ["id"] = d.Id, ["printer"] = d.Printer, ["brand"] = d.Brand, ["os"] = d.Os, ["url"] = d.Url, ["note"] = d.Note, ["updatedAt"] = d.UpdatedAt };

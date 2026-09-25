@@ -164,7 +164,7 @@ public class DashboardPage : StackPage
             More(items, waiting.Count - 6, "ready");
             list.Add(new(0, "clock", $"{waiting.Count} جهاز جاهز لم يُستلم منذ 3 أيام أو أكثر", items));
         }
-        var approval = Store.Orders.Where(o => o.Status == K.Approval && Calc.StatusDays(o) >= 2).OrderByDescending(Calc.StatusDays).ToList();
+        var approval = Store.Orders.Where(o => o.Status == K.Approval && Calc.StatusDays(o) >= 2 && Calc.StatusDays(o) < Stale.Days).OrderByDescending(Calc.StatusDays).ToList();
         if (approval.Count > 0)
             list.Add(new(0, "message-circle", $"{approval.Count} جهاز بانتظار موافقة الزبون منذ يومين أو أكثر", approval.Take(6).Select(o => Item(o, $"  ({Calc.StatusDays(o)} يوم)")).ToList()));
         var outS = Store.Inventory.Where(i => Calc.StockState(i) == "out").ToList();
@@ -182,6 +182,16 @@ public class DashboardPage : StackPage
             list.Insert(0, new(1, "bell", $"{due.Count} تذكير مستحق اليوم", due.Take(6).Select(r => new AlertsPanel.Item(
                 $"{Reminders.Label(r)}{(string.CompareOrdinal(r.Date, Txt.Today) < 0 ? $"  ({Reminders.When(r)})" : "")}",
                 () => { if (Calc.Find(r.OrderId) is Order o) Acts.View(o); else RemindersDialog.Open(); })).ToList(), null, "كل التذكيرات", RemindersDialog.Open));
+        var visits = Store.Orders.Where(o => Calc.IsOpen(o) && o.X.Service is "onsite" or "pickup" && Txt.Cut10(o.X.VisitAt) == Txt.Today).ToList();
+        if (visits.Count > 0)
+            list.Insert(0, new(1, "pin", $"{visits.Count} زيارة / استلام من المنزل اليوم", visits.Take(6).Select(o => Item(o, $"  {Txt.ParseTime(o.X.VisitAt):HH:mm} — {o.X.Address}")).ToList()));
+        var overdue = Installments.Overdue();
+        if (overdue.Count > 0)
+            list.Add(new(2, "calendar", $"{overdue.Count} طلب عليه أقساط متأخرة", overdue.Take(6).Select(o => Item(o, $"  (باقي {Txt.Money(Calc.RemainingOf(o))})")).ToList()));
+        var stale = Stale.List();
+        if (stale.Count > 0)
+            list.Add(new(1, "clock", $"{stale.Count} طلب بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر", stale.Take(6).Select(o => Item(o, $"  ({Calc.StatusDays(o)} يوم)")).ToList(),
+                "اقتراح: إلغاؤه مع رسالة للزبون، أو الاتصال به.", "مراجعة وإلغاء", () => StaleDialog.Open()));
         double accDue = Store.Accounts.Sum(Accounts.Due);
         if (accDue > 0)
             list.Add(new(0, "store", $"مستحق على حسابات التجار والشركات {Txt.Money(accDue)}", new(), null, "الحسابات", () => MainForm.Instance?.Go("accounts")));
@@ -212,6 +222,7 @@ public class OrdersPage : Page
     readonly ComboBox cbStatus = W.Combo(170, new[] { "كل الحالات" }.Concat(K.Statuses)), cbPay = W.Combo(170, new[] { "كل حالات الدفع" }.Concat(K.PayList)),
                       cbType = W.Combo(170, new[] { "كل أنواع الأعطال" }.Concat(K.IssueTypes)),
                       cbTech = W.Combo(170, new[] { "كل الفنيين" }.Concat(Techs.All.Select(t => t.Name)).Append(Techs.NoTech)),
+                      cbService = W.Combo(170, new[] { "كل الخدمات" }.Concat(Extra.Services.Select(s => s.Title))),
                       cbSort = W.Combo(190, new[] { "الأحدث أولاً", "الأقدم أولاً", "موعد التسليم الأقرب", "السعر الأعلى", "السعر الأقل", "الربح الأعلى", "المتبقي الأكبر" });
     readonly DateTimePicker dFrom = new() { Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false },
                             dTo = new() { Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
@@ -246,6 +257,7 @@ public class OrdersPage : Page
         filters.Controls.Add(W.Labeled("الدفع", cbPay));
         filters.Controls.Add(W.Labeled("نوع العطل", cbType));
         if (Techs.All.Count > 0) filters.Controls.Add(W.Labeled("الفني", cbTech));
+        filters.Controls.Add(W.Labeled("الخدمة", cbService));
         filters.Controls.Add(W.Labeled("من (الاستلام)", dFrom));
         filters.Controls.Add(W.Labeled("إلى", dTo));
         filters.Controls.Add(W.Labeled("الترتيب", cbSort));
@@ -262,7 +274,7 @@ public class OrdersPage : Page
         Ui2.OnIdle(search, Reload, 150);
         quick.Changed += _ => Reload();
         mode.Changed += v => { grid.Visible = v == "table"; boardHost.Visible = v == "kanban"; cbStatus.Enabled = v == "table"; Reload(); };
-        foreach (var c in new[] { cbStatus, cbPay, cbType, cbTech, cbSort }) c.SelectedIndexChanged += (s, e) => Reload();
+        foreach (var c in new[] { cbStatus, cbPay, cbType, cbTech, cbService, cbSort }) c.SelectedIndexChanged += (s, e) => Reload();
         dFrom.ValueChanged += (s, e) => Reload();
         dTo.ValueChanged += (s, e) => Reload();
         bFilters.Click += (s, e) => filters.Visible = !filters.Visible;
@@ -287,7 +299,7 @@ public class OrdersPage : Page
     void ClearFilters(bool reload = true)
     {
         search.Text = "";
-        cbStatus.SelectedIndex = cbPay.SelectedIndex = cbType.SelectedIndex = cbTech.SelectedIndex = cbSort.SelectedIndex = 0;
+        cbStatus.SelectedIndex = cbPay.SelectedIndex = cbType.SelectedIndex = cbTech.SelectedIndex = cbService.SelectedIndex = cbSort.SelectedIndex = 0;
         dFrom.Checked = dTo.Checked = false;
         quick.Value = "all";
         if (reload) Reload();
@@ -302,9 +314,10 @@ public class OrdersPage : Page
         string st = ignoreStatus || cbStatus.SelectedIndex <= 0 ? null : cbStatus.Text;
         string pay = cbPay.SelectedIndex <= 0 ? null : cbPay.Text, type = cbType.SelectedIndex <= 0 ? null : cbType.Text;
         string tech = cbTech.SelectedIndex <= 0 ? null : cbTech.Text == Techs.NoTech ? "" : Txt.Fold(cbTech.Text);
+        string service = cbService.SelectedIndex <= 0 ? null : Extra.Services[cbService.SelectedIndex - 1].Key;
         string from = dFrom.Checked ? Txt.Iso(dFrom.Value) : null, to = dTo.Checked ? Txt.Iso(dTo.Value) : null, t = Txt.Today;
         IEnumerable<Order> list = Store.Orders.Where(o => (q == "" || Txt.Matches(Calc.Haystack(o), q)) && (st == null || o.Status == st) &&
-            (pay == null || o.PaymentStatus == pay) && (type == null || o.IssueType == type) && (tech == null || Txt.Fold(o.Technician) == tech) &&
+            (pay == null || o.PaymentStatus == pay) && (type == null || o.IssueType == type) && (tech == null || Txt.Fold(o.Technician) == tech) && (service == null || o.X.Service == service) &&
             (from == null || string.CompareOrdinal(o.DateReceived, from) >= 0) && (to == null || string.CompareOrdinal(o.DateReceived, to) <= 0));
         list = quick.Value switch
         {
@@ -333,7 +346,7 @@ public class OrdersPage : Page
         int all = Store.Orders.Count, open = Store.Orders.Count(Calc.IsOpen);
         sub = all > 0 ? $"{all} طلب مسجّل، منها {open} قيد العمل" : "لا توجد طلبات بعد — كل جهاز يدخل الورشة يبدأ من «طلب جديد»";
         MainForm.Instance?.UpdateTitle(this);
-        bool filtered = cbStatus.SelectedIndex > 0 || cbPay.SelectedIndex > 0 || cbType.SelectedIndex > 0 || cbTech.SelectedIndex > 0 || dFrom.Checked || dTo.Checked || cbSort.SelectedIndex > 0;
+        bool filtered = cbStatus.SelectedIndex > 0 || cbPay.SelectedIndex > 0 || cbType.SelectedIndex > 0 || cbTech.SelectedIndex > 0 || cbService.SelectedIndex > 0 || dFrom.Checked || dTo.Checked || cbSort.SelectedIndex > 0;
         bFilters.Kind = filtered ? BtnKind.Soft : BtnKind.Secondary;
         if (mode.Value == "kanban")
         {

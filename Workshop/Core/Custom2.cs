@@ -66,6 +66,8 @@ public class Account
     public string Id, Name = "", Phone = "", Kind = "dealer", Note = "", CreatedAt;
     /// <summary>خصم التاجر % على السعر المقترح من قائمة الأسعار</summary>
     public double Discount;
+    /// <summary>حد الائتمان: أقصى ما يُسمح أن يكون عليه (0 = بلا حد)</summary>
+    public double CreditLimit;
 }
 
 public static class Accounts
@@ -389,6 +391,12 @@ public static class Notify
             L.AddRange(rem.Take(6).Select(r => "   - " + Reminders.Label(r)));
         }
         if (Defects.PendingCount > 0) L.Add($"🔩 قطع معيبة بانتظار الإرجاع: {Defects.PendingCount}");
+        var tomorrow = Txt.Iso((Txt.ParseDate(day) ?? DateTime.Today).AddDays(1));
+        var visits = Store.Orders.Where(o => Calc.IsOpen(o) && o.X.Service is "onsite" or "pickup" && Txt.Cut10(o.X.VisitAt) == tomorrow).ToList();
+        if (visits.Count > 0) { L.Add($"🚗 زيارات الغد: {visits.Count}"); L.AddRange(visits.Take(5).Select(o => $"   - {Txt.ParseTime(o.X.VisitAt):HH:mm} {o.CustomerName} — {o.X.Address}")); }
+        var overdue = Installments.Overdue();
+        if (overdue.Count > 0) L.Add($"📅 طلبات عليها أقساط متأخرة: {overdue.Count}");
+        if (Stale.List().Count is int st && st > 0) L.Add($"⏳ بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر: {st}");
         double debts = Calc.GetDebts().Sum(x => x.Debt), acc = Store.Accounts.Sum(Accounts.Due);
         if (debts > 0 || acc > 0) L.Add($"📒 ديون الزبائن: {Txt.Money(debts)}{(acc > 0 ? $" — حسابات التجار: {Txt.Money(acc)}" : "")}");
         return string.Join("\n", L);

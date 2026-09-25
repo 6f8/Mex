@@ -124,16 +124,26 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
 <div class=""box""><span class=""k"">وصف العطل: </span>{Esc(o.Issue == "" ? "—" : o.Issue)}</div>");
         if (o.ChecksNA || o.Checks.Count > 0)
             sb.Append($"<div class=\"box\"><span class=\"k\">حالة الجهاز عند الاستلام: </span>{(o.ChecksNA ? "الجهاز لا يعمل، لم يُفحص" : string.Join(" &nbsp;·&nbsp; ", Lists.OrderChecks(o).Select(c => (c.State == "ok" ? "✓ " : "✕ ") + Esc(c.Title))))}</div>");
-        if (o.Parts.Count > 0) sb.Append(Row("القطع المستبدلة", string.Join("، ", o.Parts.Select(p => p.Name).Where(n => n != ""))).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
+        if (o.X.Marks.Count > 0)
+            sb.Append($"<div class=\"box\" style=\"display:flex;gap:12px;align-items:center\">{DamageMap.Svg(o.X.Marks)}<div><span class=\"k\">خدوش وكسور عند الاستلام: </span>{Esc(DamageMap.Describe(o.X.Marks))}</div></div>");
+        if (o.X.Items.Count > 0)
+            sb.Append(Table(new[] { "بند الإصلاح", "السعر", "" }, o.X.Items.Select(i => new[] { i.Desc, Money(i.Price), i.Approved ? "✓ موافق" : "لم يوافق عليه الزبون" })));
+        if (o.Parts.Count > 0) sb.Append(Row("القطع المستبدلة", string.Join("، ", o.Parts.Where(p => p.Name != "").Select(p => p.Name + (p.Serial != "" ? $" (رقم {p.Serial})" : "")))).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
+        if (o.X.SealNo != "") sb.Append(Row("رقم ملصق الضمان", o.X.SealNo));
+        if (o.X.Service != "shop") sb.Append(Row("الخدمة", Extra.ServiceText(o.X.Service) + (o.X.Address != "" ? " — " + o.X.Address : "")));
+        if (o.X.ShipTracking != "") sb.Append(Row("الشحن", $"{o.X.ShipCompany} — رقم الشحنة {o.X.ShipTracking}"));
+        if (QC.Done(o)) sb.Append(Row("فحص الجودة قبل التسليم", QC.Passed(o) ? "✓ كل البنود تعمل" : "لا يعمل: " + string.Join("، ", o.X.QC.Where(q => q.Value == "bad").Select(q => q.Key)), QC.Passed(o) ? "good" : "bad"));
         if (o.Accessories.Count > 0) sb.Append(Row("الملحقات المستلمة", string.Join("، ", o.Accessories)).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
         sb.Append(Row("الضمان", o.Warranty + (we != "" ? " — حتى " + FmtDate(we) : "")));
         if (src != null) sb.Append(Row("طلب ضمان", "للطلب " + src.RefNo));
         sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص (الطلب ملغى)" : "مبلغ الصيانة", Money(Calc.ChargeOf(o))));
+        if (o.Status != K.Cancelled && o.CheckFee > 0) sb.Append(Row("أجرة الفحص", "لا تُضاف — مشمولة بسعر الإصلاح"));
         double refunded = -o.PaymentHistory.Where(p => p.IsRefund).Sum(p => p.Amount);
         if (refunded > 0) { sb.Append(Row("المدفوع", Money(o.Paid + refunded), "good")); sb.Append(Row("مُرجَع للزبون", Money(refunded), "bad")); }
         else sb.Append(Row("المدفوع", Money(o.Paid), "good"));
         sb.Append($"<div class=\"row total\"><span>المتبقي</span><span class=\"{(rem > 0 ? "bad" : "good")}\">{(rem > 0 ? Esc(Money(rem)) : "مسدد بالكامل")}</span></div>");
-        if (Store.Terms != "") sb.Append($"<div class=\"foot\">{Esc(Store.Terms)}</div>");
+        var terms = string.Join("\n", new[] { Store.Terms, IssueTerms.For(o.IssueType) }.Where(t => t != ""));
+        if (terms != "") sb.Append($"<div class=\"foot\" style=\"white-space:pre-line\">{Esc(terms)}</div>");
         sb.Append("<div class=\"thanks\">شكراً لثقتكم</div>");
         sb.Append($"<div style=\"margin-top:14px\">{Code128Svg(o.RefNo, 40, 2, 320)}</div>");
         Doc(sb.ToString(), "فاتورة " + o.RefNo);
@@ -173,6 +183,70 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
         sb.Append("<div style=\"text-align:center;margin-top:14px;padding:10px;border-radius:8px;background:#E1F3EA;color:#1D8657;font-weight:700\">تم سداد كامل المبلغ</div>");
         sb.Append("<div class=\"thanks\">شكراً لتعاملكم معنا</div>");
         Doc(sb.ToString(), "وصل " + o.RefNo, "460px");
+    }
+
+    // ---------- بطاقة عمل للفني (بدون أسعار) ----------
+    public static void JobCard(Order o)
+    {
+        var sb = new StringBuilder(Header("بطاقة عمل", o.RefNo));
+        sb.Append($"<div class=\"grid\"><div><span class=\"k\">الجهاز: </span><b>{Esc(o.Device)}</b></div><div><span class=\"k\">الفني: </span><b>{Esc(o.Technician == "" ? "—" : o.Technician)}</b></div>" +
+                  $"<div><span class=\"k\">الاستلام: </span><b>{FmtDate(o.DateReceived)}</b></div><div><span class=\"k\">الموعد: </span><b>{FmtDate(o.DateEstimated)}</b></div>" +
+                  (o.Passcode != "" ? $"<div><span class=\"k\">رمز القفل: </span><b dir=\"ltr\">{Esc(o.Passcode)}</b></div>" : "") +
+                  (o.Imei != "" ? $"<div><span class=\"k\">IMEI: </span><b dir=\"ltr\">{Esc(o.Imei)}</b></div>" : "") + "</div>");
+        sb.Append($"<div class=\"box\"><span class=\"k\">العطل ({Esc(o.IssueType)}): </span>{Esc(o.Issue)}</div>");
+        if (o.X.Items.Count > 0) sb.Append("<div class=\"box\"><span class=\"k\">البنود: </span>" + Esc(string.Join("، ", o.X.Items.Where(i => i.Approved).Select(i => i.Desc))) + "</div>");
+        if (o.Checks.Count > 0) sb.Append("<div class=\"box\"><span class=\"k\">حالته عند الاستلام: </span>" + string.Join(" · ", Lists.OrderChecks(o).Select(c => (c.State == "ok" ? "✓ " : "✕ ") + Esc(c.Title))) + "</div>");
+        if (o.X.Marks.Count > 0) sb.Append($"<div class=\"box\" style=\"display:flex;gap:12px;align-items:center\">{DamageMap.Svg(o.X.Marks)}<div>{Esc(DamageMap.Describe(o.X.Marks))}</div></div>");
+        if (o.Parts.Count > 0) sb.Append(Row("القطع", string.Join("، ", o.Parts.Select(p => p.Name).Where(n => n != ""))));
+        if (o.Notes != "") sb.Append($"<div class=\"box\"><span class=\"k\">ملاحظات: </span>{Esc(o.Notes)}</div>");
+        foreach (var n in o.X.Chat.TakeLast(5)) sb.Append(Row(Esc(n.Author == "" ? "ملاحظة" : n.Author), n.Text));
+        sb.Append("<div class=\"box\" style=\"min-height:90px\"><span class=\"k\">ما تم عمله: </span></div>");
+        sb.Append($"<div style=\"margin-top:10px\">{Code128Svg(o.RefNo, 40, 2, 300)}</div>");
+        Doc(sb.ToString(), "بطاقة عمل " + o.RefNo, "620px");
+    }
+
+    // ---------- بطاقة الضمان ----------
+    public static void WarrantyCard(Order o)
+    {
+        var we = Calc.WarrantyEnd(o);
+        var body = $@"<div style=""border:2px solid #2B55C9;border-radius:14px;padding:16px"">
+<div style=""display:flex;justify-content:space-between;align-items:center""><div class=""shop"">{Esc(Store.ShopName)}</div><div class=""ref"">{Esc(o.RefNo)}</div></div>
+<div style=""text-align:center;font-size:20px;font-weight:700;margin:12px 0;color:#1C3C95"">بطاقة ضمان</div>" +
+            Row("الزبون", o.CustomerName) + Row("الجهاز", o.Device) + Row("الإصلاح", o.X.Items.Count > 0 ? string.Join("، ", o.X.Items.Where(i => i.Approved).Select(i => i.Desc)) : o.IssueType) +
+            (o.Parts.Any(p => p.Serial != "") ? Row("أرقام القطع", string.Join("، ", o.Parts.Where(p => p.Serial != "").Select(p => p.Serial))) : "") +
+            (o.X.SealNo != "" ? Row("رقم الملصق", o.X.SealNo) : "") +
+            Row("تاريخ التسليم", FmtDate(o.DateDelivered)) + Row("مدة الضمان", o.Warranty) +
+            $"<div class=\"row total\"><span>ساري حتى</span><span class=\"good\">{FmtDate(we)}</span></div>" +
+            (Store.Terms != "" ? $"<div class=\"foot\">{Esc(Store.Terms)}</div>" : "") +
+            $"<div style=\"text-align:center;margin-top:10px\">{Code128Svg(o.RefNo, 34, 1.6, 240)}</div>" +
+            $"<div style=\"text-align:center;font-size:11px;color:#5A6478;margin-top:4px\">{Esc(Store.ShopPhone)}</div></div>";
+        Doc(body, "ضمان " + o.RefNo, "420px");
+    }
+
+    // ---------- ملف الزبون الكامل ----------
+    public static void CustomerFile(string key)
+    {
+        var c = Calc.GetCustomers().FirstOrDefault(x => x.Key == key);
+        if (c == null) return;
+        double credit = Credits.Balance(key);
+        var sb = new StringBuilder(Header("ملف الزبون"));
+        sb.Append($"<div class=\"grid\"><div><span class=\"k\">الزبون: </span><b>{Esc(c.Name)}</b></div><div><span class=\"k\">الهاتف: </span><b dir=\"ltr\">{Esc(c.Phone == "" ? "—" : c.Phone)}</b></div>" +
+                  $"<div><span class=\"k\">عدد الأجهزة: </span><b>{c.Orders.Count}</b></div><div><span class=\"k\">مجموع ما دفعه: </span><b>{Esc(Money(c.Orders.Sum(o => o.Paid)))}</b></div>" +
+                  $"<div><span class=\"k\">الدين: </span><b class=\"{(c.Debt > 0 ? "bad" : "good")}\">{Esc(Money(c.Debt))}</b></div>" +
+                  (credit > 0 ? $"<div><span class=\"k\">رصيده عندنا: </span><b class=\"good\">{Esc(Money(credit))}</b></div>" : "") + "</div>");
+        sb.Append(Table(new[] { "المرجع", "الاستلام", "الجهاز", "العطل", "الحالة", "السعر", "المدفوع", "المتبقي", "الضمان حتى" },
+            c.Orders.OrderByDescending(o => o.DateReceived, StringComparer.Ordinal).Select(o => new[]
+            {
+                o.RefNo, FmtDate(o.DateReceived), o.Device, o.IssueType, o.Status, Money(Calc.ChargeOf(o)), Money(o.Paid), Money(Calc.RemainingOf(o)),
+                Calc.WarrantyEnd(o) is var we && we != "" ? FmtDate(we) : "—"
+            })));
+        var pays = c.Orders.SelectMany(o => o.PaymentHistory.Select(p => (o, p))).OrderBy(x => x.p.Date, StringComparer.Ordinal).ToList();
+        if (pays.Count > 0)
+        {
+            sb.Append("<h3 style=\"font-size:14px;margin-top:16px\">الدفعات</h3>");
+            sb.Append(Table(new[] { "التاريخ", "المرجع", "الطريقة", "ملاحظة", "المبلغ" }, pays.Select(x => new[] { FmtDate(x.p.Date), x.o.RefNo, x.p.Method, x.p.Note, Money(x.p.Amount) })));
+        }
+        Doc(sb.ToString(), "ملف " + c.Name, "900px");
     }
 
     public static string Table(string[] head, IEnumerable<string[]> rows) =>

@@ -52,7 +52,7 @@ public class TriChip : Control
 }
 
 /// <summary>طلب صيانة جديد / تعديل طلب</summary>
-public class OrderForm : DialogShell
+public partial class OrderForm : DialogShell
 {
     readonly string id;
     readonly Order existing;
@@ -164,6 +164,7 @@ public class OrderForm : DialogShell
         warrantyBox.Controls.Add(warrantyBtn);
         warrantyBox.Paint += (s, e) => { Gfx.Hq(e.Graphics); Gfx.DrawRound(e.Graphics, new RectangleF(0.5f, 0.5f, warrantyBox.Width - 1.5f, warrantyBox.Height - 1.5f), S(10f), Theme.BorderStrong); };
         flow.Controls.Add(warrantyBox);
+        BuildIntakeExtras(flow);
 
         // ---------- فحص الاستلام ----------
         flow.Controls.Add(W.Head("حالة الجهاز عند الاستلام", 960));
@@ -176,6 +177,8 @@ public class OrderForm : DialogShell
         tgNA.Margin = new Padding(6, 4, 6, 4);
         naRow.Controls.Add(tgNA);
         tgNA.CheckedChanged += (s, e) => { foreach (var c in chips) { c.Disabled = tgNA.Checked; c.Invalidate(); } };
+        BuildDamage(flow);
+        BuildItems(flow);
 
         // ---------- القطع ----------
         flow.Controls.Add(W.Head("القطع المستبدلة", 960));
@@ -186,6 +189,8 @@ public class OrderForm : DialogShell
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cost", HeaderText = "التكلفة", FillWeight = 90, DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter } });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "inv", Visible = false });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "supw", Visible = false });
+        parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "serial", HeaderText = "الرقم التسلسلي", FillWeight = 110 });
+        parts.Columns["serial"].DisplayIndex = 3;
         parts.Columns.Add(new DataGridViewButtonColumn { Name = "rm", HeaderText = "", Text = "حذف", UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat, FillWeight = 40, DefaultCellStyle = { BackColor = Theme.DangerSoft, ForeColor = Theme.Danger, SelectionBackColor = Theme.DangerSoft, SelectionForeColor = Theme.Danger } });
         parts.AllowUserToAddRows = false;
         var partsHost = new Panel { Width = 956, Height = 170, Margin = new Padding(6, 2, 6, 2), BackColor = Theme.Surface };
@@ -262,6 +267,7 @@ public class OrderForm : DialogShell
         bAddPay.Click += (s, e) => AddPayment();
         bFull.Click += (s, e) => PayFull();
         bRefund.Click += (s, e) => AddRefund();
+        BuildMoneyExtras(flow);
 
         // ---------- التواريخ ----------
         flow.Controls.Add(W.Head("التواريخ", 960));
@@ -313,6 +319,7 @@ public class OrderForm : DialogShell
         tName.Text = src.CustomerName; tPhone.Text = src.Phone; tDevice.Text = src.Device; tPass.Text = src.Passcode;
         if (existing != null && existing.IssueType != "" && !cbType.Items.Contains(existing.IssueType)) cbType.Items.Add(existing.IssueType);
         W.Pick(cbType, cbType.Items.Contains(src.IssueType) ? src.IssueType : K.IssueTypes[0]);
+        if (existing != null && !cbStatus.Items.Contains(existing.Status)) cbStatus.Items.Add(existing.Status);
         W.Pick(cbStatus, existing?.Status ?? K.Statuses[0]);
         tIssue.Text = src.Issue;
         if (existing != null && existing.Warranty != "" && !cbWarranty.Items.Contains(existing.Warranty)) cbWarranty.Items.Add(existing.Warranty);
@@ -331,7 +338,7 @@ public class OrderForm : DialogShell
         SetDate(dDelivered, existing?.DateDelivered);
         tNotes.Text = existing?.Notes ?? "";
         foreach (var t in accToggles) t.Checked = src.Accessories.Contains(t.Text);
-        foreach (var p in existing?.Parts ?? new()) parts.Rows.Add(p.Name, p.Supplier, p.Cost > 0 ? Txt.Num(p.Cost) : "", p.InventoryItemId ?? "", null, p.SupWarranty?.ToString() ?? "");
+        foreach (var p in existing?.Parts ?? new()) parts.Rows.Add(p.Name, p.Supplier, p.Cost > 0 ? Txt.Num(p.Cost) : "", p.InventoryItemId ?? "", null, p.SupWarranty?.ToString() ?? "", p.Serial);
         if (existing == null || existing.Parts.Count == 0) parts.Rows.Add("", "", "", "", null, "");
         if (existing != null)
         {
@@ -348,7 +355,7 @@ public class OrderForm : DialogShell
 
         // ---------- الإكمال التلقائي والأحداث ----------
         W.Suggest(tName, Store.Orders.Select(o => o.CustomerName));
-        W.Suggest(tDevice, Store.Orders.Select(o => o.Device).Concat(Store.Inventory.Select(i => i.Compatible)));
+        W.Suggest(tDevice, Models.All());
         tName.Leave += (s, e) =>
         {
             // الهاتف من طلب سابق لنفس الزبون
@@ -362,7 +369,12 @@ public class OrderForm : DialogShell
         wTimer.Tick += (s, e) => { wTimer.Stop(); if (!IsDisposed) RenderWarranty(); };
         foreach (var c in new Control[] { tName, tPhone, tDevice, tImei }) c.TextChanged += (s, e) => { wTimer.Stop(); wTimer.Start(); };
         Disposed += (s, e) => wTimer.Dispose();
-        tImei.TextChanged += (s, e) => UpdateImei();
+        tImei.TextChanged += (s, e) =>
+        {
+            UpdateImei();
+            // الموديل من أول 8 أرقام في IMEI (من أجهزة سابقة بنفس البداية)
+            if (tDevice.Text.Trim() == "" && Imei.Length == 15 && Models.FromImei(Imei) is string model) { tDevice.Text = model; Toast.Show("عُرف الموديل من IMEI: " + model); }
+        };
         dReceived.ValueChanged += (s, e) => RenderWarranty();
         nPrice.ValueChanged += (s, e) => UpdateMoney();
         nFee.ValueChanged += (s, e) => UpdateMoney();
@@ -375,6 +387,7 @@ public class OrderForm : DialogShell
         };
         warrantyBtn.Click += (s, e) => WarrantyAction();
         UpdateMoney();
+        FillExtras(src, existing == null);
         snapshot = Snapshot();
         Shown += (s, e) => { flow.AutoScrollPosition = Point.Empty; tName.Focus(); };
     }
@@ -411,7 +424,8 @@ public class OrderForm : DialogShell
         Supplier = Convert.ToString(r.Cells["supplier"].Value)?.Trim() ?? "",
         Cost = Math.Max(0, Txt.ParseMoney(r.Cells["cost"].Value)),
         InventoryItemId = Convert.ToString(r.Cells["inv"].Value) is string s && s != "" ? s : null,
-        SupWarranty = Txt.OptInt(r.Cells["supw"].Value) is int w && w > 0 ? w : null
+        SupWarranty = Txt.OptInt(r.Cells["supw"].Value) is int w && w > 0 ? w : null,
+        Serial = Convert.ToString(r.Cells["serial"].Value)?.Trim() ?? ""
     }).Where(p => p.Name != "" || p.Cost > 0).ToList();
 
     void PickPart()
@@ -499,6 +513,7 @@ public class OrderForm : DialogShell
         var st = Json.DerivePay(price, paid);
         lblPay.Text = st + "\nمقبوض " + Txt.Money(paid);
         lblPay.ForeColor = K.StatusColors(st).Fg;
+        if (!fillingExtras) CreditInfo();
     }
 
     // ---------------- IMEI والضمان ----------------
@@ -602,9 +617,9 @@ public class OrderForm : DialogShell
         tName.Text, tPhone.Text, tDevice.Text, tPass.Text, tImei.Text, cbType.Text, cbStatus.Text, tIssue.Text, cbWarranty.Text, cbTech.Text, cbAccount.Text,
         nPrice.Value.ToString(), nFee.Value.ToString(), Txt.Iso(dReceived.Value), DateOf(dEstimated), DateOf(dDelivered), tNotes.Text,
         string.Join(",", accToggles.Where(t => t.Checked).Select(t => t.Text)),
-        string.Join(";", FormParts().Select(p => $"{p.Name}/{p.Supplier}/{p.Cost}/{p.InventoryItemId}")),
+        string.Join(";", FormParts().Select(p => $"{p.Name}/{p.Supplier}/{p.Cost}/{p.InventoryItemId}/{p.Serial}")),
         string.Join(";", payments.Select(p => $"{p.Amount}/{p.Date}/{p.Method}/{p.Note}")),
-        photoChanged.ToString(), string.Join(",", chips.Select(c => c.State)), tgNA.Checked.ToString(), warrantyOf ?? ""
+        photoChanged.ToString(), string.Join(",", chips.Select(c => c.State)), tgNA.Checked.ToString(), warrantyOf ?? "", ExtrasSnapshot()
     });
 
     bool ConfirmDiscard()
@@ -633,6 +648,7 @@ public class OrderForm : DialogShell
         var imei = Imei;
         if (imei.Length == 15 && imei.All(char.IsAsciiDigit) && !Calc.ImeiValid(imei) &&
             !W.Confirm("رقم IMEI غير صحيح", $"{imei}\nرقم التحقق لا يطابق. هل تريد الحفظ على أي حال؟", "حفظ على أي حال")) { tImei.Focus(); return; }
+        if (!ValidateExtras(price)) return;
         string name = tName.Text.Trim(), device = tDevice.Text.Trim(), received = Txt.Iso(dReceived.Value);
         if (existing == null)
         {
@@ -707,6 +723,9 @@ public class OrderForm : DialogShell
             if (photoData != null) { o.PhotoRef = "ph_" + o.Id; Store.SetPhoto(o.PhotoRef, photoData); }
             else { if (existing?.PhotoRef != null) Store.RemovePhoto(existing.PhotoRef); o.PhotoRef = null; }
         }
+        ApplyExtras(o);
+        // فحص الجودة قبل أن يصبح الجهاز جاهزاً
+        if (status == K.Ready && existing?.Status != K.Ready && QC.Required && !QC.Done(o) && !QcDialog.Run(o)) return;
         var oldIds = existing?.PaymentHistory.Select(p => p.Id).ToHashSet() ?? new HashSet<string>();
         var newRefunds = o.PaymentHistory.Where(p => p.IsRefund && !oldIds.Contains(p.Id)).ToList();
         foreach (var rf in newRefunds) Locking.Log(o, $"أُرجع للزبون {Txt.Money(-rf.Amount)} ({rf.Method}) — {rf.Note.Replace("استرجاع: ", "")}");

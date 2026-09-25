@@ -223,6 +223,7 @@ public class AccountsPage : Page
         grid.Columns.Add("open", "أجهزة في الورشة");
         grid.Columns.Add("due", "المستحق");
         grid.Columns.Add("exp", "متوقع");
+        grid.Columns.Add("limit", "الحد");
         grid.CellFormatting += (s, e) =>
         {
             if (e.RowIndex < 0 || e.RowIndex >= rows.Count || grid.Columns[e.ColumnIndex].Name != "due") return;
@@ -259,7 +260,8 @@ public class AccountsPage : Page
         grid.Rows.Clear();
         foreach (var a in rows)
             grid.Rows.Add(a.Name, Accounts.KindText(a), a.Phone, a.Discount > 0 ? Txt.Num(a.Discount) + "%" : "—", Accounts.OrdersOf(a).Count(Calc.IsOpen),
-                Txt.Money(Accounts.Due(a)), Txt.Money(Accounts.Expected(a)));
+                Txt.Money(Accounts.Due(a)), Txt.Money(Accounts.Expected(a)),
+                a.CreditLimit > 0 ? Txt.Money(a.CreditLimit) + (Accounts.Due(a) + Accounts.Expected(a) > a.CreditLimit ? "  ⚠ تجاوز" : "") : "—");
     }
 }
 
@@ -269,6 +271,7 @@ public class AccountDialog : DialogShell
     readonly TextBox tName = new() { Width = 360 }, tPhone = new() { Width = 200 }, tNote = new() { Width = 580 };
     readonly Seg kind = new(Accounts.Kinds);
     readonly NumericUpDown nDisc = new() { Width = 140, Minimum = 0, Maximum = 100, DecimalPlaces = 1, TextAlign = HorizontalAlignment.Center, Font = Theme.F(10) };
+    readonly NumericUpDown nLimit = W.Money(200);
 
     AccountDialog(Account a) : base(a == null ? "حساب تاجر أو شركة" : "تعديل الحساب", 660, 500, "store")
     {
@@ -280,12 +283,16 @@ public class AccountDialog : DialogShell
         r.Controls.Add(W.Labeled("الاسم *", tName, "store"));
         r.Controls.Add(W.Labeled("الهاتف", tPhone, "phone"));
         flow.Controls.Add(r);
-        flow.Controls.Add(W.Labeled("خصم على أسعار القطع % (سعر التاجر)", nDisc));
+        var rl = W.Flow();
+        rl.Controls.Add(W.Labeled("خصم على أسعار القطع % (سعر التاجر)", nDisc));
+        rl.Controls.Add(W.Labeled("حد الائتمان (0 = بلا حد)", nLimit));
+        flow.Controls.Add(rl);
         flow.Controls.Add(W.Labeled("ملاحظة (طريقة التسديد، الموعد الشهري...)", tNote));
         Body.Controls.Add(flow);
         tName.Text = a?.Name ?? ""; tPhone.Text = a?.Phone ?? ""; tNote.Text = a?.Note ?? "";
         kind.Value = a?.Kind ?? "dealer";
         nDisc.Value = (decimal)(a?.Discount ?? 0);
+        W.Set(nLimit, a?.CreditLimit ?? 0);
         var ok = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
         if (a != null)
             AddButton("حذف", DialogResult.None, BtnKind.Danger, "trash-2").Click += (s, e) =>
@@ -305,7 +312,7 @@ public class AccountDialog : DialogShell
             if (name == "") { tName.Focus(); Toast.Show("اكتب اسم الحساب", Tone.Warning); return; }
             if (Store.Accounts.Any(x => x != existing && Txt.Fold(x.Name) == Txt.Fold(name))) { Dialogs.Warn("يوجد حساب بنفس الاسم."); return; }
             var acc = existing ?? new Account { Id = Txt.Uid("ac"), CreatedAt = Txt.Now };
-            acc.Name = name; acc.Phone = Txt.LatinDigits(tPhone.Text.Trim()); acc.Note = tNote.Text.Trim(); acc.Kind = kind.Value; acc.Discount = (double)nDisc.Value;
+            acc.Name = name; acc.Phone = Txt.LatinDigits(tPhone.Text.Trim()); acc.Note = tNote.Text.Trim(); acc.Kind = kind.Value; acc.Discount = (double)nDisc.Value; acc.CreditLimit = (double)nLimit.Value;
             Store.SaveAccount(acc);
             DialogResult = DialogResult.OK;
             Close();
