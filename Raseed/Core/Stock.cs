@@ -131,7 +131,7 @@ public static class InvoiceOps
             GROUP BY l.item_id, l.price, l.length, l.width ORDER BY MIN(l.id)", id);
 
         var doc = PrintDoc.Header(Ui.DocTitle(type));
-        doc.Pair(Ui.IsStockDoc(type) ? "رقم السند" : "رقم الفاتورة", id.ToString(), "التاريخ", Db.S(v["date"]).Length >= 16 ? Db.S(v["date"])[..16] : Db.S(v["date"]));
+        doc.Pair(Ui.IsStockDoc(type) ? "رقم السند" : type == "Quote" ? "رقم العرض" : "رقم القائمة", id.ToString(), "التاريخ", Db.S(v["date"]).Length >= 16 ? Db.S(v["date"])[..16] : Db.S(v["date"]));
         if (Db.S(v["pname"]) != "") doc.Pair(type is "Sale" or "SaleReturn" ? "العميل" : "المورد", Db.S(v["pname"]), "الهاتف", Db.S(v["pphone"]));
         if (Db.S(v["pay_type"]) != "") doc.Pair("طريقة الدفع", Db.S(v["pay_type"]), "المستخدم", Db.S(v["uname"]));
         doc.Space();
@@ -149,7 +149,7 @@ public static class InvoiceOps
         doc.Pair("الإجمالي", Ui.M(Db.D(v["total"])), "الخصم", Ui.M(Db.D(v["discount"])));
         if (Db.D(v["delivery_fee"]) > 0) doc.Pair("التوصيل", Db.S(v["dname"]), "الأجور", Ui.M(Db.D(v["delivery_fee"])));
         doc.Text("الصافي: " + Ui.M(Db.D(v["net"])) + " د.ع", 13, true, StringAlignment.Center);
-        if (type != "Damage" && !Ui.IsStockDoc(type))
+        if (Ui.HasPayment(type))
             doc.Pair("المدفوع", Ui.M(Db.D(v["paid"])), "المتبقي", Ui.M(Db.D(v["net"]) - Db.D(v["paid"])));
         long pid = Db.L(v["party_id"]);
         if (pid > 0) doc.Text("رصيد الحساب الحالي: " + Ui.M(Ui.PartyBalance(pid)), 10, false, StringAlignment.Center);
@@ -172,14 +172,24 @@ public static class InvoiceOps
 /// <summary>الحسابات: حركات الجهات</summary>
 public static class Ledger
 {
-    /// <summary>تعديل رصيد الحساب ليصبح القيمة المطلوبة (عبر الرصيد الافتتاحي) — يعيد مقدار التعديل</summary>
-    public static double AdjustTo(long partyId, double target)
+    /// <summary>سند تعديل رصيد: المبالغ الموجبة «لنا» (على الحساب) والسالبة «علينا» (للحساب)، بالدينار والدولار</summary>
+    public static long SaveBalanceEntry(long id, long partyId, DateTime date, double iqd, double usd, string note = "")
     {
-        double current = Ui.PartyBalance(partyId), diff = Math.Round(target - current, 2);
-        if (Math.Abs(diff) < 0.005) return 0;
-        Db.Exec("UPDATE parties SET opening_balance=IFNULL(opening_balance,0)+@p0 WHERE id=@p1", diff, partyId);
-        Db.Audit("تعديل رصيد", $"الحساب {partyId}: من {Ui.M(current)} إلى {Ui.M(target)}");
-        return diff;
+        double rate = Ui.Rate("USD");
+        if (id > 0)
+            Db.Exec("UPDATE balance_entries SET date=@p0, iqd=@p1, usd=@p2, rate=@p3, note=@p4, user_id=@p5 WHERE id=@p6",
+                date.ToString(Ui.DtFmt), iqd, usd, rate, note, Session.UserId, id);
+        else
+            id = Db.Insert("INSERT INTO balance_entries(date,party_id,iqd,usd,rate,note,user_id) VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6)",
+                date.ToString(Ui.DtFmt), partyId, iqd, usd, rate, note, Session.UserId);
+        Db.Audit("تعديل رصيد", $"سند رقم {id} — الحساب {partyId}: دينار {Ui.M(iqd)}، دولار {Ui.M(usd)}");
+        return id;
+    }
+
+    public static void DeleteBalanceEntry(long id)
+    {
+        Db.Exec("DELETE FROM balance_entries WHERE id=@p0", id);
+        Db.Audit("حذف سند تعديل رصيد", $"رقم {id}");
     }
 
     /// <summary>حركات الجهة (مدين/دائن) — يجب أن يطابق مجموعها رصيد v_party_balance</summary>
@@ -187,7 +197,7 @@ public static class Ledger
         SELECT date AS d, 'INV:'||type AS kind, id AS ref,
                CASE type WHEN 'Sale' THEN net WHEN 'PurchaseReturn' THEN net ELSE 0 END AS debit,
                CASE type WHEN 'Purchase' THEN net WHEN 'SaleReturn' THEN net ELSE 0 END AS credit, notes
-        FROM invoices WHERE party_id=@p0
+        FROM invoices WHERE party_id=@p0 AND type<>'Quote'
         UNION ALL
         SELECT date, kind, id, CASE WHEN amount<0 THEN -amount*rate ELSE 0 END,
                CASE WHEN amount>0 THEN amount*rate ELSE 0 END, note
@@ -195,5 +205,8 @@ public static class Ledger
         UNION ALL
         SELECT date_out, 'صيانة — وصل رقم '||id, id, final_price, 0, device
         FROM repairs WHERE party_id=@p0 AND status='تم التسليم'
+        UNION ALL
+        SELECT date, 'تعديل رصيد — سند رقم '||id, id, MAX(iqd+usd*rate,0), MAX(-(iqd+usd*rate),0), note
+        FROM balance_entries WHERE party_id=@p0
         ORDER BY d", pid);
 }

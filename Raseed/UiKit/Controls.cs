@@ -862,7 +862,8 @@ public class StatChip : Control
 public class BarChart : Control
 {
     public List<(string Label, double Value)> Data { get; set; } = new();
-    public Color BarColor { get; set; } = Theme.Brand;
+    /// <summary>سلسلة زمنية: آخر عمود (اليوم / الشهر الحالي) بلون مميز</summary>
+    public bool HighlightLast { get; set; } = true;
     int hover = -1;
     readonly List<RectangleF> bars = new();
 
@@ -911,7 +912,9 @@ public class BarChart : Control
             float h = (float)(plot.Height * Data[i].Value / top);
             var br = new RectangleF(cx - bw / 2, plot.Bottom - Math.Max(h, 2), bw, Math.Max(h, 2));
             bars.Add(br);
-            var col = i == hover ? ColorTranslator.FromHtml("#D24A17") : i == n - 1 ? Theme.Orange : Gfx.Mix(Theme.Amber, Color.White, 0.25f);
+            var col = i == hover ? ColorTranslator.FromHtml("#D24A17")
+                : !HighlightLast ? Gfx.Mix(Theme.Orange, Theme.Amber, 0.35f)
+                : i == n - 1 ? Theme.Orange : Gfx.Mix(Theme.Amber, Color.White, 0.25f);
             using (var path = TopRound(br, Math.Min(6, bw / 2)))
             using (var b = new SolidBrush(col)) g.FillPath(b, path);
             int every = slot < 30 ? 3 : slot < 46 ? 2 : 1;

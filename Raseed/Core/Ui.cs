@@ -41,20 +41,22 @@ public static class Ui
     {
         ["Sale"] = "بيع", ["Purchase"] = "شراء", ["SaleReturn"] = "إرجاع بيع",
         ["PurchaseReturn"] = "إرجاع شراء", ["Damage"] = "إتلاف",
-        ["StockIn"] = "إدخال مخزني", ["StockOut"] = "إخراج مخزني"
+        ["StockIn"] = "إدخال مخزني", ["StockOut"] = "إخراج مخزني", ["Quote"] = "عرض سعر"
     };
     public static string TypeName(string t) => TypeNames.TryGetValue(t ?? "", out var n) ? n : t;
 
-    /// <summary>سندات المخزن لا تمس الحسابات ولا الصناديق</summary>
     /// <summary>المخزن الافتراضي (المعلَّم «افتراضي»، وإلا الأول)</summary>
     public static long DefaultWarehouse() => Db.L(Db.Scalar("SELECT id FROM warehouses ORDER BY is_default DESC, id LIMIT 1"));
 
+    /// <summary>سندات المخزن لا تمس الحسابات ولا الصناديق</summary>
     public static bool IsStockDoc(string t) => t is "StockIn" or "StockOut";
 
     /// <summary>«فاتورة بيع» أو «سند إدخال مخزني»</summary>
-    public static string DocTitle(string t) => (IsStockDoc(t) ? "سند " : "فاتورة ") + TypeName(t);
+    /// <summary>القوائم التي فيها دفع وتؤثر على رصيد الحساب (عرض السعر وسندات المخزن والإتلاف لا)</summary>
+    public static bool HasPayment(string t) => t is "Sale" or "Purchase" or "SaleReturn" or "PurchaseReturn";
+    public static string DocTitle(string t) => t == "Quote" ? "عرض سعر" : (IsStockDoc(t) ? "سند " : "قائمة ") + TypeName(t);
 
-    public const string TypeCaseSql = "CASE {0} WHEN 'Sale' THEN 'بيع' WHEN 'Purchase' THEN 'شراء' WHEN 'SaleReturn' THEN 'إرجاع بيع' WHEN 'PurchaseReturn' THEN 'إرجاع شراء' WHEN 'StockIn' THEN 'إدخال مخزني' WHEN 'StockOut' THEN 'إخراج مخزني' ELSE 'إتلاف' END";
+    public const string TypeCaseSql = "CASE {0} WHEN 'Sale' THEN 'بيع' WHEN 'Purchase' THEN 'شراء' WHEN 'SaleReturn' THEN 'إرجاع بيع' WHEN 'PurchaseReturn' THEN 'إرجاع شراء' WHEN 'StockIn' THEN 'إدخال مخزني' WHEN 'StockOut' THEN 'إخراج مخزني' WHEN 'Quote' THEN 'عرض سعر' ELSE 'إتلاف' END";
 
     public static string M(double v) => (Math.Abs(v) < 0.005 ? 0 : v).ToString("#,0.##");
     public static double V(object o) => o is double d ? d : double.TryParse(Convert.ToString(o), out var x) ? x : 0;

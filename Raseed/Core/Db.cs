@@ -90,6 +90,8 @@ public static class Db
             ("parties", "city", "TEXT"),
             ("invoices", "guarantor_id", "INTEGER"),
             ("cash_moves", "expense_type_id", "INTEGER"),
+            // الإصدار 6
+            ("invoice_lines", "note", "TEXT"),
         };
         foreach (var (table, col, def) in cols)
         {
@@ -119,6 +121,7 @@ SELECT p.id, p.opening_balance
                                    WHEN 'Purchase' THEN -i.net WHEN 'SaleReturn' THEN -i.net ELSE 0 END)
             FROM invoices i WHERE i.party_id=p.id),0)
   + IFNULL((SELECT SUM(r.final_price) FROM repairs r WHERE r.party_id=p.id AND r.status='تم التسليم'),0)
+  + IFNULL((SELECT SUM(e.iqd + e.usd*e.rate) FROM balance_entries e WHERE e.party_id=p.id),0)
   - IFNULL((SELECT SUM(m.amount*m.rate) FROM cash_moves m WHERE m.party_id=p.id),0) AS balance
 FROM parties p;";
 
@@ -202,6 +205,11 @@ CREATE TABLE IF NOT EXISTS item_barcodes(id INTEGER PRIMARY KEY, item_id INTEGER
 CREATE INDEX IF NOT EXISTS ix_item_barcodes_item ON item_barcodes(item_id);
 CREATE TABLE IF NOT EXISTS guarantors(id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, address TEXT, id_number TEXT, work TEXT, notes TEXT);
 CREATE TABLE IF NOT EXISTS expense_types(id INTEGER PRIMARY KEY, name TEXT NOT NULL, notes TEXT);
+
+-- الإصدار 6: سندات تعديل الرصيد (دينار/دولار، لنا/علينا)، وملاحظة لكل سطر فاتورة
+CREATE TABLE IF NOT EXISTS balance_entries(id INTEGER PRIMARY KEY, date TEXT NOT NULL, party_id INTEGER NOT NULL REFERENCES parties(id),
+    iqd REAL DEFAULT 0, usd REAL DEFAULT 0, rate REAL DEFAULT 1, note TEXT, user_id INTEGER);
+CREATE INDEX IF NOT EXISTS ix_balance_entries_party ON balance_entries(party_id);
 
 -- فهارس الأداء: رصيد الجهات وكشوف الحساب والتقارير تبحث بهذه الأعمدة باستمرار
 CREATE INDEX IF NOT EXISTS ix_invoices_party ON invoices(party_id);
