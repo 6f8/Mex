@@ -22,8 +22,9 @@ public class ReportsPage : StackPage
     readonly Box expBox;
     readonly MeterList types = new(), devices = new(), methods = new();
     readonly Label retText = new() { Dock = DockStyle.Top, Height = 96, Font = Theme.F(9.5f), ForeColor = Theme.Text2, BackColor = Theme.Surface, TextAlign = ContentAlignment.TopLeft };
-    readonly DataGridView quality = W.Grid(), suppliers = W.Grid();
-    readonly Box retBox, supBox, listBox;
+    readonly DataGridView quality = W.Grid(), suppliers = W.Grid(), techs = W.Grid();
+    readonly Box retBox, supBox, listBox, techBox;
+    List<Techs.Row> techRows = new();
     readonly OrdersGrid closed = new("duration", "estimated") { Height = 420 };
     List<Expense> expRows = new();
 
@@ -93,6 +94,7 @@ public class ReportsPage : StackPage
         quality.Columns.Add("sup", "المورد");
         quality.Columns.Add("n", "طلبات بقطعه");
         quality.Columns.Add("r", "رجعت بالضمان");
+        quality.Columns.Add("d", "قطع معيبة");
         quality.Columns.Add("pct", "النسبة");
         retPanel.Controls.Add(quality);
         retPanel.Controls.Add(new Label { Dock = DockStyle.Top, Height = 28, Text = "جودة قطع الموردين — كل الفترة", Font = Theme.FS(10), ForeColor = Theme.BrandDark, BackColor = Theme.Surface, TextAlign = ContentAlignment.BottomLeft });
@@ -108,6 +110,32 @@ public class ReportsPage : StackPage
         c3.Controls.Add(retBox);
         c3.Controls.Add(supBox);
 
+        // ---------- الفنيون ----------
+        var techPanel = new Panel { Height = 300, BackColor = Theme.Surface };
+        techs.Columns.Add("name", "الفني");
+        techs.Columns.Add("received", "استلم");
+        techs.Columns.Add("delivered", "سلّم");
+        techs.Columns.Add("revenue", "الإيراد");
+        techs.Columns.Add("profit", "الربح");
+        techs.Columns.Add("commission", "العمولة");
+        techs.Columns.Add("returns", "رجع بالضمان");
+        techs.Columns.Add("time", "متوسط مدة الإصلاح");
+        techs.CellFormatting += (s, e) =>
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= techRows.Count) return;
+            var c = techs.Columns[e.ColumnIndex].Name;
+            if (c == "commission") e.CellStyle.ForeColor = Pal.Primary;
+            if (c == "returns" && techRows[e.RowIndex].ReturnRate > 10) e.CellStyle.ForeColor = Pal.Bad;
+        };
+        techs.CellDoubleClick += (s, e) => { if (e.RowIndex >= 0 && e.RowIndex < techRows.Count) PrintTech(techRows[e.RowIndex]); };
+        var techBar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Surface, WrapContents = false };
+        var bTechPrint = W.Btn("كشف عمولة الفني المحدد", "printer", BtnKind.Secondary, 190);
+        bTechPrint.Click += (s, e) => { if (techs.CurrentRow is DataGridViewRow r && r.Index < techRows.Count) PrintTech(techRows[r.Index]); };
+        techBar.Controls.Add(bTechPrint);
+        techPanel.Controls.Add(techs);
+        techPanel.Controls.Add(techBar);
+        techBox = new Box("الفنيون", techPanel, "wrench", "حسب يوم التسليم — المرتجع بالضمان يُحسب على فني الطلب الأصلي");
+
         listBox = new Box("المُسلّمة والملغاة في الفترة", closed, "list");
         closed.OpenOrder += Acts.View;
 
@@ -118,6 +146,7 @@ public class ReportsPage : StackPage
         Stack.Controls.Add(c1);
         Stack.Controls.Add(c2);
         Stack.Controls.Add(c3);
+        Stack.Controls.Add(techBox);
         Stack.Controls.Add(listBox);
 
         range.Value = "month";
@@ -228,18 +257,23 @@ public class ReportsPage : StackPage
                        (rets.Count > 0 ? "حسب العطل الأصلي:  " + string.Join("   ", byType) : "");
         retText.ForeColor = rate > 10 ? Pal.Bad : Theme.Text2;
         retBox.Subtitle = rets.Count > 0 ? $"{rets.Count} في الفترة" : "لا مرتجعات في الفترة";
-        var installed = new Dictionary<string, int>(); var returned = new Dictionary<string, int>();
-        foreach (var o in Store.Orders.Where(o => o.Status == K.Done && o.WarrantyOf == null))
-            foreach (var k in o.Parts.Select(p => p.Supplier).Where(x => x != "").Distinct()) installed[k] = installed.GetValueOrDefault(k) + 1;
-        foreach (var r in Store.Orders.Where(o => o.WarrantyOf != null))
-            if (Calc.Find(r.WarrantyOf) is Order src)
-                foreach (var k in src.Parts.Select(p => p.Supplier).Where(x => x != "").Distinct()) returned[k] = returned.GetValueOrDefault(k) + 1;
         quality.Rows.Clear();
-        foreach (var x in installed.Select(kv => (k: kv.Key, n: kv.Value, r: returned.GetValueOrDefault(kv.Key))).OrderByDescending(x => (double)x.r / x.n).ThenByDescending(x => x.n).Take(8))
+        foreach (var x in Defects.SupplierQuality().Where(x => x.Orders > 0 || x.DefectCount > 0)
+                     .OrderByDescending(x => Math.Max(x.ReturnRate, x.DefectRate)).ThenByDescending(x => x.Orders).Take(8))
         {
-            int i = quality.Rows.Add(x.k, x.n, x.r, Math.Round(x.r * 100.0 / x.n) + "%");
-            if ((double)x.r / x.n > 0.1) quality.Rows[i].DefaultCellStyle.ForeColor = Pal.Bad;
+            double pct = Math.Max(x.ReturnRate, x.DefectRate);
+            int i = quality.Rows.Add(x.Name, x.Orders, x.WarrantyReturns, x.DefectCount, Math.Round(pct) + "%");
+            if (pct > 10) quality.Rows[i].DefaultCellStyle.ForeColor = Pal.Bad;
         }
+
+        // الفنيون
+        techRows = Techs.Report(a, b);
+        techBox.Visible = techRows.Count > 0;
+        techs.Rows.Clear();
+        foreach (var t in techRows)
+            techs.Rows.Add(t.Name, t.Received, t.Delivered, Txt.Money(t.Revenue), Txt.Money(t.Profit), Txt.Money(t.Commission),
+                t.Delivered > 0 ? $"{t.Returns}  ({Math.Round(t.ReturnRate)}%)" : t.Returns.ToString(), Calc.FmtDuration(t.AvgTime));
+        techBox.Subtitle = techRows.Sum(t => t.Commission) is var tc && tc > 0 ? "مجموع العمولات " + Txt.Money(tc) : "حسب يوم التسليم — المرتجع بالضمان يُحسب على فني الطلب الأصلي";
 
         suppliers.Rows.Clear();
         foreach (var g in S1.Active.SelectMany(o => o.Parts).GroupBy(p => p.Supplier == "" ? "غير محدد" : p.Supplier).Select(g => (k: g.Key, n: g.Count(), t: g.Sum(p => p.Cost))).OrderByDescending(x => x.t))
@@ -249,6 +283,20 @@ public class ReportsPage : StackPage
         listBox.Subtitle = sorted.Count > 100 ? $"أحدث 100 من {sorted.Count}" : $"{sorted.Count} طلب";
         closed.Fill(sorted.Take(100));
         Relayout();
+    }
+
+    /// <summary>كشف عمولة فني: الأجهزة التي سلّمها في الفترة وعمولة كل جهاز</summary>
+    void PrintTech(Techs.Row t)
+    {
+        if (t.Orders.Count == 0) { Toast.Show($"لا أجهزة مُسلّمة لـ {t.Name} في هذه الفترة", Tone.Info); return; }
+        var tech = Techs.Find(t.Name);
+        var body = Printer.Header($"كشف عمولة — {t.Name}") +
+            $"<div class=\"grid\"><div><span class=\"k\">الفترة: </span><b>{Txt.Esc(RangeLabel())}</b></div><div><span class=\"k\">طريقة العمولة: </span><b>{Txt.Esc(tech != null ? Techs.BasisText(tech) : "—")}</b></div>" +
+            $"<div><span class=\"k\">الأجهزة المسلّمة: </span><b>{t.Delivered}</b></div><div><span class=\"k\">رجع بالضمان: </span><b>{t.Returns}</b></div></div>" +
+            Printer.Table(new[] { "المرجع", "التسليم", "الجهاز", "السعر", "الربح", "العمولة" },
+                t.Orders.OrderBy(Calc.ClosedDate, StringComparer.Ordinal).Select(o => new[] { o.RefNo, Txt.FmtDate(Calc.ClosedDate(o)), o.Device, Txt.Money(o.Price), Txt.Money(Calc.ProfitOf(o)), Txt.Money(Techs.Commission(o)) })) +
+            $"<div class=\"row total\"><span>مجموع العمولة</span><span>{Txt.Esc(Txt.Money(t.Commission))}</span></div>";
+        Printer.Doc(body, "عمولة " + t.Name, "760px");
     }
 
     void AddExpense()
@@ -288,6 +336,12 @@ public class ReportsPage : StackPage
                         o.Status == K.Done ? Calc.ProfitOf(o) : -Calc.PartsCost(o), o.Paid, Calc.RemainingOf(o) }).ToList(),
                     new[] { 12, 20, 15, 20, 14, 12, 12, 13, 13, 13, 13, 13 }),
                 new("المصاريف", title, new[] { "التاريخ", "المصروف", "المبلغ" }, S1.Exps.Select(e => new object[] { e.Date, e.Description, e.Amount }).ToList(), new[] { 14, 34, 16 }),
+                new("الفنيون", title, new[] { "الفني", "استلم", "سلّم", "الإيراد", "تكلفة القطع", "الربح", "العمولة", "رجع بالضمان", "متوسط مدة الإصلاح" },
+                    Techs.Report(a, b).Select(t => new object[] { t.Name, t.Received, t.Delivered, t.Revenue, t.Parts, t.Profit, t.Commission, t.Returns, Calc.FmtDuration(t.AvgTime) }).ToList(),
+                    new[] { 20, 10, 10, 15, 15, 15, 15, 14, 18 }),
+                new("جودة الموردين", "جودة الموردين — كل الفترة", new[] { "المورد", "قطع رُكّبت", "تعطلت", "نسبة العطل %", "أجهزة رجعت بالضمان", "قيمة المعيب", "المسترد", "الخسارة" },
+                    Defects.SupplierQuality().Select(x => new object[] { x.Name, x.Parts, x.DefectCount, Math.Round(x.DefectRate, 1), x.WarrantyReturns, x.DefectCost, x.Recovered, x.Lost }).ToList(),
+                    new[] { 22, 12, 10, 12, 18, 15, 15, 15 }),
             });
             if (W.Confirm("تم التصدير", "حُفظ ملف Excel. هل تريد فتحه الآن؟", "فتح الملف")) W.OpenUrl(f);
         }
@@ -305,6 +359,9 @@ public class ReportsPage : StackPage
             Cell("الديون", Txt.Money(S1.Debt)) + "</div>" +
             Printer.Table(new[] { "المرجع", "الزبون", "الجهاز", "الحالة", "التسليم / الإلغاء", "السعر", "الربح" },
                 S1.List.Select(o => new[] { o.RefNo, o.CustomerName, o.Device, o.Status, Txt.FmtDate(Calc.ClosedDate(o)), Txt.Money(o.Status == K.Done ? o.Price : 0), Txt.Money(o.Status == K.Done ? Calc.ProfitOf(o) : -Calc.PartsCost(o)) })) +
+            (Techs.Report(a, b) is var tr && tr.Count > 0 ? "<h3 style=\"font-size:14px;margin-top:18px\">الفنيون</h3>" +
+                Printer.Table(new[] { "الفني", "سلّم", "الإيراد", "الربح", "العمولة", "رجع بالضمان" },
+                    tr.Select(t => new[] { t.Name, t.Delivered.ToString(), Txt.Money(t.Revenue), Txt.Money(t.Profit), Txt.Money(t.Commission), t.Returns.ToString() })) : "") +
             (S1.Exps.Count > 0 ? "<h3 style=\"font-size:14px;margin-top:18px\">المصاريف</h3>" + string.Concat(S1.Exps.Select(e => Printer.Row(Txt.Esc(e.Description) + " <span class=\"k\">" + Txt.FmtDate(e.Date) + "</span>", Txt.Money(e.Amount)))) : "");
         Printer.Doc(body, "تقرير الورشة", "900px");
     }

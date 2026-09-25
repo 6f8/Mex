@@ -59,7 +59,7 @@ public class MainForm : BaseForm
     readonly TopBar top;
     readonly Panel logo;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 30_000 };
-    NavBtn trashBtn;
+    NavBtn trashBtn, defectsBtn;
     string current;
     bool reloadQueued;
 
@@ -111,6 +111,8 @@ public class MainForm : BaseForm
             return b;
         }
         Tool("تقفيل اليوم", "receipt", Green, CloseDayDialog.Open);
+        defectsBtn = Tool("القطع المعيبة", "triangle-alert", Amber, DefectsDialog.Open);
+        defectsBtn.BadgeColor = Amber;
         Tool("تعريفات الطابعات", "printer", Slate, DriversDialog.Open);
         trashBtn = Tool("المحذوفات", "trash-2", Red, TrashDialog.Open);
         Tool("الإعدادات", "settings", Slate, SettingsDialog.Open);
@@ -209,6 +211,19 @@ public class MainForm : BaseForm
         page.OnPageActivated();
     }
 
+    /// <summary>بعد تعديل القوائم أو الفنيين: تُبنى الشاشات من جديد لتظهر القيم الجديدة في الحقول والفلاتر</summary>
+    public void ResetPages()
+    {
+        var key = current ?? "dashboard";
+        content.SuspendLayout();
+        foreach (var p in pages.Values) { content.Controls.Remove(p); p.Dispose(); }
+        pages.Clear();
+        dirty.Clear();
+        content.ResumeLayout();
+        current = null;
+        Go(key);
+    }
+
     public void UpdateTitle(Page p)
     {
         if (p == null || current == null || !pages.TryGetValue(current, out var cur) || cur != p) return;
@@ -245,6 +260,7 @@ public class MainForm : BaseForm
         nav["inventory"].Count = Store.Inventory.Count(i => Calc.StockState(i) is "low" or "out");
         nav["suppliers"].Count = Calc.SupplierBalances().Count(b => b.Balance > 0.005);
         trashBtn.Count = Store.Trash.Count;
+        defectsBtn.Count = Defects.PendingCount;
     }
 
     // ---------------- أدوات ----------------

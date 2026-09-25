@@ -21,6 +21,7 @@ public static class Store
     public static List<Expense> Expenses { get; private set; } = new();
     public static List<SupplierTx> SupplierTx { get; private set; } = new();
     public static List<Driver> Drivers { get; private set; } = new();
+    public static List<Defect> Defects { get; private set; } = new();
 
     /// <summary>بعد أي تعديل: الشاشة الحالية تُحدَّث والعدادات في القائمة الجانبية</summary>
     public static event Action Changed;
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS docs(kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT 
 CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
 
     // أنواع السجلات في جدول docs
-    const string KOrder = "orders", KTrash = "trash", KInv = "inventory", KExp = "expenses", KStx = "supplierTx", KDrv = "drivers";
+    const string KOrder = "orders", KTrash = "trash", KInv = "inventory", KExp = "expenses", KStx = "supplierTx", KDrv = "drivers", KDef = "defects";
 
     public static void Init()
     {
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         Expenses = Load(c, KExp, Json.Expense).OrderByDescending(e => e.Date, StringComparer.Ordinal).ToList();
         SupplierTx = Load(c, KStx, Json.Stx);
         Drivers = Load(c, KDrv, Json.Driver);
+        Defects = Load(c, KDef, Json.Defect).OrderByDescending(d => d.Date, StringComparer.Ordinal).ThenByDescending(d => d.Id, StringComparer.Ordinal).ToList();
         // الأرقام المرجعية الناقصة تُكمَّل مرة واحدة
         var used = new HashSet<string>(Orders.Concat(Trash).Select(o => o.RefNo));
         foreach (var o in Orders.Concat(Trash).Where(o => o.RefNo == "").ToList())
@@ -219,9 +221,19 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
     }
     public static void DeleteDriver(Driver d) { Del(KDrv, d.Id); Drivers.Remove(d); Touch(); }
 
-    /// <summary>استبدال كل البيانات (استعادة نسخة أو مسح) في معاملة واحدة</summary>
-    public static void ReplaceAll(List<Order> orders, List<Order> trash, List<InvItem> inv, List<Expense> exps, List<SupplierTx> stx, List<Driver> drv)
+    public static void SaveDefect(Defect d)
     {
+        Put(KDef, d.Id, Json.ToJson(d));
+        int k = Defects.FindIndex(x => x.Id == d.Id);
+        if (k >= 0) Defects[k] = d; else Defects.Insert(0, d);
+        Touch();
+    }
+    public static void DeleteDefect(Defect d) { Del(KDef, d.Id); Defects.Remove(d); Touch(); }
+
+    /// <summary>استبدال كل البيانات (استعادة نسخة أو مسح) في معاملة واحدة. defects = null: تبقى القطع المعيبة الحالية</summary>
+    public static void ReplaceAll(List<Order> orders, List<Order> trash, List<InvItem> inv, List<Expense> exps, List<SupplierTx> stx, List<Driver> drv, List<Defect> defects = null)
+    {
+        defects ??= Defects.ToList();
         using (var c = Open())
         using (var t = c.BeginTransaction())
         {
@@ -232,6 +244,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
             foreach (var e in exps) Put(KExp, e.Id, Json.ToJson(e), c, t);
             foreach (var s in stx) Put(KStx, s.Id, Json.ToJson(s), c, t);
             foreach (var d in drv) Put(KDrv, d.Id, Json.ToJson(d), c, t);
+            foreach (var d in defects) Put(KDef, d.Id, Json.ToJson(d), c, t);
             // صور لم يعد يستعملها أي طلب
             var refs = orders.Concat(trash).Select(o => o.PhotoRef).Where(r => r != null).ToHashSet();
             using (var cmd = c.CreateCommand())
@@ -345,6 +358,10 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         settings[key] = value ?? "";
     }
     public static void SetFlag(string key, bool on) => Set(key, on ? "1" : "0");
+
+    /// <summary>الإعدادات التي تنتقل مع نسخة JSON: القوائم المعدّلة والفنيون وقوالب الرسائل</summary>
+    public static bool IsCustomKey(string k) => k.StartsWith("list_") || k.StartsWith("tpl_") || k == "technicians";
+    public static IEnumerable<KeyValuePair<string, string>> CustomSettings() => settings.Where(kv => IsCustomKey(kv.Key) && kv.Value != "").ToList();
 
     public static string ShopName => Get("shop_name", "ورشة الصيانة") is var n && n != "" ? n : "ورشة الصيانة";
     public static string ShopPhone => Get("shop_phone");

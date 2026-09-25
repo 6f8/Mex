@@ -82,7 +82,7 @@ public static class Backup
     public static void ResetAll()
     {
         CopyTo(SnapshotFile);
-        Store.ReplaceAll(new(), new(), new(), new(), new(), new());
+        Store.ReplaceAll(new(), new(), new(), new(), new(), new(), new());
     }
 
     public static void RestoreSnapshot()
@@ -156,6 +156,7 @@ public static class WebBackup
         public List<Expense> Expenses = new();
         public List<SupplierTx> SupplierTx = new();
         public List<Driver> Drivers = new();
+        public List<Defect> Defects = new();
         public Dictionary<string, string> Photos = new();
         public JsonObject Settings;
         public bool LegacyArray;
@@ -190,6 +191,7 @@ public static class WebBackup
             Orders = ReadList(raw["orders"], Json.Order), Trash = ReadList(raw["trash"], Json.Order),
             Expenses = ReadList(raw["expenses"], Json.Expense), Inventory = ReadList(raw["inventory"], Json.Inv),
             SupplierTx = ReadList(raw["supplierTx"], Json.Stx), Drivers = ReadList(raw["drivers"], Json.Driver),
+            Defects = ReadList(raw["defects"], Json.Defect),
             Settings = raw["settings"] as JsonObject, LegacyArray = node is JsonArray,
         };
         if (raw["photos"] is JsonObject ph)
@@ -227,7 +229,8 @@ public static class WebBackup
         {
             Store.ReplaceAll(p.Orders, p.Trash,
                 p.LegacyArray ? Store.Inventory : p.Inventory, p.LegacyArray ? Store.Expenses : p.Expenses,
-                p.LegacyArray ? Store.SupplierTx : p.SupplierTx, p.LegacyArray ? Store.Drivers : p.Drivers);
+                p.LegacyArray ? Store.SupplierTx : p.SupplierTx, p.LegacyArray ? Store.Drivers : p.Drivers,
+                p.LegacyArray ? null : p.Defects);
             added = p.Orders.Count;
             if (p.Settings?["shop"] is JsonObject shop)
             {
@@ -235,6 +238,9 @@ public static class WebBackup
                 S("shop_name", "name"); S("shop_phone", "phone"); S("shop_address", "address"); S("shop_terms", "terms");
                 if (p.Settings["currency"]?.ToString() is string cur && cur != "") Store.Set("currency", cur);
                 if (p.Settings["countryCode"]?.ToString() is string cc && cc != "") Store.Set("country_code", cc);
+                if (p.Settings["desktop"] is JsonObject desk)
+                    foreach (var (k, v) in desk)
+                        if (Store.IsCustomKey(k) && v is JsonValue) Store.Set(k, v.ToString());
                 if (p.Settings["privacy"] is JsonObject pr)
                 {
                     if (pr["labelPasscode"] is JsonValue lp) Store.SetFlag("privacy_label_passcode", lp.ToString() == "true");
@@ -258,7 +264,8 @@ public static class WebBackup
             var exps = Merge(Store.Expenses, p.Expenses, e => e.Id, ref dummy);
             var stx = Merge(Store.SupplierTx, p.SupplierTx, t => t.Id, ref dummy);
             var drv = Merge(Store.Drivers, p.Drivers, d => d.Id, ref dummy);
-            Store.ReplaceAll(orders, trash, inv, exps, stx, drv);
+            var defs = Merge(Store.Defects, p.Defects, d => d.Id, ref dummy);
+            Store.ReplaceAll(orders, trash, inv, exps, stx, drv, defs);
         }
         return added;
     }
@@ -277,11 +284,14 @@ public static class WebBackup
             ["inventory"] = new JsonArray(Store.Inventory.Select(i => (JsonNode)Json.ToJson(i)).ToArray()),
             ["supplierTx"] = new JsonArray(Store.SupplierTx.Select(t => (JsonNode)Json.ToJson(t)).ToArray()),
             ["drivers"] = new JsonArray(Store.Drivers.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
+            ["defects"] = new JsonArray(Store.Defects.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
             ["settings"] = new JsonObject
             {
                 ["shop"] = new JsonObject { ["name"] = Store.ShopName, ["phone"] = Store.ShopPhone, ["address"] = Store.ShopAddress, ["terms"] = Store.Terms },
                 ["currency"] = Store.Currency, ["countryCode"] = Store.CountryCode,
-                ["privacy"] = new JsonObject { ["labelPasscode"] = Store.LabelPasscode, ["clearPasscodeOnDelivery"] = Store.ClearPasscodeOnDelivery }
+                ["privacy"] = new JsonObject { ["labelPasscode"] = Store.LabelPasscode, ["clearPasscodeOnDelivery"] = Store.ClearPasscodeOnDelivery },
+                // إعدادات برنامج سطح المكتب: القوائم المعدّلة والفنيون وقوالب الرسائل
+                ["desktop"] = new JsonObject(Store.CustomSettings().Select(kv => KeyValuePair.Create(kv.Key, (JsonNode)kv.Value))),
             },
             ["photos"] = photos,
         };
@@ -333,7 +343,7 @@ public static class Csv
 
     public static void ExportOrders(string file)
     {
-        var head = new object[] { "المرجع", "الزبون", "الهاتف", "الجهاز", "IMEI", "نوع العطل", "العطل", "الحالة", "القطع", "تكلفة القطع", "السعر", "أجرة الفحص", "الربح", "حالة الدفع", "المدفوع", "طرق الدفع", "المتبقي", "الاستلام", "التسليم المتوقع", "التسليم الفعلي", "مدة العمل", "الضمان", "ينتهي الضمان", "طلب ضمان لـ", "ملاحظات" };
+        var head = new object[] { "المرجع", "الزبون", "الهاتف", "الجهاز", "IMEI", "نوع العطل", "العطل", "الحالة", "القطع", "تكلفة القطع", "السعر", "أجرة الفحص", "الربح", "حالة الدفع", "المدفوع", "طرق الدفع", "المتبقي", "الاستلام", "التسليم المتوقع", "التسليم الفعلي", "مدة العمل", "الضمان", "ينتهي الضمان", "طلب ضمان لـ", "ملاحظات", "الفني" };
         var rows = Store.Orders.Select(o => new object[]
         {
             o.RefNo, o.CustomerName, o.Phone, o.Device, o.Imei, o.IssueType, o.Issue, o.Status,
@@ -341,7 +351,7 @@ public static class Csv
             Calc.PartsCost(o), o.Price, o.CheckFee, Calc.ShownProfit(o), o.PaymentStatus, o.Paid,
             string.Join(" + ", o.PaymentHistory.Select(p => p.Method).Distinct()), Calc.RemainingOf(o),
             o.DateReceived, o.DateEstimated, o.DateDelivered, Calc.DurationText(o), o.Warranty, Calc.WarrantyEnd(o),
-            Calc.Find(o.WarrantyOf)?.RefNo ?? "", o.Notes
+            Calc.Find(o.WarrantyOf)?.RefNo ?? "", o.Notes, o.Technician
         });
         Write(file, new[] { head }.Concat(rows));
     }

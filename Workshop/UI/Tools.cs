@@ -421,6 +421,10 @@ public class PaletteDialog : BaseForm
             new("أوامر", "تقفيل اليوم", null, "receipt", CloseDayDialog.Open),
             new("أوامر", "تعريفات الطابعات", null, "printer", DriversDialog.Open),
             new("أوامر", "المحذوفات", null, "trash-2", TrashDialog.Open),
+            new("أوامر", "القطع المعيبة ومرتجعات الموردين", null, "triangle-alert", DefectsDialog.Open),
+            new("أوامر", "الفنيون والعمولات", null, "wrench", () => SettingsDialog.Open("techs")),
+            new("أوامر", "تعديل القوائم (الأعطال، الملحقات، الضمان...)", null, "list", () => SettingsDialog.Open("lists")),
+            new("أوامر", "تعديل رسائل واتساب", null, "message-circle", () => SettingsDialog.Open("messages")),
             new("أوامر", "نسخة احتياطية الآن", null, "database", () => main?.BackupNow()),
             new("أوامر", "الإعدادات", null, "settings", SettingsDialog.Open),
         }.Where(c => f == "" || Txt.Fold(c.Title).Contains(f)).ToList();
@@ -432,7 +436,7 @@ public class PaletteDialog : BaseForm
             res.AddRange(Calc.GetCustomers().Where(c => Txt.Fold(c.Name + " " + c.Phone).Contains(f)).Take(4)
                 .Select(c => new Item("زبائن", c.Name, c.Phone, "user", () => CustomerDialog.Open(c.Key))));
         }
-        res.AddRange(cmds.Take(f != "" ? 4 : 13));
+        res.AddRange(cmds.Take(f != "" ? 4 : 17));
         items = res;
         list.BeginUpdate();
         list.Items.Clear();

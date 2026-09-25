@@ -21,8 +21,10 @@ public static class Calc
         if (t == "" || t.Contains("بدون")) return 0;
         // مثل parseInt: الأرقام في بداية النص فقط («7 أيام» ← 7، «شهر واحد» ← 1)
         var digits = new string(t.TrimStart().TakeWhile(char.IsAsciiDigit).ToArray());
-        int n = int.TryParse(digits, out var v) ? v : (t.Contains("شهر") || t.Contains("أسبوع") || t.Contains("سنة") ? 1 : 0);
-        if (t.Contains("سن")) return n * 365;
+        bool dual = t.Contains("شهران") || t.Contains("شهرين") || t.Contains("أسبوعان") || t.Contains("اسبوعان") || t.Contains("أسبوعين") || t.Contains("اسبوعين")
+                    || t.Contains("سنتان") || t.Contains("سنتين") || t.Contains("يومان") || t.Contains("يومين");
+        int n = int.TryParse(digits, out var v) ? v : dual ? 2 : (t.Contains("شهر") || t.Contains("أسبوع") || t.Contains("اسبوع") || t.Contains("سنة") || t.Contains("يوم") ? 1 : 0);
+        if (t.Contains("سن") || t.Contains("عام")) return n * 365;
         if (t.Contains("شهر") || t.Contains("أشهر")) return n * 30;
         if (t.Contains("أسبوع") || t.Contains("اسبوع") || t.Contains("أسابيع")) return n * 7;
         return n;
@@ -95,9 +97,9 @@ public static class Calc
         foreach (var o in Store.Orders)
         {
             foreach (var p in o.PaymentHistory.Where(p => test(p.Date)))
-                m[p.Method ?? K.PayMethods[0]] = m.GetValueOrDefault(p.Method ?? K.PayMethods[0]) + p.Amount;
+                m[p.Method ?? Lists.Cash] = m.GetValueOrDefault(p.Method ?? Lists.Cash) + p.Amount;
             double undated = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
-            if (undated > 0 && test(o.DateReceived)) m[K.PayMethods[0]] += undated;
+            if (undated > 0 && test(o.DateReceived)) m[Lists.Cash] = m.GetValueOrDefault(Lists.Cash) + undated;
         }
         return m;
     }
@@ -229,9 +231,13 @@ public static class Calc
     {
         public string Key, Name, Last = "";
         public List<SupplierTx> Items;
-        public double Purchases, Payments;
-        public double Balance => Purchases - Payments;
+        public double Purchases, Payments, Returns;
+        public double Balance => Purchases - Payments - Returns;
     }
+
+    /// <summary>أثر الحركة على ما تدين به للمورد: الشراء يزيده، والدفعة والمرتجع ينقصانه</summary>
+    public static double StxSign(SupplierTx t) => t.Type == "purchase" ? t.Amount : -t.Amount;
+    public static string StxLabel(SupplierTx t) => t.Type switch { "payment" => "دفعة", "return" => "مرتجع قطعة معيبة", _ => "شراء" };
 
     public static List<SupplierBalance> SupplierBalances() =>
         GroupByName(Store.SupplierTx, t => t.Supplier).Select(g => new SupplierBalance
@@ -239,6 +245,7 @@ public static class Calc
             Key = g.Key, Name = g.Label, Items = g.Items,
             Purchases = g.Items.Where(t => t.Type == "purchase").Sum(t => t.Amount),
             Payments = g.Items.Where(t => t.Type == "payment").Sum(t => t.Amount),
+            Returns = g.Items.Where(t => t.Type == "return").Sum(t => t.Amount),
             Last = g.Items.Select(t => t.Date).DefaultIfEmpty("").Max(StringComparer.Ordinal)
         }).ToList();
 
@@ -302,7 +309,7 @@ public static class Calc
         c.NewDebt = closed.Sum(RemainingOf);
         c.Payments = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d).Select(p => (o, p))).OrderByDescending(x => x.p.Amount).ToList();
         c.Profit = c.Revenue - c.Parts - c.ExpTotal - c.Loss;
-        c.Drawer = c.Methods.GetValueOrDefault(K.PayMethods[0]) - c.ExpTotal - c.SupPaid;
+        c.Drawer = c.Methods.GetValueOrDefault(Lists.Cash) - c.ExpTotal - c.SupPaid;
         return c;
     }
 
@@ -324,7 +331,7 @@ public static class Calc
     public static Order Find(string id) => id == null ? null : Store.Orders.FirstOrDefault(o => o.Id == id);
 
     /// <summary>كل نصوص الطلب للبحث (الزبون، الهاتف، الجهاز، المرجع، IMEI، العطل، الملاحظات، القطع والموردون)</summary>
-    public static string Haystack(Order o) => string.Join(" ", new[] { o.CustomerName, o.Phone, o.Device, o.RefNo, o.Imei, o.Issue, o.IssueType, o.Notes }
+    public static string Haystack(Order o) => string.Join(" ", new[] { o.CustomerName, o.Phone, o.Device, o.RefNo, o.Imei, o.Issue, o.IssueType, o.Notes, o.Technician }
         .Concat(o.Parts.SelectMany(p => new[] { p.Name, p.Supplier })));
 
     public static HashSet<string> UsedRefs() => Store.Orders.Concat(Store.Trash).Select(o => o.RefNo).ToHashSet();

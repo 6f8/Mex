@@ -219,6 +219,7 @@ public class OrdersGrid : DataGridView
         Col("device", "الجهاز", 150, 120);
         Col("issue", "نوع العطل", 80, 90);
         Col("status", "الحالة", 100, 120);
+        Col("tech", "الفني", 80, 90);
         Col("price", "السعر", 80, 90, true);
         Col("profit", "الربح", 80, 90, true);
         Col("payment", "الدفع", 110, 120);
@@ -231,7 +232,7 @@ public class OrdersGrid : DataGridView
     public void ApplyColumns()
     {
         foreach (var (k, _) in K.TableCols)
-            if (Columns.Contains(k)) Columns[k].Visible = Store.Col(k) && !hidden.Contains(k);
+            if (Columns.Contains(k)) Columns[k].Visible = Store.Col(k) && !hidden.Contains(k) && (k != "tech" || Techs.All.Count > 0);
     }
 
     public Order Selected => CurrentRow != null && CurrentRow.Index < rows.Count ? rows[CurrentRow.Index] : null;
@@ -248,7 +249,7 @@ public class OrdersGrid : DataGridView
             for (int i = 0; i < rows.Count; i++)
             {
                 var o = rows[i];
-                arr[i].CreateCells(this, o.RefNo, o.CustomerName, o.Device, o.IssueType, o.Status, Txt.Num(o.Price), Txt.Num(Calc.ProfitOf(o)),
+                arr[i].CreateCells(this, o.RefNo, o.CustomerName, o.Device, o.IssueType, o.Status, o.Technician, Txt.Num(o.Price), Txt.Num(Calc.ProfitOf(o)),
                     o.PaymentStatus, Txt.FmtShortDate(o.DateReceived), Txt.FmtShortDate(o.DateEstimated), "");
                 arr[i].Height = RowTemplate.Height;
             }
@@ -426,7 +427,7 @@ public class KanbanBoard : Control
                 int tw = Pal.Tag(g, o.RefNo, r.X + S(10) + TextRenderer.MeasureText(g, o.RefNo, Theme.FS(8.5f), Size.Empty, TextFormatFlags.NoPadding).Width + S(14), r.Y + S(8), S(22));
                 TextRenderer.DrawText(g, o.CustomerName, Theme.FS(9.5f), new Rectangle(r.X + pad + tw + S(6), r.Y + S(6), r.Width - 2 * pad - tw - S(6), S(26)), Theme.Ink, Gfx.RtlStart | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, o.Device, Theme.F(9), new Rectangle(r.X + pad, r.Y + S(34), r.Width - 2 * pad, S(22)), Theme.Muted, Gfx.RtlStart | TextFormatFlags.EndEllipsis);
-                TextRenderer.DrawText(g, o.IssueType, Theme.F(8.5f), new Rectangle(r.X + r.Width / 2, r.Y + S(60), r.Width / 2 - pad, S(24)), Theme.Text2, Gfx.RtlStart | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, o.Technician != "" ? o.IssueType + " • " + o.Technician : o.IssueType, Theme.F(8.5f), new Rectangle(r.X + r.Width / 2, r.Y + S(60), r.Width / 2 - pad, S(24)), Theme.Text2, Gfx.RtlStart | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, Calc.IsLate(o) ? $"متأخر {Calc.LateDays(o)} يوم" : Txt.Money(o.Price), Theme.FS(9), new Rectangle(r.X + pad, r.Y + S(60), r.Width / 2 - pad, S(24)),
                     Calc.IsLate(o) ? Pal.Bad : Theme.Ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             }

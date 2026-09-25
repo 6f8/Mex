@@ -3,8 +3,8 @@ using static Raseed.Dpi;
 
 namespace Workshop;
 
-/// <summary>الإعدادات: بيانات المحل، المظهر، الخصوصية، والنسخ الاحتياطي ونقل البيانات</summary>
-public class SettingsDialog : DialogShell
+/// <summary>الإعدادات: بيانات المحل، المظهر، القوائم، الفنيون، رسائل واتساب، الخصوصية، والنسخ الاحتياطي ونقل البيانات</summary>
+public partial class SettingsDialog : DialogShell
 {
     readonly TextBox shopName = new() { Width = 360 }, shopPhone = new() { Width = 220 }, shopAddress = new() { Width = 600 };
     readonly TextBox terms = new() { Width = 600, Height = 150, Multiline = true, ScrollBars = ScrollBars.Vertical };
@@ -20,14 +20,17 @@ public class SettingsDialog : DialogShell
     readonly Label autoInfo = W.Note("", 640, 48);
     bool themeChanged;
 
-    SettingsDialog() : base("الإعدادات", 860, 720, "settings")
+    SettingsDialog(string page = null) : base("الإعدادات", 980, 760, "settings")
     {
         var tabs = new ModernTabs { Dock = DockStyle.Fill };
         tabs.Add("المحل", ShopTab(), "store");
         tabs.Add("المظهر", LookTab(), "sun");
+        tabs.Add("القوائم", ListsTab(), "list");
+        tabs.Add("الفنيون", TechsTab(), "wrench");
+        tabs.Add("رسائل واتساب", MessagesTab(), "message-circle", "الرسائل");
         tabs.Add("الخصوصية", PrivacyTab(), "shield-check");
         tabs.Add("النسخ الاحتياطي والبيانات", DataTab(), "database", "البيانات");
-        tabs.SelectedIndex = 0;
+        tabs.SelectedIndex = page switch { "lists" => 2, "techs" => 3, "messages" => 4, _ => 0 };
         Body.Controls.Add(tabs);
 
         AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save").Click += (s, e) => Save();
@@ -35,9 +38,12 @@ public class SettingsDialog : DialogShell
         LoadValues();
     }
 
-    public static void Open()
+    public static void Open() => Open(null);
+
+    /// <summary>page: lists / techs / messages لفتح تبويب معيّن مباشرة</summary>
+    public static void Open(string page)
     {
-        using var d = new SettingsDialog();
+        using var d = new SettingsDialog(page);
         d.ShowModal();
     }
 
@@ -204,6 +210,8 @@ public class SettingsDialog : DialogShell
 
     void Save()
     {
+        if (!ValidateCustom()) return;
+        bool reset = SaveCustom();
         var cc = new string(Txt.LatinDigits(country.Text).Where(char.IsDigit).ToArray());
         Store.Set("shop_name", shopName.Text.Trim());
         Store.Set("shop_phone", shopPhone.Text.Trim());
@@ -226,6 +234,7 @@ public class SettingsDialog : DialogShell
             }
         }
         themeChanged = false;
+        if (reset) MainForm.Instance?.ResetPages();
         Store.NotifyChanged();
         MainForm.Instance?.UpdateShop();
         Toast.Show("حُفظت الإعدادات");

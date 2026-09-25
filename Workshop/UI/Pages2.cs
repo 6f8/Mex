@@ -364,6 +364,7 @@ public class InvItemDialog : DialogShell
         W.Set(nSale, i?.SalePrice ?? 0);
         tQty.Text = i?.Qty?.ToString() ?? "";
         tMin.Text = i?.MinQty?.ToString() ?? "";
+        if (i != null && i.Category != "" && !cbCat.Items.Contains(i.Category)) cbCat.Items.Add(i.Category);
         W.Pick(cbCat, i?.Category ?? (category != "" ? category : K.InvCats[0]));
         nCost.ValueChanged += (s, e) => Profit();
         nSale.ValueChanged += (s, e) => Profit();
@@ -405,6 +406,7 @@ public class SuppliersPage : Page
 
     readonly Ledger ledger = new() { Dock = DockStyle.Top };
     readonly DataGridView grid = W.Grid();
+    readonly ModernButton bDefects;
     List<Calc.SupplierBalance> rows = new();
 
     public SuppliersPage()
@@ -413,17 +415,19 @@ public class SuppliersPage : Page
         var bPay = W.Btn("دفعة لمورد", "wallet", BtnKind.Success, 120);
         var bBuy = W.Btn("شراء بالدَّين", "plus", BtnKind.Primary, 120);
         var bStatement = W.Btn("كشف حساب المورد", "scroll-text", BtnKind.Secondary, 140);
-        bar.Controls.AddRange(new Control[] { bBuy, bPay, bStatement });
+        bDefects = W.Btn("القطع المعيبة", "triangle-alert", BtnKind.Secondary, 140);
+        bar.Controls.AddRange(new Control[] { bBuy, bPay, bStatement, bDefects });
         grid.Columns.Add("name", "المورد");
         grid.Columns.Add("purchases", "المشتريات");
         grid.Columns.Add("payments", "المدفوع");
+        grid.Columns.Add("returns", "مرتجعات معيبة");
         grid.Columns.Add("balance", "الرصيد");
         grid.Columns.Add("last", "آخر حركة");
         grid.CellFormatting += (s, e) =>
         {
             if (e.RowIndex < 0 || e.RowIndex >= rows.Count) return;
             var c = grid.Columns[e.ColumnIndex].Name;
-            if (c == "payments") e.CellStyle.ForeColor = Pal.Good;
+            if (c is "payments" or "returns") e.CellStyle.ForeColor = Pal.Good;
             if (c == "balance") e.CellStyle.ForeColor = rows[e.RowIndex].Balance > 0 ? Pal.Bad : Pal.Good;
         };
         grid.CellDoubleClick += (s, e) => { if (Sel is Calc.SupplierBalance x) SupplierStatementDialog.Open(x.Key); };
@@ -434,6 +438,7 @@ public class SuppliersPage : Page
         bPay.Click += (s, e) => SupplierTxDialog.Open("payment", Sel?.Name ?? "");
         bBuy.Click += (s, e) => SupplierTxDialog.Open("purchase", Sel?.Name ?? "");
         bStatement.Click += (s, e) => { if (Sel is Calc.SupplierBalance x) SupplierStatementDialog.Open(x.Key); };
+        bDefects.Click += (s, e) => DefectsDialog.Open();
     }
 
     Calc.SupplierBalance Sel => grid.CurrentRow != null && grid.CurrentRow.Index < rows.Count ? rows[grid.CurrentRow.Index] : null;
@@ -449,11 +454,16 @@ public class SuppliersPage : Page
             new Ledger.Cell("المستحق للموردين", Txt.Money(owed), $"{rows.Count(x => x.Balance > 0)} مورد", Pal.Bad, owed > 0 ? -1 : 1),
             new Ledger.Cell("مشتريات بالدَّين هذا الشهر", Txt.Money(Sum("purchase")), null, Pal.Slate),
             new Ledger.Cell("مدفوع للموردين هذا الشهر", Txt.Money(Sum("payment")), null, Pal.Good),
+            new Ledger.Cell("قطع معيبة بانتظار الإرجاع", Defects.PendingCount.ToString(),
+                Defects.PendingCount > 0 ? "قيمتها " + Txt.Money(Store.Defects.Where(d => d.Status == "pending").Sum(d => d.Cost)) : "لا شيء عندك", Pal.Amber, Defects.PendingCount > 0 ? -1 : 0),
         });
+        bDefects.Text = Defects.PendingCount > 0 ? $"القطع المعيبة ({Defects.PendingCount})" : "القطع المعيبة";
+        bDefects.Kind = Defects.PendingCount > 0 ? BtnKind.Amber : BtnKind.Secondary;
+        bDefects.FitWidth(140);
         ledger.Height = ledger.HeightFor(Math.Max(S(400), ledger.Width));
         grid.Rows.Clear();
         foreach (var x in rows)
-            grid.Rows.Add(x.Name, Txt.Money(x.Purchases), Txt.Money(x.Payments),
+            grid.Rows.Add(x.Name, Txt.Money(x.Purchases), Txt.Money(x.Payments), x.Returns > 0 ? Txt.Money(x.Returns) : "—",
                 x.Balance > 0 ? Txt.Money(x.Balance) : x.Balance < 0 ? Txt.Money(-x.Balance) + "  (لك عنده)" : "مسدد", Txt.FmtDate(x.Last));
     }
 }
@@ -531,8 +541,11 @@ public class SupplierStatementDialog : DialogShell
         {
             if (e.RowIndex < 0 || e.RowIndex >= rows.Count || grid.Columns[e.ColumnIndex].Name != "rm") return;
             var t = rows[e.RowIndex];
-            if (!W.Confirm("حذف هذه الحركة؟", $"{(t.Type == "payment" ? "دفعة" : "شراء")} {Txt.Money(t.Amount)} — {Txt.FmtDate(t.Date)}", "حذف", true)) return;
-            Store.DeleteSupplierTx(t);
+            var linked = t.Type == "return" ? Store.Defects.FirstOrDefault(d => d.StxId == t.Id) : null;
+            if (!W.Confirm("حذف هذه الحركة؟", $"{Calc.StxLabel(t)} {Txt.Money(t.Amount)} — {Txt.FmtDate(t.Date)}" +
+                (linked != null ? $"\nستعود القطعة «{linked.PartName}» إلى قائمة القطع المعيبة بانتظار الإرجاع." : ""), "حذف", true)) return;
+            if (linked != null) Defects.Reopen(linked);
+            else Store.DeleteSupplierTx(t);
             Store.NotifyChanged();
             Toast.Show("حُذفت الحركة");
         };
@@ -566,13 +579,14 @@ public class SupplierStatementDialog : DialogShell
         {
             new Ledger.Cell("المشتريات", Txt.Money(x.Purchases)),
             new Ledger.Cell("المدفوع", Txt.Money(x.Payments), null, null, 1),
+            new Ledger.Cell("مرتجعات معيبة", Txt.Money(x.Returns), "خُصمت من الحساب", null, x.Returns > 0 ? 1 : 0),
             new Ledger.Cell("الرصيد", Txt.Money(Math.Abs(x.Balance)), x.Balance > 0 ? "عليك للمورد" : x.Balance < 0 ? "لك عند المورد" : "مسدد", null, x.Balance > 0 ? -1 : 1),
         });
         double run = 0;
-        var list = x.Items.OrderBy(t => t.Date, StringComparer.Ordinal).ThenBy(t => t.Id, StringComparer.Ordinal).Select(t => { run += t.Type == "purchase" ? t.Amount : -t.Amount; return (t, run); }).Reverse().ToList();
+        var list = x.Items.OrderBy(t => t.Date, StringComparer.Ordinal).ThenBy(t => t.Id, StringComparer.Ordinal).Select(t => { run += Calc.StxSign(t); return (t, run); }).Reverse().ToList();
         rows = list.Select(v => v.t).ToList();
         grid.Rows.Clear();
-        foreach (var (t, r) in list) grid.Rows.Add(Txt.FmtDate(t.Date), t.Type == "purchase" ? "شراء" : "دفعة", t.Note, Txt.Money(t.Amount), Txt.Money(r));
+        foreach (var (t, r) in list) grid.Rows.Add(Txt.FmtDate(t.Date), Calc.StxLabel(t), t.Note, Txt.Money(t.Amount), Txt.Money(r));
     }
 
     void Print()
@@ -580,7 +594,7 @@ public class SupplierStatementDialog : DialogShell
         var x = Current();
         if (x == null) return;
         double run = 0;
-        var rowsHtml = x.Items.OrderBy(t => t.Date, StringComparer.Ordinal).Select(t => { run += t.Type == "purchase" ? t.Amount : -t.Amount; return new[] { Txt.FmtDate(t.Date), t.Type == "purchase" ? "شراء" : "دفعة", t.Note, Txt.Money(t.Amount), Txt.Money(run) }; }).ToList();
+        var rowsHtml = x.Items.OrderBy(t => t.Date, StringComparer.Ordinal).Select(t => { run += Calc.StxSign(t); return new[] { Txt.FmtDate(t.Date), Calc.StxLabel(t), t.Note, Txt.Money(t.Amount), Txt.Money(run) }; }).ToList();
         var body = Printer.Header("كشف حساب مورد") +
             $"<div class=\"grid\"><div><span class=\"k\">المورد: </span><b>{Txt.Esc(x.Name)}</b></div><div><span class=\"k\">الرصيد: </span><b class=\"{(x.Balance > 0 ? "bad" : "good")}\">{Txt.Esc(Txt.Money(x.Balance))}</b></div></div>" +
             Printer.Table(new[] { "التاريخ", "الحركة", "ملاحظة", "المبلغ", "الرصيد" }, rowsHtml);

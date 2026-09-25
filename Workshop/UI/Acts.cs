@@ -84,21 +84,11 @@ public static class Acts
     // ---------------- واتساب ----------------
     public static string Sign() => $"\n\n{Store.ShopName}{(Store.ShopPhone != "" ? " — " + Store.ShopPhone : "")}";
 
+    /// <summary>قوالب الرسائل (قابلة للتعديل من الإعدادات ← رسائل واتساب)</summary>
     public static List<WaDialog.Template> Templates(Order o)
     {
-        double rem = Calc.RemainingOf(o);
-        var sign = Sign();
-        var we = Calc.WarrantyEnd(o);
-        string issue = o.Issue != "" ? o.Issue : o.IssueType;
-        return new()
-        {
-            new("received", "استلام الجهاز", $"مرحباً {o.CustomerName}،\nاستلمنا جهازك ({o.Device}) للصيانة.\nالعطل: {issue}\nالرقم المرجعي: {o.RefNo}{(o.DateEstimated != "" ? $"\nالموعد المتوقع: {Txt.FmtDate(o.DateEstimated)}" : "")}\nسنبلغك فور انتهاء العمل.{sign}"),
-            new("quote", "عرض السعر للموافقة", $"مرحباً {o.CustomerName}،\nفحصنا جهازك ({o.Device}).\nالعطل: {issue}\nكلفة الإصلاح: {Txt.Money(o.Price)}{(o.DateEstimated != "" ? $"\nيكون جاهزاً بتاريخ: {Txt.FmtDate(o.DateEstimated)}" : "")}{(o.CheckFee > 0 ? $"\nإذا لم ترغب بالإصلاح تكون أجرة الفحص {Txt.Money(o.CheckFee)}." : "")}\nهل نبدأ بالإصلاح؟ يرجى الرد بنعم أو لا.{sign}"),
-            new("progress", "تحديث الحالة", $"مرحباً {o.CustomerName}،\nجهازك ({o.Device}) حالياً: {o.Status}.{(o.Status == K.Part ? "\nننتظر وصول القطعة المطلوبة وسنكمل العمل فور وصولها." : "\nنعمل عليه وسنبلغك عند جاهزيته.")}{sign}"),
-            new("ready", "الجهاز جاهز", $"مرحباً {o.CustomerName}،\nجهازك ({o.Device}) جاهز للاستلام.\nالمبلغ الكلي: {Txt.Money(o.Price)}{(rem > 0 ? $"\nالمتبقي: {Txt.Money(rem)}" : "\nالمبلغ مسدد بالكامل")}\nبانتظارك، شكراً لثقتك.{sign}"),
-            new("debt", "تذكير بالمتبقي", $"مرحباً {o.CustomerName}،\nنذكّرك بمبلغ متبقٍ قدره {Txt.Money(rem)} عن صيانة جهازك ({o.Device}) — المرجع {o.RefNo}.\nنشكر تعاونك.{sign}"),
-            new("thanks", "شكر بعد التسليم", $"مرحباً {o.CustomerName}،\nشكراً لاختيارك ورشتنا لصيانة جهازك ({o.Device}).\nالضمان: {o.Warranty}{(we != "" ? $" — ساري حتى {Txt.FmtDate(we)}" : "")}.\nاحتفظ بالرقم المرجعي {o.RefNo} لأي مراجعة.\nلأي ملاحظة لا تتردد بمراسلتنا.{sign}"),
-        };
+        var vars = Msg.VarsFor(o);
+        return Msg.All.Where(t => t.Id != "debts").Select(t => new WaDialog.Template(t.Id, t.Title, Msg.Fill(Msg.Text(t.Id), vars))).ToList();
     }
 
     public static void WhatsApp(Order o)
@@ -112,8 +102,7 @@ public static class Acts
 
     public static void DebtReminder(Calc.Customer c)
     {
-        var lines = string.Join("\n", c.Unpaid.Select(o => $"- {o.Device} ({o.RefNo}): {Txt.Money(Calc.RemainingOf(o))}"));
-        using var d = new WaDialog(c.Name, c.Phone, new() { new("debt", "تذكير", $"مرحباً {c.Name}،\nنذكّرك بالمبالغ المتبقية لدينا:\n{lines}\nالمجموع: {Txt.Money(c.Debt)}\nنشكر تعاونك.{Sign()}") }, 0);
+        using var d = new WaDialog(c.Name, c.Phone, new() { new("debts", "تذكير", Msg.Fill(Msg.Text("debts"), Msg.VarsFor(c))) }, 0);
         d.ShowModal();
     }
 

@@ -62,7 +62,9 @@ public class OrderForm : DialogShell
                      tNotes = new() { Width = 640, Height = 90, Multiline = true, PlaceholderText = "ملاحظات داخلية (لا تُطبع)" };
     readonly ComboBox cbType = W.Combo(200, K.IssueTypes), cbStatus = W.Combo(200, K.Statuses), cbWarranty = W.Combo(200, K.Warranties);
     readonly List<Toggle> accToggles = new();
-    readonly Label lblImei = W.Note("", 600, 22);
+    readonly ComboBox cbTech = W.Combo(200, Array.Empty<string>());
+    const string NoTech = "— بدون فني —";
+    readonly Label lblImei = W.Note("", 420, 22);
     readonly Panel warrantyBox = new() { Width = 950, Height = 46, BackColor = Theme.Surface, Margin = new Padding(6, 4, 6, 4), Visible = false };
     readonly Label warrantyText = new() { Dock = DockStyle.Fill, Font = Theme.F(9.5f), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 10, 0) };
     readonly ModernButton warrantyBtn = new() { Kind = BtnKind.Primary, Height = 34, Dock = DockStyle.Left };
@@ -113,7 +115,8 @@ public class OrderForm : DialogShell
         r3.Controls.Add(W.Labeled("وصف العطل *", tIssue));
         flow.Controls.Add(W.Note("الملحقات المستلمة مع الجهاز", 960));
         var acc = Row();
-        foreach (var a in K.Accessories)
+        // عنصر حُذف من القائمة ويبقى محفوظاً في هذا الطلب يظهر أيضاً حتى لا يضيع عند التعديل
+        foreach (var a in K.Accessories.Concat(src.Accessories).Distinct())
         {
             var t = new Toggle { Text = a, Width = 170, Height = 34, Margin = new Padding(6, 2, 6, 2) };
             accToggles.Add(t);
@@ -121,6 +124,11 @@ public class OrderForm : DialogShell
         }
         var r4 = Row();
         r4.Controls.Add(W.Labeled("IMEI / الرقم التسلسلي", tImei, "hash"));
+        cbTech.Items.Add(NoTech);
+        cbTech.Items.AddRange(Techs.All.Select(t => (object)t.Name).ToArray());
+        if (src.Technician != "" && Techs.Find(src.Technician) == null) cbTech.Items.Add(src.Technician);
+        cbTech.SelectedIndex = 0;
+        if (cbTech.Items.Count > 1) r4.Controls.Add(W.Labeled("الفني", cbTech, "wrench"));
         lblImei.Margin = new Padding(6, 30, 6, 0);
         r4.Controls.Add(lblImei);
         warrantyBtn.FitWidth(120);
@@ -134,7 +142,8 @@ public class OrderForm : DialogShell
         flow.Controls.Add(W.Note("اضغط للتبديل: لم يُفحص ← يعمل ← لا يعمل", 960, 22));
         var chk = Row();
         chk.MaximumSize = new Size(980, 0);
-        foreach (var (k, title) in K.Checks) { var c = new TriChip { Key = k, Text = title }; chips.Add(c); chk.Controls.Add(c); }
+        var extraChecks = (existing?.Checks.Keys ?? Enumerable.Empty<string>()).Where(k => !K.Checks.Any(c => c.Key == k)).Select(k => (k, Lists.CheckTitle(k)));
+        foreach (var (k, title) in K.Checks.Concat(extraChecks)) { var c = new TriChip { Key = k, Text = title }; chips.Add(c); chk.Controls.Add(c); }
         var naRow = Row();
         tgNA.Margin = new Padding(6, 4, 6, 4);
         naRow.Controls.Add(tgNA);
@@ -270,10 +279,13 @@ public class OrderForm : DialogShell
 
         // ---------- التعبئة ----------
         tName.Text = src.CustomerName; tPhone.Text = src.Phone; tDevice.Text = src.Device; tPass.Text = src.Passcode;
-        W.Pick(cbType, K.IssueTypes.Contains(src.IssueType) ? src.IssueType : K.IssueTypes[0]);
+        if (existing != null && existing.IssueType != "" && !cbType.Items.Contains(existing.IssueType)) cbType.Items.Add(existing.IssueType);
+        W.Pick(cbType, cbType.Items.Contains(src.IssueType) ? src.IssueType : K.IssueTypes[0]);
         W.Pick(cbStatus, existing?.Status ?? K.Statuses[0]);
         tIssue.Text = src.Issue;
-        W.Pick(cbWarranty, K.Warranties.Contains(src.Warranty) ? src.Warranty : K.Warranties[0]);
+        if (existing != null && existing.Warranty != "" && !cbWarranty.Items.Contains(existing.Warranty)) cbWarranty.Items.Add(existing.Warranty);
+        W.Pick(cbWarranty, cbWarranty.Items.Contains(src.Warranty) ? src.Warranty : K.Warranties[0]);
+        if (src.Technician != "") W.Pick(cbTech, Techs.Find(src.Technician)?.Name ?? src.Technician);
         W.Set(nPrice, existing?.Price ?? 0);
         W.Set(nFee, existing?.CheckFee ?? 0);
         tImei.Text = src.Imei;
@@ -518,7 +530,7 @@ public class OrderForm : DialogShell
     // ---------------- الإغلاق والحفظ ----------------
     string Snapshot() => string.Join("|", new[]
     {
-        tName.Text, tPhone.Text, tDevice.Text, tPass.Text, tImei.Text, cbType.Text, cbStatus.Text, tIssue.Text, cbWarranty.Text,
+        tName.Text, tPhone.Text, tDevice.Text, tPass.Text, tImei.Text, cbType.Text, cbStatus.Text, tIssue.Text, cbWarranty.Text, cbTech.Text,
         nPrice.Value.ToString(), nFee.Value.ToString(), Txt.Iso(dReceived.Value), DateOf(dEstimated), DateOf(dDelivered), tNotes.Text,
         string.Join(",", accToggles.Where(t => t.Checked).Select(t => t.Text)),
         string.Join(";", FormParts().Select(p => $"{p.Name}/{p.Supplier}/{p.Cost}/{p.InventoryItemId}")),
@@ -576,6 +588,7 @@ public class OrderForm : DialogShell
         o.Status = status;
         o.Issue = tIssue.Text.Trim();
         o.IssueType = cbType.Text;
+        o.Technician = cbTech.SelectedIndex <= 0 ? "" : cbTech.Text;
         o.Passcode = justDelivered && Store.ClearPasscodeOnDelivery ? "" : tPass.Text.Trim();
         o.Imei = imei;
         o.CheckFee = checkFee;

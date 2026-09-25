@@ -9,7 +9,7 @@ public class OrderView : DialogShell
     readonly string id;
     Control content;
 
-    public OrderView(string orderId) : base("تفاصيل الطلب", 980, 820, "clipboard-list")
+    public OrderView(string orderId) : base("تفاصيل الطلب", 1080, 820, "clipboard-list")
     {
         id = orderId;
         var o = Calc.Find(id);
@@ -28,6 +28,8 @@ public class OrderView : DialogShell
         AddButton("ملصق", DialogResult.None, BtnKind.Secondary, "tag").Click += (s, e) => { if (Calc.Find(id) is Order x) Printer.Label(x); };
         if (o != null && o.PaymentStatus == K.PayFull && Calc.ChargeOf(o) > 0)
             AddButton("وصل الاستلام", DialogResult.None, BtnKind.Secondary, "receipt").Click += (s, e) => { if (Calc.Find(id) is Order x) Printer.Receipt(x); };
+        if (o != null && (o.Parts.Count > 0 || Calc.Find(o.WarrantyOf)?.Parts.Count > 0))
+            AddButton("قطعة معيبة", DialogResult.None, BtnKind.Ghost, "triangle-alert").Click += (s, e) => { if (Calc.Find(id) is Order x) DefectDialog.ForOrder(x); };
         var bDel = AddButton("حذف", DialogResult.None, BtnKind.Danger, "trash-2");
         bDel.Click += (s, e) => { if (Acts.Delete(Calc.Find(id))) Close(); };
         Store.Changed += OnChanged;
@@ -95,6 +97,8 @@ public class OrderView : DialogShell
         grid.Controls.Add(KV("الهاتف", o.Phone));
         grid.Controls.Add(KV("الجهاز", o.Device));
         grid.Controls.Add(KV("نوع العطل", o.IssueType));
+        if (o.Technician != "" || Techs.All.Count > 0)
+            grid.Controls.Add(KV("الفني", o.Technician == "" ? "لم يُحدَّد" : o.Technician + (o.Status == K.Done && Techs.Commission(o) > 0 ? $"   (عمولته {Txt.Money(Techs.Commission(o))})" : ""), 890, null, 54));
         grid.Controls.Add(KV("وصف العطل", o.Issue, 890, null, 70));
         if (o.Passcode != "")
         {
@@ -119,8 +123,8 @@ public class OrderView : DialogShell
             grid.Controls.Add(LinkKV("رجع بالضمان بعد هذا الطلب", $"{r.RefNo} — {Txt.FmtDate(r.DateReceived)}", r));
         string checks = o.ChecksNA ? "الجهاز لم يكن يعمل عند الاستلام، فلم يُفحص"
             : o.Checks.Count == 0 ? "لم يُسجَّل فحص عند الاستلام"
-            : string.Join("   ", K.Checks.Where(c => o.Checks.GetValueOrDefault(c.Key) == "bad").Select(c => "✕ " + c.Title)
-                .Concat(K.Checks.Where(c => o.Checks.GetValueOrDefault(c.Key) == "ok").Select(c => "✓ " + c.Title)));
+            : string.Join("   ", Lists.OrderChecks(o).Where(c => c.State == "bad").Select(c => "✕ " + c.Title)
+                .Concat(Lists.OrderChecks(o).Where(c => c.State == "ok").Select(c => "✓ " + c.Title)));
         grid.Controls.Add(KV("حالة الجهاز عند الاستلام", checks, 890, o.Checks.Values.Contains("bad") ? Pal.Bad : null, 70));
         grid.Controls.Add(KV("مدة العمل", Calc.DurationText(o), 290));
         grid.Controls.Add(KV("تاريخ الاستلام", Txt.FmtDate(o.DateReceived), 290));
@@ -141,6 +145,8 @@ public class OrderView : DialogShell
         flow.Controls.Add(W.Head("القطع والحساب", 900));
         if (o.Parts.Count == 0) flow.Controls.Add(W.Note("لا توجد قطع مسجّلة", 900));
         foreach (var p in o.Parts) flow.Controls.Add(Line($"{(p.Name == "" ? "قطعة" : p.Name)}{(p.Supplier != "" ? $"  ({p.Supplier})" : "")}", Txt.Money(p.Cost)));
+        foreach (var d in Store.Defects.Where(d => d.OrderId == o.Id))
+            flow.Controls.Add(Line($"⚠ قطعة معيبة: {d.PartName}{(d.Supplier != "" ? $"  ({d.Supplier})" : "")} — {Defects.StateText(d)}", Txt.Money(d.Cost), Pal.Bad));
         double rem = Calc.RemainingOf(o), cost = Calc.PartsCost(o), prof = Calc.ShownProfit(o);
         var money = W.Flow();
         money.Margin = new Padding(0, 8, 0, 0);

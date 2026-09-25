@@ -203,6 +203,7 @@ public class OrdersPage : Page
     readonly Seg mode = new(("table", "جدول"), ("kanban", "لوحة"));
     readonly ComboBox cbStatus = W.Combo(170, new[] { "كل الحالات" }.Concat(K.Statuses)), cbPay = W.Combo(170, new[] { "كل حالات الدفع" }.Concat(K.PayList)),
                       cbType = W.Combo(170, new[] { "كل أنواع الأعطال" }.Concat(K.IssueTypes)),
+                      cbTech = W.Combo(170, new[] { "كل الفنيين" }.Concat(Techs.All.Select(t => t.Name)).Append(Techs.NoTech)),
                       cbSort = W.Combo(190, new[] { "الأحدث أولاً", "الأقدم أولاً", "موعد التسليم الأقرب", "السعر الأعلى", "السعر الأقل", "الربح الأعلى", "المتبقي الأكبر" });
     readonly DateTimePicker dFrom = new() { Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false },
                             dTo = new() { Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
@@ -236,6 +237,7 @@ public class OrdersPage : Page
         filters.Controls.Add(W.Labeled("الحالة", cbStatus));
         filters.Controls.Add(W.Labeled("الدفع", cbPay));
         filters.Controls.Add(W.Labeled("نوع العطل", cbType));
+        if (Techs.All.Count > 0) filters.Controls.Add(W.Labeled("الفني", cbTech));
         filters.Controls.Add(W.Labeled("من (الاستلام)", dFrom));
         filters.Controls.Add(W.Labeled("إلى", dTo));
         filters.Controls.Add(W.Labeled("الترتيب", cbSort));
@@ -252,7 +254,7 @@ public class OrdersPage : Page
         Ui2.OnIdle(search, Reload, 150);
         quick.Changed += _ => Reload();
         mode.Changed += v => { grid.Visible = v == "table"; boardHost.Visible = v == "kanban"; cbStatus.Enabled = v == "table"; Reload(); };
-        foreach (var c in new[] { cbStatus, cbPay, cbType, cbSort }) c.SelectedIndexChanged += (s, e) => Reload();
+        foreach (var c in new[] { cbStatus, cbPay, cbType, cbTech, cbSort }) c.SelectedIndexChanged += (s, e) => Reload();
         dFrom.ValueChanged += (s, e) => Reload();
         dTo.ValueChanged += (s, e) => Reload();
         bFilters.Click += (s, e) => filters.Visible = !filters.Visible;
@@ -277,7 +279,7 @@ public class OrdersPage : Page
     void ClearFilters(bool reload = true)
     {
         search.Text = "";
-        cbStatus.SelectedIndex = cbPay.SelectedIndex = cbType.SelectedIndex = cbSort.SelectedIndex = 0;
+        cbStatus.SelectedIndex = cbPay.SelectedIndex = cbType.SelectedIndex = cbTech.SelectedIndex = cbSort.SelectedIndex = 0;
         dFrom.Checked = dTo.Checked = false;
         quick.Value = "all";
         if (reload) Reload();
@@ -291,9 +293,10 @@ public class OrdersPage : Page
         var q = Txt.Fold(search.Text);
         string st = ignoreStatus || cbStatus.SelectedIndex <= 0 ? null : cbStatus.Text;
         string pay = cbPay.SelectedIndex <= 0 ? null : cbPay.Text, type = cbType.SelectedIndex <= 0 ? null : cbType.Text;
+        string tech = cbTech.SelectedIndex <= 0 ? null : cbTech.Text == Techs.NoTech ? "" : Txt.Fold(cbTech.Text);
         string from = dFrom.Checked ? Txt.Iso(dFrom.Value) : null, to = dTo.Checked ? Txt.Iso(dTo.Value) : null, t = Txt.Today;
         IEnumerable<Order> list = Store.Orders.Where(o => (q == "" || Txt.Matches(Calc.Haystack(o), q)) && (st == null || o.Status == st) &&
-            (pay == null || o.PaymentStatus == pay) && (type == null || o.IssueType == type) &&
+            (pay == null || o.PaymentStatus == pay) && (type == null || o.IssueType == type) && (tech == null || Txt.Fold(o.Technician) == tech) &&
             (from == null || string.CompareOrdinal(o.DateReceived, from) >= 0) && (to == null || string.CompareOrdinal(o.DateReceived, to) <= 0));
         list = quick.Value switch
         {
@@ -322,7 +325,7 @@ public class OrdersPage : Page
         int all = Store.Orders.Count, open = Store.Orders.Count(Calc.IsOpen);
         sub = all > 0 ? $"{all} طلب مسجّل، منها {open} قيد العمل" : "لا توجد طلبات بعد — كل جهاز يدخل الورشة يبدأ من «طلب جديد»";
         MainForm.Instance?.UpdateTitle(this);
-        bool filtered = cbStatus.SelectedIndex > 0 || cbPay.SelectedIndex > 0 || cbType.SelectedIndex > 0 || dFrom.Checked || dTo.Checked || cbSort.SelectedIndex > 0;
+        bool filtered = cbStatus.SelectedIndex > 0 || cbPay.SelectedIndex > 0 || cbType.SelectedIndex > 0 || cbTech.SelectedIndex > 0 || dFrom.Checked || dTo.Checked || cbSort.SelectedIndex > 0;
         bFilters.Kind = filtered ? BtnKind.Soft : BtnKind.Secondary;
         if (mode.Value == "kanban")
         {

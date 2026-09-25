@@ -123,7 +123,7 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
 </div>
 <div class=""box""><span class=""k"">وصف العطل: </span>{Esc(o.Issue == "" ? "—" : o.Issue)}</div>");
         if (o.ChecksNA || o.Checks.Count > 0)
-            sb.Append($"<div class=\"box\"><span class=\"k\">حالة الجهاز عند الاستلام: </span>{(o.ChecksNA ? "الجهاز لا يعمل، لم يُفحص" : string.Join(" &nbsp;·&nbsp; ", K.Checks.Where(c => o.Checks.ContainsKey(c.Key)).Select(c => (o.Checks[c.Key] == "ok" ? "✓ " : "✕ ") + Esc(c.Title))))}</div>");
+            sb.Append($"<div class=\"box\"><span class=\"k\">حالة الجهاز عند الاستلام: </span>{(o.ChecksNA ? "الجهاز لا يعمل، لم يُفحص" : string.Join(" &nbsp;·&nbsp; ", Lists.OrderChecks(o).Select(c => (c.State == "ok" ? "✓ " : "✕ ") + Esc(c.Title))))}</div>");
         if (o.Parts.Count > 0) sb.Append(Row("القطع المستبدلة", string.Join("، ", o.Parts.Select(p => p.Name).Where(n => n != ""))).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
         if (o.Accessories.Count > 0) sb.Append(Row("الملحقات المستلمة", string.Join("، ", o.Accessories)).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
         sb.Append(Row("الضمان", o.Warranty + (we != "" ? " — حتى " + FmtDate(we) : "")));

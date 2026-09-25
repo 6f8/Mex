@@ -12,26 +12,21 @@ public static class K
     /// <summary>ما زال على طاولة العمل: تجاوز الموعد هنا تأخير من الورشة (انتظار موافقة الزبون أو استلامه ليس تأخيرًا)</summary>
     public static readonly string[] WorkStatuses = { Check, Repair, Part };
 
-    public static readonly string[] PayMethods = { "نقد", "زين كاش", "FastPay", "بطاقة كي", "تحويل مصرفي" };
+    // القوائم قابلة للتعديل من الإعدادات (انظر Lists)
+    public static string[] PayMethods => Lists.Get("pay_methods");
     public const string PayNone = "غير مدفوع", PayPart = "مدفوع جزئياً", PayFull = "مدفوع بالكامل";
     public static readonly string[] PayList = { PayNone, PayPart, PayFull };
 
-    public static readonly string[] IssueTypes = { "شاشة", "بطارية", "منفذ شحن", "كاميرا", "صوت / سماعة", "مياه / رطوبة", "برمجيات", "أخرى" };
-    public static readonly string[] Warranties = { "بدون ضمان", "7 أيام", "15 يوماً", "شهر واحد", "3 أشهر", "6 أشهر" };
-    public static readonly string[] Accessories = { "شاحن", "كفر / جراب", "شريحة SIM", "بطاقة ذاكرة", "بدون ملحقات" };
-    public static readonly string[] InvCats = { "شاشة", "بطارية", "منفذ شحن", "كاميرا", "سماعة", "ظهر / كفر", "أخرى" };
-
+    public static string[] IssueTypes => Lists.Get("issue_types");
+    public static string[] Warranties => Lists.Get("warranties");
+    public static string[] Accessories => Lists.Get("accessories");
+    public static string[] InvCats => Lists.Get("inv_cats");
     /// <summary>فحص الجهاز عند الاستلام: ما يعمل قبل فتحه</summary>
-    public static readonly (string Key, string Title)[] Checks =
-    {
-        ("screen", "الشاشة واللمس"), ("faceid", "Face ID / البصمة"), ("camF", "الكاميرا الأمامية"), ("camB", "الكاميرا الخلفية"),
-        ("charge", "الشحن"), ("speaker", "السماعة"), ("mic", "المايك"), ("network", "الشبكة والاتصال"),
-        ("wifi", "واي فاي / بلوتوث"), ("buttons", "الأزرار"), ("vibrate", "الاهتزاز"), ("sensors", "الحساسات"),
-    };
+    public static (string Key, string Title)[] Checks => Lists.Checks();
 
     public static readonly (string Key, string Title)[] TableCols =
     {
-        ("ref", "المرجع"), ("customer", "الزبون"), ("device", "الجهاز"), ("issue", "نوع العطل"), ("status", "الحالة"), ("price", "السعر"),
+        ("ref", "المرجع"), ("customer", "الزبون"), ("device", "الجهاز"), ("issue", "نوع العطل"), ("status", "الحالة"), ("tech", "الفني"), ("price", "السعر"),
         ("profit", "الربح"), ("payment", "الدفع"), ("received", "الاستلام"), ("estimated", "التسليم المتوقع"), ("duration", "مدة العمل"),
     };
 
@@ -65,7 +60,7 @@ public class Part
 
 public class Payment
 {
-    public string Id, Date, Note = "", Method = K.PayMethods[0];
+    public string Id, Date, Note = "", Method = Lists.Cash;
     public double Amount;
 }
 
@@ -73,6 +68,8 @@ public class Payment
 public class Order
 {
     public string Id, RefNo = "", CustomerName = "", Phone = "", Device = "", Status = K.Check, Issue = "", IssueType = "أخرى", Passcode = "", Imei = "";
+    /// <summary>الفني المسؤول عن الإصلاح (فارغ = بدون فني)</summary>
+    public string Technician = "";
     public Dictionary<string, string> Checks = new();
     public bool ChecksNA;
     public string WarrantyOf;
@@ -109,7 +106,7 @@ public class InvItem
 
 public class Expense { public string Id, Description = "مصروف", Date; public double Amount; }
 
-/// <summary>حركة مورد: شراء بالدَّين أو دفعة</summary>
+/// <summary>حركة مورد: شراء بالدَّين، دفعة، أو مرتجع قطعة معيبة (يُخصم من حسابه)</summary>
 public class SupplierTx { public string Id, Supplier = "", Type = "purchase", Date, Note = ""; public double Amount; }
 
 public class Driver { public string Id, Printer = "", Brand = "", Os = "", Url = "", Note = "", UpdatedAt; }
@@ -150,7 +147,7 @@ public static class Json
                 {
                     Id = OrNull(S(p, "id")) ?? Txt.Uid("inst"), Amount = a,
                     Date = OrNull(Txt.Cut10(S(p, "date"))) ?? OrNull(received) ?? Txt.Today, Note = S(p, "note"),
-                    Method = K.PayMethods.Contains(method) ? method : K.PayMethods[0]
+                    Method = OrNull(method) ?? Lists.Cash
                 });
             }
         // النسخ القديمة سمحت بتعليم «مدفوع بالكامل» بدون إدخال المبلغ: يبقى هذا المعنى
@@ -168,8 +165,8 @@ public static class Json
 
         var checks = new Dictionary<string, string>();
         if (o["checks"] is JsonObject co)
-            foreach (var (k, _) in K.Checks)
-                if (co[k]?.ToString() is "ok" or "bad") checks[k] = co[k].ToString();
+            foreach (var (k, v) in co)
+                if (k != "" && v?.ToString() is "ok" or "bad") checks[k] = v.ToString();
 
         var issueType = S(o, "issueType");
         var warranty = S(o, "warranty");
@@ -184,6 +181,7 @@ public static class Json
             Issue = S(o, "issue"),
             IssueType = K.IssueTypes.Contains(issueType) ? issueType : OrNull(issueType) ?? "أخرى",
             Passcode = S(o, "passcode"),
+            Technician = S(o, "technician"),
             Imei = new string(Txt.LatinDigits(S(o, "imei")).Where(c => !char.IsWhiteSpace(c)).ToArray()),
             Checks = checks,
             ChecksNA = B(o, "checksNA"),
@@ -219,7 +217,7 @@ public static class Json
         return new JsonObject
         {
             ["id"] = o.Id, ["refNo"] = o.RefNo, ["customerName"] = o.CustomerName, ["phone"] = o.Phone, ["device"] = o.Device,
-            ["status"] = o.Status, ["issue"] = o.Issue, ["issueType"] = o.IssueType, ["passcode"] = o.Passcode, ["imei"] = o.Imei,
+            ["status"] = o.Status, ["technician"] = o.Technician, ["issue"] = o.Issue, ["issueType"] = o.IssueType, ["passcode"] = o.Passcode, ["imei"] = o.Imei,
             ["checks"] = checks, ["checksNA"] = o.ChecksNA, ["warrantyOf"] = V(o.WarrantyOf),
             ["accessories"] = new JsonArray(o.Accessories.Select(a => (JsonNode)a).ToArray()),
             ["warranty"] = o.Warranty,
@@ -271,7 +269,7 @@ public static class Json
         if (a <= 0) return null;
         return new SupplierTx
         {
-            Id = OrNull(S(t, "id")) ?? Txt.Uid("st"), Supplier = S(t, "supplier"), Type = S(t, "type") == "payment" ? "payment" : "purchase",
+            Id = OrNull(S(t, "id")) ?? Txt.Uid("st"), Supplier = S(t, "supplier"), Type = S(t, "type") is "payment" or "return" ? S(t, "type") : "purchase",
             Amount = a, Date = OrNull(Txt.Cut10(S(t, "date"))) ?? Txt.Today, Note = S(t, "note")
         };
     }
@@ -289,6 +287,28 @@ public static class Json
             Note = S(d, "note"), UpdatedAt = OrNull(S(d, "updatedAt")) ?? Txt.Now
         };
     }
+
+    public static Defect Defect(JsonNode d)
+    {
+        if (d is not JsonObject || S(d, "partName") == "") return null;
+        var res = S(d, "resolution");
+        return new Defect
+        {
+            Id = OrNull(S(d, "id")) ?? Txt.Uid("df"), Date = OrNull(Txt.Cut10(S(d, "date"))) ?? Txt.Today, PartName = S(d, "partName"), Supplier = S(d, "supplier"),
+            Cost = Math.Max(0, M(d, "cost")), InventoryItemId = OrNull(S(d, "inventoryItemId")), OrderId = OrNull(S(d, "orderId")), RefNo = S(d, "refNo"),
+            Device = S(d, "device"), Technician = S(d, "technician"), Note = S(d, "note"),
+            Status = S(d, "status") == "done" && res is "credit" or "replaced" or "rejected" ? "done" : "pending",
+            Resolution = S(d, "status") == "done" && res is "credit" or "replaced" or "rejected" ? res : "",
+            ResolvedAt = OrNull(S(d, "resolvedAt")), StxId = OrNull(S(d, "stxId")), Credited = Math.Max(0, M(d, "credited")),
+        };
+    }
+
+    public static JsonObject ToJson(Defect d) => new()
+    {
+        ["id"] = d.Id, ["date"] = d.Date, ["partName"] = d.PartName, ["supplier"] = d.Supplier, ["cost"] = d.Cost, ["inventoryItemId"] = V(d.InventoryItemId),
+        ["orderId"] = V(d.OrderId), ["refNo"] = d.RefNo, ["device"] = d.Device, ["technician"] = d.Technician, ["note"] = d.Note,
+        ["status"] = d.Status, ["resolution"] = d.Resolution, ["resolvedAt"] = V(d.ResolvedAt), ["stxId"] = V(d.StxId), ["credited"] = d.Credited,
+    };
 
     public static JsonObject ToJson(Driver d) => new() { ["id"] = d.Id, ["printer"] = d.Printer, ["brand"] = d.Brand, ["os"] = d.Os, ["url"] = d.Url, ["note"] = d.Note, ["updatedAt"] = d.UpdatedAt };
 }
