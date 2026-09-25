@@ -33,7 +33,15 @@ public static class Acts
         o = Calc.Find(o?.Id);
         if (o == null || o.Status == status || !K.Statuses.Contains(status)) return;
         var prev = o.Status;
+        string reason = null;
+        if (Locking.IsLocked(o))
+        {
+            reason = Ask.Reason("تغيير حالة طلب " + prev, $"{o.RefNo} — {o.CustomerName} — {o.Device}\nنقله من «{prev}» إلى «{status}» يغيّر حسابات يوم {Txt.FmtDate(Calc.ClosedDate(o))}. اكتب السبب:",
+                new[] { "رجع الجهاز للإصلاح", "خطأ في الإدخال", "لم يُسلَّم فعلاً" }, "تغيير الحالة");
+            if (reason == null) return;
+        }
         var n = o.Clone();
+        if (reason != null) Locking.Log(n, $"تغيير الحالة {prev} ← {status} — السبب: {reason}");
         var now = Txt.Now;
         n.Status = status; n.UpdatedAt = now; n.StatusAt = now;
         n.ReadyAt = status == K.Ready ? now : null;
@@ -53,8 +61,11 @@ public static class Acts
         Store.SaveOrder(n);
         Store.NotifyChanged();
         double rem = status == K.Done ? Calc.RemainingOf(n) : 0;
+        if (reason != null) Notify.Alert("locked", $"🔒 تغيير حالة طلب {prev}\n{n.RefNo} — {n.CustomerName} — {n.Device}\n{prev} ← {status}\nالسبب: {reason}");
+        if (rem > 0 && n.AccountId == null)
+            Notify.Alert("debt", $"⚠️ سُلّم جهاز وعليه دين\n{n.RefNo} — {n.CustomerName} ({n.Phone})\n{n.Device}\nالمتبقي: {Txt.Money(rem)} من {Txt.Money(n.Price)}");
         bool overpaid = status == K.Cancelled && n.Paid > Calc.ChargeOf(n);
-        if (overpaid) Dialogs.Warn($"{n.Device}: أُلغي وعليه دفعات {Txt.Money(n.Paid)}.\nافتح الطلب واكتب أجرة الفحص، أو احذف الدفعة التي أرجعتها للزبون.");
+        if (overpaid) Dialogs.Warn($"{n.Device}: أُلغي وعليه دفعات {Txt.Money(n.Paid)}.\nافتح الطلب واكتب أجرة الفحص، أو سجّل المبلغ الذي أرجعته للزبون بزر «إرجاع مبلغ».");
         else Toast.Show(rem > 0 ? $"{n.Device}: سُلّم وعليه متبقٍ {Txt.Money(rem)}" : $"{n.Device}: {status}", rem > 0 ? Tone.Warning : Tone.Success);
     }
 
@@ -63,8 +74,18 @@ public static class Acts
         o = Calc.Find(o?.Id);
         if (o == null) return false;
         var extra = o.Paid > 0 ? $"\nعليه دفعات مسجّلة بقيمة {Txt.Money(o.Paid)} وربح {Txt.Money(Calc.ProfitOf(o))} — ستخرج من التقارير." : "";
-        if (!W.Confirm($"نقل {o.RefNo} إلى المحذوفات؟", $"{o.CustomerName} — {o.Device}{extra}\nيمكنك استعادته لاحقًا من المحذوفات.", "نقل إلى المحذوفات", true)) return false;
+        string reason = null;
+        if (Locking.IsLocked(o))
+        {
+            reason = Ask.Reason($"حذف طلب {o.Status}", $"{o.RefNo} — {o.CustomerName} — {o.Device}{extra}\nاكتب سبب الحذف (يُسجَّل ويُرسل تنبيه):",
+                new[] { "طلب مكرر", "أُدخل بالخطأ" }, "نقل إلى المحذوفات");
+            if (reason == null) return false;
+            o = o.Clone();
+            Locking.Log(o, "حُذف — السبب: " + reason);
+        }
+        else if (!W.Confirm($"نقل {o.RefNo} إلى المحذوفات؟", $"{o.CustomerName} — {o.Device}{extra}\nيمكنك استعادته لاحقًا من المحذوفات.", "نقل إلى المحذوفات", true)) return false;
         Store.MoveToTrash(o);
+        Notify.Alert("delete", $"🗑 حُذف طلب\n{o.RefNo} — {o.CustomerName} — {o.Device}\nالحالة: {o.Status} — السعر: {Txt.Money(o.Price)} — المدفوع: {Txt.Money(o.Paid)}" + (reason != null ? "\nالسبب: " + reason : ""));
         Calc.ApplyStockChange(o.Parts, null);
         Store.NotifyChanged();
         Toast.Show($"نُقل {o.RefNo} إلى المحذوفات");

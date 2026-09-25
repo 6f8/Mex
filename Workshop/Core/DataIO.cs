@@ -82,7 +82,7 @@ public static class Backup
     public static void ResetAll()
     {
         CopyTo(SnapshotFile);
-        Store.ReplaceAll(new(), new(), new(), new(), new(), new(), new());
+        Store.ReplaceAll(new(), new(), new(), new(), new(), new(), new(), new(), new());
     }
 
     public static void RestoreSnapshot()
@@ -157,6 +157,8 @@ public static class WebBackup
         public List<SupplierTx> SupplierTx = new();
         public List<Driver> Drivers = new();
         public List<Defect> Defects = new();
+        public List<Reminder> Reminders = new();
+        public List<Account> Accounts = new();
         public Dictionary<string, string> Photos = new();
         public JsonObject Settings;
         public bool LegacyArray;
@@ -192,6 +194,7 @@ public static class WebBackup
             Expenses = ReadList(raw["expenses"], Json.Expense), Inventory = ReadList(raw["inventory"], Json.Inv),
             SupplierTx = ReadList(raw["supplierTx"], Json.Stx), Drivers = ReadList(raw["drivers"], Json.Driver),
             Defects = ReadList(raw["defects"], Json.Defect),
+            Reminders = ReadList(raw["reminders"], Json.Reminder), Accounts = ReadList(raw["accounts"], Json.Account),
             Settings = raw["settings"] as JsonObject, LegacyArray = node is JsonArray,
         };
         if (raw["photos"] is JsonObject ph)
@@ -230,7 +233,7 @@ public static class WebBackup
             Store.ReplaceAll(p.Orders, p.Trash,
                 p.LegacyArray ? Store.Inventory : p.Inventory, p.LegacyArray ? Store.Expenses : p.Expenses,
                 p.LegacyArray ? Store.SupplierTx : p.SupplierTx, p.LegacyArray ? Store.Drivers : p.Drivers,
-                p.LegacyArray ? null : p.Defects);
+                p.LegacyArray ? null : p.Defects, p.LegacyArray ? null : p.Reminders, p.LegacyArray ? null : p.Accounts);
             added = p.Orders.Count;
             if (p.Settings?["shop"] is JsonObject shop)
             {
@@ -265,7 +268,9 @@ public static class WebBackup
             var stx = Merge(Store.SupplierTx, p.SupplierTx, t => t.Id, ref dummy);
             var drv = Merge(Store.Drivers, p.Drivers, d => d.Id, ref dummy);
             var defs = Merge(Store.Defects, p.Defects, d => d.Id, ref dummy);
-            Store.ReplaceAll(orders, trash, inv, exps, stx, drv, defs);
+            var rems = Merge(Store.Reminders, p.Reminders, r => r.Id, ref dummy);
+            var accs = Merge(Store.Accounts, p.Accounts, a => a.Id, ref dummy);
+            Store.ReplaceAll(orders, trash, inv, exps, stx, drv, defs, rems, accs);
         }
         return added;
     }
@@ -285,6 +290,8 @@ public static class WebBackup
             ["supplierTx"] = new JsonArray(Store.SupplierTx.Select(t => (JsonNode)Json.ToJson(t)).ToArray()),
             ["drivers"] = new JsonArray(Store.Drivers.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
             ["defects"] = new JsonArray(Store.Defects.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
+            ["reminders"] = new JsonArray(Store.Reminders.Select(r => (JsonNode)Json.ToJson(r)).ToArray()),
+            ["accounts"] = new JsonArray(Store.Accounts.Select(a => (JsonNode)Json.ToJson(a)).ToArray()),
             ["settings"] = new JsonObject
             {
                 ["shop"] = new JsonObject { ["name"] = Store.ShopName, ["phone"] = Store.ShopPhone, ["address"] = Store.ShopAddress, ["terms"] = Store.Terms },
@@ -356,11 +363,11 @@ public static class Csv
         Write(file, new[] { head }.Concat(rows));
     }
 
-    public static readonly string[] InvHead = { "الموديل", "اسم القطعة", "التصنيف", "المورد", "سعر الشراء", "سعر البيع", "ملاحظات", "الكمية", "حد التنبيه" };
+    public static readonly string[] InvHead = { "الموديل", "اسم القطعة", "التصنيف", "المورد", "سعر الشراء", "سعر البيع", "ملاحظات", "الكمية", "حد التنبيه", "ضمان المورد (أيام)" };
 
     public static void ExportInventory(string file) =>
         Write(file, new[] { InvHead.Cast<object>().ToArray() }.Concat(Store.Inventory.Select(i => new object[]
-            { i.Compatible, i.Name, i.Category, i.Supplier, i.Cost, i.SalePrice, i.Notes, i.Qty?.ToString() ?? "", i.MinQty?.ToString() ?? "" })));
+            { i.Compatible, i.Name, i.Category, i.Supplier, i.Cost, i.SalePrice, i.Notes, i.Qty?.ToString() ?? "", i.MinQty?.ToString() ?? "", i.SupWarranty?.ToString() ?? "" })));
 
     public static List<InvItem> ReadInventory(string file)
     {
@@ -369,7 +376,7 @@ public static class Csv
         return rows.Skip(1).Select(r => Json.Inv(new JsonObject
         {
             ["compatible"] = C(r, 0), ["name"] = C(r, 1), ["category"] = C(r, 2), ["supplier"] = C(r, 3), ["cost"] = C(r, 4),
-            ["salePrice"] = C(r, 5), ["notes"] = C(r, 6), ["qty"] = C(r, 7), ["minQty"] = C(r, 8), ["id"] = Txt.Uid("inv")
+            ["salePrice"] = C(r, 5), ["notes"] = C(r, 6), ["qty"] = C(r, 7), ["minQty"] = C(r, 8), ["supWarranty"] = C(r, 9), ["id"] = Txt.Uid("inv")
         })).Where(i => i != null).ToList();
     }
 }

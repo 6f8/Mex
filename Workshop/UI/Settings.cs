@@ -15,6 +15,7 @@ public partial class SettingsDialog : DialogShell
     readonly Toggle labelAfterSave = new() { Text = "عرض طباعة ملصق الجهاز بعد حفظ طلب جديد", Width = 600 };
     readonly Toggle labelPass = new() { Text = "طباعة رمز القفل على ملصق الجهاز", Width = 600 };
     readonly Toggle clearPass = new() { Text = "مسح رمز القفل تلقائياً عند تسليم الجهاز", Width = 600 };
+    readonly Toggle lockDelivered = new() { Text = "قفل الطلبات المسلّمة والملغاة: تعديل السعر أو الدفعات أو الحالة أو الحذف يحتاج كتابة السبب", Width = 760, Height = 40 };
     readonly List<(string Key, Toggle T)> dash = new();
     readonly Label backupInfo = W.Note("", 640, 48);
     readonly Label autoInfo = W.Note("", 640, 48);
@@ -28,9 +29,10 @@ public partial class SettingsDialog : DialogShell
         tabs.Add("القوائم", ListsTab(), "list");
         tabs.Add("الفنيون", TechsTab(), "wrench");
         tabs.Add("رسائل واتساب", MessagesTab(), "message-circle", "الرسائل");
-        tabs.Add("الخصوصية", PrivacyTab(), "shield-check");
+        tabs.Add("التقرير اليومي والتنبيهات", NotifyTab(), "send", "التنبيهات");
+        tabs.Add("الخصوصية والحماية", PrivacyTab(), "shield-check", "الحماية");
         tabs.Add("النسخ الاحتياطي والبيانات", DataTab(), "database", "البيانات");
-        tabs.SelectedIndex = page switch { "lists" => 2, "techs" => 3, "messages" => 4, _ => 0 };
+        tabs.SelectedIndex = page switch { "lists" => 2, "techs" => 3, "messages" => 4, "notify" => 5, _ => 0 };
         Body.Controls.Add(tabs);
 
         AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save").Click += (s, e) => Save();
@@ -92,6 +94,9 @@ public partial class SettingsDialog : DialogShell
         p.Controls.Add(W.Note("رمز قفل الجهاز يُحفظ ليتمكن الفني من فحصه؛ يمكنك إخفاؤه من الملصق أو مسحه بعد التسليم.", 640, 40));
         p.Controls.Add(labelPass);
         p.Controls.Add(clearPass);
+        p.Controls.Add(W.Head("حماية الحسابات", 760));
+        p.Controls.Add(lockDelivered);
+        p.Controls.Add(W.Note("السبب يُسجَّل في «سجل التعديلات» داخل الطلب، ويُرسل تنبيه لصاحب المحل إن كانت التنبيهات مفعّلة. تسجيل دفعة جديدة أو إرجاع مبلغ لا يحتاج فتح القفل.", 760, 44));
         return p;
     }
 
@@ -194,6 +199,7 @@ public partial class SettingsDialog : DialogShell
         labelAfterSave.Checked = Store.Flag("label_after_save", true);
         labelPass.Checked = Store.LabelPasscode;
         clearPass.Checked = Store.ClearPasscodeOnDelivery;
+        lockDelivered.Checked = Locking.On;
         foreach (var (k, t) in dash) t.Checked = Store.DashCell(k);
         RefreshInfo();
     }
@@ -223,6 +229,8 @@ public partial class SettingsDialog : DialogShell
         Store.SetFlag("label_after_save", labelAfterSave.Checked);
         Store.SetFlag("privacy_label_passcode", labelPass.Checked);
         Store.SetFlag("privacy_clear_passcode", clearPass.Checked);
+        Store.SetFlag("lock_delivered", lockDelivered.Checked);
+        SaveNotify();
         foreach (var (k, t) in dash) Store.SetFlag("dash_" + k, t.Checked);
         if (themeChanged && palette.SelectedIndex >= 0)
         {

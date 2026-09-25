@@ -17,6 +17,8 @@ public class DefectDialog : DialogShell
     readonly NumericUpDown nCost = W.Money(200);
     readonly DateTimePicker dDate = new() { Width = 200, Format = DateTimePickerFormat.Short };
     readonly Toggle tgStock = new() { Text = "خصم قطعة من المخزون (لم تعد صالحة للاستعمال)", Width = 560, Height = 34, Visible = false };
+    readonly Label lblWarranty = W.Note("", 640, 26);
+    string supEnd = "";
     readonly List<InvItem> invItems = new();
     string invId, fromOrderTech = "";
 
@@ -53,6 +55,8 @@ public class DefectDialog : DialogShell
         r2.Controls.Add(W.Labeled("التكلفة", nCost));
         r2.Controls.Add(W.Labeled("التاريخ", dDate));
         flow.Controls.Add(r2);
+        lblWarranty.Font = Theme.FS(9.5f);
+        flow.Controls.Add(lblWarranty);
         flow.Controls.Add(W.Labeled("ملاحظة (سبب العطل)", tNote));
         tgStock.Margin = new Padding(6, 6, 6, 2);
         flow.Controls.Add(tgStock);
@@ -64,9 +68,13 @@ public class DefectDialog : DialogShell
             tName.Text = d.PartName; tSup.Text = d.Supplier; W.Set(nCost, d.Cost); tNote.Text = d.Note;
             dDate.Value = Txt.ParseDate(d.Date) ?? DateTime.Today;
             invId = d.InventoryItemId;
+            supEnd = d.SupWarrantyEnd;
+            ShowWarranty();
         }
         else if (cbPick.Items.Count > 0) cbPick.SelectedIndex = 0;
 
+        dDate.ValueChanged += (s, e) => ShowWarranty();
+        if (d == null && cbPick.Items.Count == 0) ShowWarranty();
         var ok = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
         AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
         ok.Click += (s, e) => Save();
@@ -82,24 +90,37 @@ public class DefectDialog : DialogShell
     void FromCandidate()
     {
         int i = cbPick.SelectedIndex;
-        if (i < 0 || i >= candidates.Count) { invId = null; fromOrderTech = order?.Technician ?? ""; return; }
+        if (i < 0 || i >= candidates.Count) { invId = null; fromOrderTech = order?.Technician ?? ""; supEnd = ""; ShowWarranty(); return; }
         var c = candidates[i];
         tName.Text = c.Part.Name; tSup.Text = c.Part.Supplier; W.Set(nCost, c.Part.Cost);
         invId = c.Part.InventoryItemId;
         fromOrderTech = c.From.Technician;
+        supEnd = SupWarranty.EndFor(c.Part, c.From);
+        ShowWarranty();
     }
 
     void FromInventory()
     {
         int i = cbInv.SelectedIndex - 1;
-        if (i < 0 || i >= invItems.Count) { invId = null; tgStock.Visible = false; return; }
+        if (i < 0 || i >= invItems.Count) { invId = null; tgStock.Visible = false; supEnd = ""; ShowWarranty(); return; }
         var it = invItems[i];
+        // وصلت معيبة: من يوم تسجيلها
+        var days = it.SupWarranty ?? SupWarranty.ForSupplier(it.Supplier);
+        supEnd = days is int dd ? Txt.Iso(dDate.Value.Date.AddDays(dd)) : "";
+        ShowWarranty();
         tName.Text = it.Compatible != "" ? $"{it.Name} ({it.Compatible})" : it.Name;
         tSup.Text = it.Supplier;
         W.Set(nCost, it.Cost);
         invId = it.Id;
         tgStock.Visible = it.Qty != null;
         tgStock.Checked = it.Qty != null && it.Qty > 0;
+    }
+
+    void ShowWarranty()
+    {
+        var on = Txt.Iso(dDate.Value);
+        lblWarranty.Text = "🛡 " + SupWarranty.Text(supEnd, on) + (SupWarranty.Valid(supEnd, on) ? " — من حقك إرجاعها" : "");
+        lblWarranty.ForeColor = supEnd == "" ? Theme.Muted : SupWarranty.Valid(supEnd, on) ? Pal.Good : Pal.Bad;
     }
 
     public static void ForOrder(Order o)
@@ -130,6 +151,7 @@ public class DefectDialog : DialogShell
         d.Cost = (double)nCost.Value;
         d.Note = tNote.Text.Trim();
         d.Date = Txt.Iso(dDate.Value);
+        d.SupWarrantyEnd = supEnd ?? "";
         if (existing == null)
         {
             d.InventoryItemId = invId;
@@ -165,12 +187,18 @@ public class ResolveDefectDialog : DialogShell
     readonly Label explain = W.Note("", 600, 44);
     readonly Control creditBox;
 
-    ResolveDefectDialog(Defect x) : base("إرجاع القطعة للمورد", 680, 470, "rotate-ccw", Pal.Amber)
+    ResolveDefectDialog(Defect x) : base("إرجاع القطعة للمورد", 680, 510, "rotate-ccw", Pal.Amber)
     {
         d = x;
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface };
         flow.Controls.Add(W.Head($"{d.PartName} — {Txt.Money(d.Cost)}", 600));
         if (d.RefNo != "") flow.Controls.Add(W.Note($"من الطلب {d.RefNo} — {d.Device}", 600));
+        if (d.SupWarrantyEnd != "")
+        {
+            var wl = W.Note("🛡 " + SupWarranty.Text(d.SupWarrantyEnd, d.Date), 600);
+            wl.ForeColor = SupWarranty.Valid(d.SupWarrantyEnd, d.Date) ? Pal.Good : Pal.Bad;
+            flow.Controls.Add(wl);
+        }
         flow.Controls.Add(W.Note("ماذا فعل المورد؟", 600, 22));
         how.Margin = new Padding(6, 2, 6, 6);
         flow.Controls.Add(how);
@@ -241,6 +269,7 @@ public class DefectsDialog : DialogShell
         grid.Columns.Add("cost", "التكلفة");
         grid.Columns.Add("ref", "الطلب");
         grid.Columns.Add("tech", "الفني");
+        grid.Columns.Add("warranty", "ضمان المورد");
         grid.Columns.Add("state", "الحالة");
         grid.Columns["part"].FillWeight = 200;
         grid.CellFormatting += (s, e) =>
@@ -248,6 +277,12 @@ public class DefectsDialog : DialogShell
             if (e.RowIndex < 0 || e.RowIndex >= rows.Count || grid.Columns[e.ColumnIndex].Name != "state") return;
             var d = rows[e.RowIndex];
             e.CellStyle.ForeColor = d.Status == "pending" ? Pal.AmberInk : d.Resolution == "rejected" ? Pal.Bad : Pal.Good;
+        };
+        grid.CellFormatting += (s, e) =>
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= rows.Count || grid.Columns[e.ColumnIndex].Name != "warranty") return;
+            var d = rows[e.RowIndex];
+            if (d.SupWarrantyEnd != "") e.CellStyle.ForeColor = SupWarranty.Valid(d.SupWarrantyEnd, d.Date) ? Pal.Good : Pal.Bad;
         };
         grid.CellDoubleClick += (s, e) => Resolve();
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, BackColor = Theme.Surface, WrapContents = false };
@@ -306,6 +341,7 @@ public class DefectsDialog : DialogShell
         foreach (var d in rows)
             grid.Rows.Add(Txt.FmtShortDate(d.Date), d.PartName + (d.Note != "" ? "  — " + d.Note : ""), d.Supplier == "" ? "—" : d.Supplier, Txt.Money(d.Cost),
                 d.RefNo == "" ? "—" : d.RefNo, d.Technician == "" ? "—" : d.Technician,
+                d.SupWarrantyEnd == "" ? "—" : SupWarranty.Valid(d.SupWarrantyEnd, d.Date) ? "ساري ✓" : "منتهٍ",
                 Defects.StateText(d) + (d.Resolution == "credit" ? " " + Txt.Money(d.Credited) : ""));
         var pending = Store.Defects.Where(d => d.Status == "pending").ToList();
         sum.Text = pending.Count == 0 ? "لا توجد قطع بانتظار الإرجاع" : $"{pending.Count} قطعة بانتظار الإرجاع بقيمة {Txt.Money(pending.Sum(d => d.Cost))} — انقر مرتين على القطعة لإرجاعها";

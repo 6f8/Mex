@@ -48,6 +48,7 @@ public class MainForm : BaseForm
         new("customers", "الزبائن", "users", Violet, () => new CustomersPage()),
         new("inventory", "قطع الغيار والأسعار", "package", Amber, () => new InventoryPage()),
         new("suppliers", "حسابات الموردين", "store", Teal, () => new SuppliersPage()),
+        new("accounts", "التجار والشركات", "briefcase", Violet, () => new AccountsPage()),
         new("reports", "التقارير والمصاريف", "chart-column", Green, () => new ReportsPage()),
     };
 
@@ -59,7 +60,7 @@ public class MainForm : BaseForm
     readonly TopBar top;
     readonly Panel logo;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 30_000 };
-    NavBtn trashBtn, defectsBtn;
+    NavBtn trashBtn, defectsBtn, remindersBtn;
     string current;
     bool reloadQueued;
 
@@ -111,6 +112,8 @@ public class MainForm : BaseForm
             return b;
         }
         Tool("تقفيل اليوم", "receipt", Green, CloseDayDialog.Open);
+        remindersBtn = Tool("التذكيرات", "bell", Amber, RemindersDialog.Open);
+        remindersBtn.BadgeColor = Red;
         defectsBtn = Tool("القطع المعيبة", "triangle-alert", Amber, DefectsDialog.Open);
         defectsBtn.BadgeColor = Amber;
         Tool("تعريفات الطابعات", "printer", Slate, DriversDialog.Open);
@@ -143,19 +146,22 @@ public class MainForm : BaseForm
         Controls.Add(side);
 
         Store.Changed += QueueReload;
-        timer.Tick += (s, e) => { top.Invalidate(); UpdateBadges(); };
+        timer.Tick += (s, e) => { top.Invalidate(); UpdateBadges(); Notify.Tick(); };
         Shown += (s, e) =>
         {
             Go("dashboard");
             UpdateBadges();
             timer.Start();
             AutoBackup.Schedule();
+            Notify.Tick();
+            if (Reminders.DueCount > 0) Toast.Show($"لديك {Reminders.DueCount} تذكير مستحق اليوم — من «التذكيرات»", Tone.Info);
         };
         FormClosing += (s, e) =>
         {
             timer.Stop();
             Store.Changed -= QueueReload;
             if (AutoBackup.Dir != "") AutoBackup.Run();
+            Notify.OnClosing();
         };
     }
 
@@ -261,6 +267,8 @@ public class MainForm : BaseForm
         nav["suppliers"].Count = Calc.SupplierBalances().Count(b => b.Balance > 0.005);
         trashBtn.Count = Store.Trash.Count;
         defectsBtn.Count = Defects.PendingCount;
+        remindersBtn.Count = Reminders.DueCount;
+        nav["accounts"].Count = Store.Accounts.Count(a => Accounts.Due(a) > 0);
     }
 
     // ---------------- أدوات ----------------

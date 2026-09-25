@@ -63,6 +63,9 @@ public class OrderForm : DialogShell
     readonly ComboBox cbType = W.Combo(200, K.IssueTypes), cbStatus = W.Combo(200, K.Statuses), cbWarranty = W.Combo(200, K.Warranties);
     readonly List<Toggle> accToggles = new();
     readonly ComboBox cbTech = W.Combo(200, Array.Empty<string>());
+    readonly ComboBox cbAccount = W.Combo(300, Array.Empty<string>());
+    readonly List<Account> accountItems = new();
+    readonly Label lblAccount = W.Note("", 600, 22);
     const string NoTech = "— بدون فني —";
     readonly Label lblImei = W.Note("", 420, 22);
     readonly Panel warrantyBox = new() { Width = 950, Height = 46, BackColor = Theme.Surface, Margin = new Padding(6, 4, 6, 4), Visible = false };
@@ -100,8 +103,33 @@ public class OrderForm : DialogShell
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Surface, Padding = new Padding(0, 0, 0, 20) };
         FlowLayoutPanel Row() { var r = W.Flow(); r.Margin = new Padding(0, 0, 0, 2); flow.Controls.Add(r); return r; }
 
+        // ---------- قفل الطلب المسلّم ----------
+        if (existing != null && Locking.IsLocked(existing))
+        {
+            var lockNote = new Label
+            {
+                Text = $"🔒 هذا الطلب {existing.Status}. تعديل السعر أو الدفعات السابقة أو الحالة يحتاج كتابة السبب عند الحفظ، ويُسجَّل في سجل الطلب.",
+                AutoSize = false, Width = 950, Height = 40, Margin = new Padding(6, 6, 6, 2), Font = Theme.F(9.5f), ForeColor = Pal.AmberInk, BackColor = Pal.AmberSoft,
+                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 10, 0)
+            };
+            flow.Controls.Add(lockNote);
+        }
+
         // ---------- الزبون والجهاز ----------
         flow.Controls.Add(W.Head("الزبون والجهاز", 960));
+        accountItems.AddRange(Store.Accounts.OrderBy(a => a.Name, StringComparer.CurrentCulture));
+        if (accountItems.Count > 0 || Accounts.Find(src.AccountId) != null)
+        {
+            if (Accounts.Find(src.AccountId) is Account cur && !accountItems.Contains(cur)) accountItems.Add(cur);
+            cbAccount.Items.Add("— زبون عادي —");
+            cbAccount.Items.AddRange(accountItems.Select(a => (object)$"{a.Name}   ({Accounts.KindText(a)})").ToArray());
+            cbAccount.SelectedIndex = Math.Max(0, accountItems.FindIndex(a => a.Id == src.AccountId) + 1);
+            var ra = W.Flow(false);
+            ra.Controls.Add(W.Labeled("الحساب (تاجر أو شركة)", cbAccount, "store"));
+            lblAccount.Margin = new Padding(6, 30, 6, 0);
+            ra.Controls.Add(lblAccount);
+            flow.Controls.Add(ra);
+        }
         var r1 = Row();
         r1.Controls.Add(W.Labeled("اسم الزبون *", tName, "user"));
         r1.Controls.Add(W.Labeled("رقم الهاتف", tPhone, "phone"));
@@ -157,6 +185,7 @@ public class OrderForm : DialogShell
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "supplier", HeaderText = "المورد", FillWeight = 150 });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cost", HeaderText = "التكلفة", FillWeight = 90, DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter } });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "inv", Visible = false });
+        parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "supw", Visible = false });
         parts.Columns.Add(new DataGridViewButtonColumn { Name = "rm", HeaderText = "", Text = "حذف", UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat, FillWeight = 40, DefaultCellStyle = { BackColor = Theme.DangerSoft, ForeColor = Theme.Danger, SelectionBackColor = Theme.DangerSoft, SelectionForeColor = Theme.Danger } });
         parts.AllowUserToAddRows = false;
         var partsHost = new Panel { Width = 956, Height = 170, Margin = new Padding(6, 2, 6, 2), BackColor = Theme.Surface };
@@ -167,7 +196,7 @@ public class OrderForm : DialogShell
         var bAddPart = W.Btn("قطعة", "plus", BtnKind.Secondary, 100);
         partBtns.Controls.Add(bPick);
         partBtns.Controls.Add(bAddPart);
-        bAddPart.Click += (s, e) => { int i = parts.Rows.Add("", "", "", ""); parts.CurrentCell = parts.Rows[i].Cells["name"]; parts.BeginEdit(true); };
+        bAddPart.Click += (s, e) => { int i = parts.Rows.Add("", "", "", "", null, ""); parts.CurrentCell = parts.Rows[i].Cells["name"]; parts.BeginEdit(true); };
         bPick.Click += (s, e) => PickPart();
         parts.CellContentClick += (s, e) =>
         {
@@ -226,10 +255,13 @@ public class OrderForm : DialogShell
         m2.Controls.Add(W.Labeled("ملاحظة", tPayNote));
         var bAddPay = W.Btn("تسجيل", "wallet", BtnKind.Success, 90); bAddPay.Margin = new Padding(4, 27, 4, 4);
         var bFull = W.Btn("استلام المبلغ كاملاً", "check", BtnKind.Soft, 150); bFull.Margin = new Padding(4, 27, 4, 4);
+        var bRefund = W.Btn("إرجاع مبلغ", "rotate-ccw", BtnKind.Ghost, 110); bRefund.Margin = new Padding(4, 27, 4, 4);
         m2.Controls.Add(bAddPay);
         m2.Controls.Add(bFull);
+        m2.Controls.Add(bRefund);
         bAddPay.Click += (s, e) => AddPayment();
         bFull.Click += (s, e) => PayFull();
+        bRefund.Click += (s, e) => AddRefund();
 
         // ---------- التواريخ ----------
         flow.Controls.Add(W.Head("التواريخ", 960));
@@ -270,7 +302,7 @@ public class OrderForm : DialogShell
                 var o = existing;
                 saved = true;
                 Close();
-                Ui2.Later(() => Acts.New(new Order { CustomerName = o.CustomerName, Phone = o.Phone, Device = o.Device, Passcode = o.Passcode, Accessories = o.Accessories.ToList() }));
+                Ui2.Later(() => Acts.New(new Order { CustomerName = o.CustomerName, Phone = o.Phone, Device = o.Device, Passcode = o.Passcode, Accessories = o.Accessories.ToList(), AccountId = o.AccountId }));
             };
         }
         bSave.Click += (s, e) => Save();
@@ -287,6 +319,8 @@ public class OrderForm : DialogShell
         W.Pick(cbWarranty, cbWarranty.Items.Contains(src.Warranty) ? src.Warranty : K.Warranties[0]);
         if (src.Technician != "") W.Pick(cbTech, Techs.Find(src.Technician)?.Name ?? src.Technician);
         W.Set(nPrice, existing?.Price ?? 0);
+        AccountChanged(false);
+        cbAccount.SelectedIndexChanged += (s, e) => AccountChanged(true);
         W.Set(nFee, existing?.CheckFee ?? 0);
         tImei.Text = src.Imei;
         foreach (var c in chips) c.State = existing != null && existing.Checks.TryGetValue(c.Key, out var v) ? v : "";
@@ -297,8 +331,8 @@ public class OrderForm : DialogShell
         SetDate(dDelivered, existing?.DateDelivered);
         tNotes.Text = existing?.Notes ?? "";
         foreach (var t in accToggles) t.Checked = src.Accessories.Contains(t.Text);
-        foreach (var p in existing?.Parts ?? new()) parts.Rows.Add(p.Name, p.Supplier, p.Cost > 0 ? Txt.Num(p.Cost) : "", p.InventoryItemId ?? "");
-        if (existing == null || existing.Parts.Count == 0) parts.Rows.Add("", "", "", "");
+        foreach (var p in existing?.Parts ?? new()) parts.Rows.Add(p.Name, p.Supplier, p.Cost > 0 ? Txt.Num(p.Cost) : "", p.InventoryItemId ?? "", null, p.SupWarranty?.ToString() ?? "");
+        if (existing == null || existing.Parts.Count == 0) parts.Rows.Add("", "", "", "", null, "");
         if (existing != null)
         {
             payments.AddRange(existing.PaymentHistory.Select(p => new Payment { Id = p.Id, Amount = p.Amount, Date = p.Date, Note = p.Note, Method = p.Method }));
@@ -355,13 +389,29 @@ public class OrderForm : DialogShell
     List<string> SupplierNames() => Calc.GroupByName(Store.Orders.SelectMany(o => o.Parts.Select(p => p.Supplier))
         .Concat(Store.Inventory.Select(i => i.Supplier)).Concat(Store.SupplierTx.Select(t => t.Supplier)), x => x).Select(g => g.Label).ToList();
 
+    Account SelectedAccount => cbAccount.SelectedIndex > 0 && cbAccount.SelectedIndex - 1 < accountItems.Count ? accountItems[cbAccount.SelectedIndex - 1] : null;
+
+    void AccountChanged(bool user)
+    {
+        var a = SelectedAccount;
+        if (a == null) { lblAccount.Text = ""; return; }
+        var parts = new List<string>();
+        if (a.Discount > 0) parts.Add($"خصم {Txt.Num(a.Discount)}% على أسعار القطع");
+        if (Accounts.Due(a) > 0) parts.Add("مستحق عليه " + Txt.Money(Accounts.Due(a)));
+        if (a.Note != "") parts.Add(a.Note);
+        lblAccount.Text = string.Join("   •   ", parts);
+        lblAccount.ForeColor = Theme.BrandDark;
+        if (user && tName.Text.Trim() == "") { tName.Text = a.Name; if (tPhone.Text.Trim() == "") tPhone.Text = a.Phone; }
+    }
+
     // ---------------- القطع ----------------
     List<Part> FormParts() => parts.Rows.Cast<DataGridViewRow>().Select(r => new Part
     {
         Name = Convert.ToString(r.Cells["name"].Value)?.Trim() ?? "",
         Supplier = Convert.ToString(r.Cells["supplier"].Value)?.Trim() ?? "",
         Cost = Math.Max(0, Txt.ParseMoney(r.Cells["cost"].Value)),
-        InventoryItemId = Convert.ToString(r.Cells["inv"].Value) is string s && s != "" ? s : null
+        InventoryItemId = Convert.ToString(r.Cells["inv"].Value) is string s && s != "" ? s : null,
+        SupWarranty = Txt.OptInt(r.Cells["supw"].Value) is int w && w > 0 ? w : null
     }).Where(p => p.Name != "" || p.Cost > 0).ToList();
 
     void PickPart()
@@ -380,9 +430,13 @@ public class OrderForm : DialogShell
         }
         // صف البداية الفارغ يُستبدل
         if (parts.Rows.Count == 1 && FormParts().Count == 0) parts.Rows.Clear();
-        parts.Rows.Add(i.Compatible != "" ? $"{i.Name} ({i.Compatible})" : i.Name, i.Supplier, i.Cost > 0 ? Txt.Num(i.Cost) : "", i.Id);
-        if (nPrice.Value == 0 && i.SalePrice > 0) { W.Set(nPrice, i.SalePrice); Toast.Show($"أُضيفت {i.Name} وضُبط السعر {Txt.Money(i.SalePrice)}"); }
-        else Toast.Show($"أُضيفت {i.Name}. سعر البيع المقترح {Txt.Money(i.SalePrice)}");
+        parts.Rows.Add(i.Compatible != "" ? $"{i.Name} ({i.Compatible})" : i.Name, i.Supplier, i.Cost > 0 ? Txt.Num(i.Cost) : "", i.Id, null, i.SupWarranty?.ToString() ?? "");
+        // سعر التاجر: السعر المقترح ناقص خصم حسابه
+        var acc = SelectedAccount;
+        double sale = Accounts.PriceFor(acc, i.SalePrice);
+        string who = acc != null && acc.Discount > 0 ? $" (سعر {acc.Name} بخصم {Txt.Num(acc.Discount)}%)" : "";
+        if (nPrice.Value == 0 && sale > 0) { W.Set(nPrice, sale); Toast.Show($"أُضيفت {i.Name} وضُبط السعر {Txt.Money(sale)}{who}"); }
+        else Toast.Show($"أُضيفت {i.Name}. سعر البيع المقترح {Txt.Money(sale)}{who}");
         UpdateMoney();
     }
 
@@ -393,7 +447,11 @@ public class OrderForm : DialogShell
     void RenderPayments()
     {
         pays.Rows.Clear();
-        foreach (var p in payments) pays.Rows.Add(Txt.Money(p.Amount), p.Method, Txt.FmtDate(p.Date), p.Note);
+        foreach (var p in payments)
+        {
+            int i = pays.Rows.Add(p.IsRefund ? "↩ " + Txt.Money(-p.Amount) : Txt.Money(p.Amount), p.Method, Txt.FmtDate(p.Date), p.Note);
+            if (p.IsRefund) pays.Rows[i].DefaultCellStyle.ForeColor = Pal.Bad;
+        }
         UpdateMoney();
     }
 
@@ -403,6 +461,17 @@ public class OrderForm : DialogShell
         if (a <= 0) { nPayAmount.Focus(); Toast.Show("أدخل مبلغ الدفعة.", Tone.Warning); return; }
         payments.Add(new Payment { Id = Txt.Uid("inst"), Amount = a, Date = Txt.Iso(dPay.Value), Note = tPayNote.Text.Trim(), Method = cbMethod.Text });
         W.Set(nPayAmount, 0); tPayNote.Clear();
+        RenderPayments();
+    }
+
+    void AddRefund()
+    {
+        double paid = FormPaid;
+        if (paid <= 0) { Toast.Show("لا توجد دفعات لإرجاع مبلغ منها", Tone.Info); return; }
+        double due = Cancelling ? (double)nFee.Value : (double)nPrice.Value;
+        using var d = new RefundDialog(tDevice.Text.Trim() == "" ? "الطلب" : tDevice.Text.Trim(), paid, Math.Max(0, paid - due));
+        if (d.ShowModal() != DialogResult.OK) return;
+        payments.Add(new Payment { Id = Txt.Uid("rf"), Amount = -d.Amount, Date = d.Date, Method = d.Method, Note = "استرجاع: " + d.Reason });
         RenderPayments();
     }
 
@@ -530,7 +599,7 @@ public class OrderForm : DialogShell
     // ---------------- الإغلاق والحفظ ----------------
     string Snapshot() => string.Join("|", new[]
     {
-        tName.Text, tPhone.Text, tDevice.Text, tPass.Text, tImei.Text, cbType.Text, cbStatus.Text, tIssue.Text, cbWarranty.Text, cbTech.Text,
+        tName.Text, tPhone.Text, tDevice.Text, tPass.Text, tImei.Text, cbType.Text, cbStatus.Text, tIssue.Text, cbWarranty.Text, cbTech.Text, cbAccount.Text,
         nPrice.Value.ToString(), nFee.Value.ToString(), Txt.Iso(dReceived.Value), DateOf(dEstimated), DateOf(dDelivered), tNotes.Text,
         string.Join(",", accToggles.Where(t => t.Checked).Select(t => t.Text)),
         string.Join(";", FormParts().Select(p => $"{p.Name}/{p.Supplier}/{p.Cost}/{p.InventoryItemId}")),
@@ -560,7 +629,7 @@ public class OrderForm : DialogShell
         bool cancelling = Cancelling;
         if (!cancelling && price > 0 && paid > price) { Dialogs.Warn($"المبالغ المقبوضة ({Txt.Money(paid)}) أكبر من السعر ({Txt.Money(price)}). عدّل الدفعات أو السعر."); return; }
         if (!cancelling && price <= 0 && paid > 0 && warrantyOf == null && !W.Confirm("السعر صفر", "سجّلت دفعات والسعر صفر. هل تريد الحفظ على أي حال؟", "حفظ")) return;
-        if (cancelling && paid > checkFee) { Dialogs.Warn($"الطلب ملغى والمقبوض ({Txt.Money(paid)}) أكبر من أجرة الفحص ({Txt.Money(checkFee)}).\nاكتب أجرة الفحص، واحذف أو عدّل الدفعة التي أرجعتها للزبون."); return; }
+        if (cancelling && paid > checkFee) { Dialogs.Warn($"الطلب ملغى والمقبوض ({Txt.Money(paid)}) أكبر من أجرة الفحص ({Txt.Money(checkFee)}).\nاكتب أجرة الفحص، أو سجّل المبلغ الذي أرجعته للزبون بزر «إرجاع مبلغ»."); return; }
         var imei = Imei;
         if (imei.Length == 15 && imei.All(char.IsAsciiDigit) && !Calc.ImeiValid(imei) &&
             !W.Confirm("رقم IMEI غير صحيح", $"{imei}\nرقم التحقق لا يطابق. هل تريد الحفظ على أي حال؟", "حفظ على أي حال")) { tImei.Focus(); return; }
@@ -576,6 +645,27 @@ public class OrderForm : DialogShell
             }
         }
         var status = cbStatus.Text;
+        // الطلب المسلّم أو الملغى: تغيير السعر أو الدفعات السابقة أو الحالة يحتاج سبباً
+        string lockNote = null;
+        if (existing != null && Locking.IsLocked(existing))
+        {
+            var diffs = new List<string>();
+            if (Math.Abs(price - existing.Price) > 0.001) diffs.Add($"السعر {Txt.Money(existing.Price)} ← {Txt.Money(price)}");
+            if (Math.Abs(checkFee - existing.CheckFee) > 0.001) diffs.Add($"أجرة الفحص {Txt.Money(existing.CheckFee)} ← {Txt.Money(checkFee)}");
+            double oldCost = Calc.PartsCost(existing), newCost = FormParts().Sum(p => p.Cost);
+            if (Math.Abs(oldCost - newCost) > 0.001) diffs.Add($"تكلفة القطع {Txt.Money(oldCost)} ← {Txt.Money(newCost)}");
+            if (status != existing.Status) diffs.Add($"الحالة {existing.Status} ← {status}");
+            var kept = payments.Select(p => p.Id).ToHashSet();
+            foreach (var p in existing.PaymentHistory.Where(p => !kept.Contains(p.Id)))
+                diffs.Add($"حُذفت {(p.IsRefund ? "حركة إرجاع" : "دفعة")} {Txt.Money(Math.Abs(p.Amount))} بتاريخ {Txt.FmtDate(p.Date)}");
+            if (diffs.Count > 0)
+            {
+                var reason = Ask.Reason("تعديل طلب " + existing.Status, $"هذا الطلب {existing.Status}. التغييرات:\n- " + string.Join("\n- ", diffs),
+                    new[] { "خطأ في الإدخال", "خصم للزبون", "تصحيح السعر", "رجع الجهاز للإصلاح" }, "حفظ التعديل");
+                if (reason == null) return;
+                lockNote = string.Join("؛ ", diffs) + " — السبب: " + reason;
+            }
+        }
         var now = Txt.Now;
         string delivered = DateOf(dDelivered);
         if (status == K.Done && delivered == "") delivered = Txt.Today;
@@ -589,6 +679,7 @@ public class OrderForm : DialogShell
         o.Issue = tIssue.Text.Trim();
         o.IssueType = cbType.Text;
         o.Technician = cbTech.SelectedIndex <= 0 ? "" : cbTech.Text;
+        if (cbAccount.Items.Count > 0) o.AccountId = SelectedAccount?.Id;
         o.Passcode = justDelivered && Store.ClearPasscodeOnDelivery ? "" : tPass.Text.Trim();
         o.Imei = imei;
         o.CheckFee = checkFee;
@@ -616,9 +707,18 @@ public class OrderForm : DialogShell
             if (photoData != null) { o.PhotoRef = "ph_" + o.Id; Store.SetPhoto(o.PhotoRef, photoData); }
             else { if (existing?.PhotoRef != null) Store.RemovePhoto(existing.PhotoRef); o.PhotoRef = null; }
         }
+        var oldIds = existing?.PaymentHistory.Select(p => p.Id).ToHashSet() ?? new HashSet<string>();
+        var newRefunds = o.PaymentHistory.Where(p => p.IsRefund && !oldIds.Contains(p.Id)).ToList();
+        foreach (var rf in newRefunds) Locking.Log(o, $"أُرجع للزبون {Txt.Money(-rf.Amount)} ({rf.Method}) — {rf.Note.Replace("استرجاع: ", "")}");
+        if (lockNote != null) Locking.Log(o, "تعديل بعد الإغلاق: " + lockNote);
         try { Store.SaveOrder(o); }
         catch (Exception ex) { Dialogs.Error("تعذّر حفظ الطلب: " + ex.Message); return; }
         var ranOut = Calc.ApplyStockChange(existing?.Parts, o.Parts);
+        foreach (var rf in newRefunds)
+            Notify.Alert("refund", $"↩️ إرجاع مبلغ للزبون\n{o.RefNo} — {o.CustomerName} — {o.Device}\nالمبلغ: {Txt.Money(-rf.Amount)} ({rf.Method})\n{rf.Note}");
+        if (lockNote != null) Notify.Alert("locked", $"🔒 تعديل طلب {existing.Status}\n{o.RefNo} — {o.CustomerName} — {o.Device}\n{lockNote}");
+        if (justDelivered && o.AccountId == null && Calc.RemainingOf(o) > 0)
+            Notify.Alert("debt", $"⚠️ سُلّم جهاز وعليه دين\n{o.RefNo} — {o.CustomerName} ({o.Phone})\n{o.Device}\nالمتبقي: {Txt.Money(Calc.RemainingOf(o))} من {Txt.Money(o.Price)}");
         saved = true;
         DialogResult = DialogResult.OK;
         bool isNew = existing == null, label = tgLabel.Checked;

@@ -147,9 +147,10 @@ public static class Calc
             c.Profit = active.Sum(ProfitOf);
             c.Last = c.Orders.Select(o => o.DateReceived).DefaultIfEmpty("").Max(StringComparer.Ordinal);
             // الدين = جهاز سُلّم ولم يُدفع كاملًا. المبلغ على جهاز ما زال في الورشة «متوقع» وليس دينًا
-            c.Unpaid = c.Orders.Where(o => (o.Status == K.Done || o.Status == K.Cancelled) && RemainingOf(o) > 0)
+            // طلبات التجار والشركات تُسدَّد من حساباتهم فلا تُحسب ديناً على الزبون
+            c.Unpaid = c.Orders.Where(o => o.AccountId == null && (o.Status == K.Done || o.Status == K.Cancelled) && RemainingOf(o) > 0)
                 .OrderBy(ClosedDate, StringComparer.Ordinal).ToList();
-            c.Pending = active.Where(o => IsOpen(o) && RemainingOf(o) > 0).OrderBy(o => o.DateReceived, StringComparer.Ordinal).ToList();
+            c.Pending = active.Where(o => o.AccountId == null && IsOpen(o) && RemainingOf(o) > 0).OrderBy(o => o.DateReceived, StringComparer.Ordinal).ToList();
             c.Debt = c.Unpaid.Sum(RemainingOf);
             c.Expected = c.Pending.Sum(RemainingOf);
             c.Oldest = c.Unpaid.Count > 0 ? ClosedDate(c.Unpaid[0]) : "";
@@ -254,7 +255,7 @@ public static class Calc
     {
         public List<Order> List, Active, Received;
         public List<Expense> Exps;
-        public double Revenue, Fees, Parts, Expenses, Loss, Profit, Cash, Debt;
+        public double Revenue, Fees, Parts, Expenses, Loss, Profit, Cash, Debt, Refunds;
     }
 
     public static bool InRange(string d, string a, string b) => !string.IsNullOrEmpty(d) && string.CompareOrdinal(d, a) >= 0 && string.CompareOrdinal(d, b) <= 0;
@@ -274,7 +275,8 @@ public static class Calc
             Expenses = exps.Sum(e => e.Amount),
             Loss = list.Where(o => o.Status == K.Cancelled).Sum(PartsCost),
             Cash = Store.Orders.Sum(o => PaymentsInRange(o, inR)),
-            Debt = list.Sum(RemainingOf),
+            Debt = list.Where(o => o.AccountId == null).Sum(RemainingOf),
+            Refunds = -Store.Orders.SelectMany(o => o.PaymentHistory).Where(p => p.IsRefund && inR(p.Date)).Sum(p => p.Amount),
         };
         s.Profit = s.Revenue - s.Parts - s.Expenses - s.Loss;
         return s;
@@ -285,10 +287,10 @@ public static class Calc
     {
         public string D;
         public Dictionary<string, double> Methods;
-        public double CashIn, ExpTotal, SupPaid, Revenue, Parts, Loss, NewDebt, Profit, Drawer;
+        public double CashIn, ExpTotal, SupPaid, Revenue, Parts, Loss, NewDebt, Profit, Drawer, RefundTotal;
         public List<Expense> Exps;
         public List<Order> Received, Delivered, Cancelled;
-        public List<(Order O, Payment P)> Payments;
+        public List<(Order O, Payment P)> Payments, Refunds;
     }
 
     public static CloseDay Close(string d)
@@ -306,8 +308,11 @@ public static class Calc
         c.Revenue = closed.Sum(RevenueOf);
         c.Parts = c.Delivered.Sum(PartsCost);
         c.Loss = c.Cancelled.Sum(PartsCost);
-        c.NewDebt = closed.Sum(RemainingOf);
-        c.Payments = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d).Select(p => (o, p))).OrderByDescending(x => x.p.Amount).ToList();
+        c.NewDebt = closed.Where(o => o.AccountId == null).Sum(RemainingOf);
+        var all = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d).Select(p => (o, p))).ToList();
+        c.Payments = all.Where(x => !x.p.IsRefund).OrderByDescending(x => x.p.Amount).ToList();
+        c.Refunds = all.Where(x => x.p.IsRefund).ToList();
+        c.RefundTotal = -c.Refunds.Sum(x => x.P.Amount);
         c.Profit = c.Revenue - c.Parts - c.ExpTotal - c.Loss;
         c.Drawer = c.Methods.GetValueOrDefault(Lists.Cash) - c.ExpTotal - c.SupPaid;
         return c;
@@ -315,8 +320,9 @@ public static class Calc
 
     public static string CloseText(CloseDay c)
     {
-        var L = new List<string> { $"تقفيل {Txt.FmtDate(c.D)} — {Store.ShopName}", "", $"المقبوض: {Txt.Money(c.CashIn)}" };
-        L.AddRange(c.Methods.Where(x => x.Value > 0).Select(x => $"  - {x.Key}: {Txt.Money(x.Value)}"));
+        var L = new List<string> { $"تقفيل {Txt.FmtDate(c.D)} — {Store.ShopName}", "", $"المقبوض: {Txt.Money(c.CashIn + c.RefundTotal)}" };
+        if (c.RefundTotal > 0) { L.Add($"مُرجَع للزبائن: {Txt.Money(c.RefundTotal)}"); L.Add($"صافي المقبوض: {Txt.Money(c.CashIn)}"); }
+        L.AddRange(c.Methods.Where(x => x.Value != 0).Select(x => $"  - {x.Key}: {Txt.Money(x.Value)}"));
         L.Add($"المصاريف: {Txt.Money(c.ExpTotal)}");
         if (c.SupPaid > 0) L.Add($"دفعات الموردين: {Txt.Money(c.SupPaid)}");
         L.Add($"صافي حركة النقد: {Txt.Money(c.Drawer)}");
@@ -331,7 +337,7 @@ public static class Calc
     public static Order Find(string id) => id == null ? null : Store.Orders.FirstOrDefault(o => o.Id == id);
 
     /// <summary>كل نصوص الطلب للبحث (الزبون، الهاتف، الجهاز، المرجع، IMEI، العطل، الملاحظات، القطع والموردون)</summary>
-    public static string Haystack(Order o) => string.Join(" ", new[] { o.CustomerName, o.Phone, o.Device, o.RefNo, o.Imei, o.Issue, o.IssueType, o.Notes, o.Technician }
+    public static string Haystack(Order o) => string.Join(" ", new[] { o.CustomerName, o.Phone, o.Device, o.RefNo, o.Imei, o.Issue, o.IssueType, o.Notes, o.Technician, Accounts.NameOf(o) }
         .Concat(o.Parts.SelectMany(p => new[] { p.Name, p.Supplier })));
 
     public static HashSet<string> UsedRefs() => Store.Orders.Concat(Store.Trash).Select(o => o.RefNo).ToHashSet();

@@ -187,6 +187,8 @@ public class OrdersGrid : DataGridView
             foreach (var s2 in K.Statuses) { var item = new ToolStripMenuItem(s2, null, (_, _) => Acts.SetStatus(o, s2)) { Checked = o.Status == s2 }; st.DropDownItems.Add(item); }
             menu.Items.Add(st);
             if (Calc.RemainingOf(o) > 0) menu.Items.Add("تسجيل دفعة", null, (_, _) => QuickPayDialog.ForOrder(o));
+            if (o.Paid > 0) menu.Items.Add("إرجاع مبلغ للزبون", null, (_, _) => RefundDialog.ForOrder(o));
+            menu.Items.Add("إضافة تذكير", null, (_, _) => ReminderDialog.New(o.Id));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("واتساب", null, (_, _) => Acts.WhatsApp(o));
             menu.Items.Add("طباعة الفاتورة", null, (_, _) => Printer.Invoice(o));
@@ -284,7 +286,7 @@ public class OrdersGrid : DataGridView
             case "device":
                 {
                     string main = name == "customer" ? o.CustomerName : o.Device;
-                    string sub = name == "customer" ? (o.Phone == "" ? "—" : o.Phone) : Calc.IsLate(o) ? $"متأخر {Calc.LateDays(o)} يوم" : "";
+                    string sub = name == "customer" ? (o.AccountId != null ? "🏪 " + Accounts.NameOf(o) : o.Phone == "" ? "—" : o.Phone) : Calc.IsLate(o) ? $"متأخر {Calc.LateDays(o)} يوم" : "";
                     var subColor = name == "device" ? Pal.Bad : Theme.Muted;
                     if (two && sub != "")
                     {

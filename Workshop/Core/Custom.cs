@@ -205,6 +205,8 @@ public class Defect
     public string Resolution = "";
     public string ResolvedAt, StxId;
     public double Credited;
+    /// <summary>نهاية ضمان المورد على القطعة (يُحسب عند التسجيل)</summary>
+    public string SupWarrantyEnd = "";
 }
 
 public static class Defects

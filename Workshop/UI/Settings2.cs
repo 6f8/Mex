@@ -276,3 +276,153 @@ public partial class SettingsDialog
         return changed;
     }
 }
+
+/// <summary>تبويب التقرير اليومي والتنبيهات (تيليجرام والبريد)</summary>
+public partial class SettingsDialog
+{
+    readonly Toggle tgDaily = new() { Text = "إرسال ملخص اليوم تلقائياً", Width = 360 };
+    readonly DateTimePicker dDaily = new() { Width = 140, Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm", ShowUpDown = true };
+    readonly TextBox tTgToken = new() { Width = 460, UseSystemPasswordChar = true }, tTgChat = new() { Width = 200 };
+    readonly TextBox tMailHost = new() { Width = 260, PlaceholderText = "smtp.gmail.com" }, tMailPort = new() { Width = 90 },
+                     tMailUser = new() { Width = 300, PlaceholderText = "you@gmail.com" }, tMailPass = new() { Width = 220, UseSystemPasswordChar = true },
+                     tMailTo = new() { Width = 300, PlaceholderText = "البريد الذي يصله التقرير" };
+    readonly Toggle tgSsl = new() { Text = "اتصال آمن SSL/TLS", Width = 220 };
+    readonly List<(string Key, Toggle T)> alertToggles = new();
+    readonly Label notifyStatus = W.Note("", 760, 44);
+
+    Control NotifyTab()
+    {
+        var p = Page();
+        p.Controls.Add(W.Note("يصلك ملخص اليوم (المقبوض والمصاريف والأجهزة والديون والتذكيرات) وأنت خارج المحل، وتنبيه فوري عند الأحداث المهمة.", 780, 40));
+        var r0 = W.Flow(false);
+        tgDaily.Margin = new Padding(6, 30, 6, 0);
+        r0.Controls.Add(tgDaily);
+        r0.Controls.Add(W.Labeled("وقت الإرسال", dDaily, "clock"));
+        p.Controls.Add(r0);
+        p.Controls.Add(W.Note("إن كان البرنامج مغلقاً في ذلك الوقت، يُرسل التقرير عند إغلاقه بعد الظهر، أو في اليوم التالي عند فتحه.", 780));
+
+        p.Controls.Add(W.Head("تيليجرام (الأسهل والمجاني)", 780));
+        p.Controls.Add(W.Note("1) في تيليجرام افتح ‎@BotFather‎ واكتب ‎/newbot‎ وانسخ الرمز الذي يعطيك.  2) افتح البوت الجديد وأرسل له أي رسالة.  3) الصق الرمز هنا واضغط «جلب رقم المحادثة».", 780, 44));
+        var r1 = W.Flow(false);
+        r1.Controls.Add(W.Labeled(Store.Get("notify_tg_token") != "" ? "رمز البوت (محفوظ — اتركه فارغاً للإبقاء عليه)" : "رمز البوت", tTgToken, "key-round"));
+        r1.Controls.Add(W.Labeled("رقم المحادثة", tTgChat));
+        p.Controls.Add(r1);
+        var r2 = W.Flow(false);
+        var bChat = W.Btn("جلب رقم المحادثة", "search", BtnKind.Secondary, 150);
+        var bTg = W.Btn("إرسال رسالة تجربة", "send", BtnKind.Soft, 150);
+        var bTgClear = W.Btn("حذف إعدادات تيليجرام", "trash-2", BtnKind.Ghost, 170);
+        r2.Controls.AddRange(new Control[] { bChat, bTg, bTgClear });
+        p.Controls.Add(r2);
+
+        p.Controls.Add(W.Head("البريد الإلكتروني (اختياري)", 780));
+        p.Controls.Add(W.Note("مع Gmail: الخادم smtp.gmail.com والمنفذ 587، وكلمة المرور هي «كلمة مرور التطبيقات» من إعدادات حساب Google (وليست كلمة مرورك العادية).", 780, 40));
+        var r3 = W.Flow(false);
+        r3.Controls.Add(W.Labeled("خادم SMTP", tMailHost));
+        r3.Controls.Add(W.Labeled("المنفذ", tMailPort));
+        tgSsl.Margin = new Padding(6, 30, 6, 0);
+        r3.Controls.Add(tgSsl);
+        p.Controls.Add(r3);
+        var r4 = W.Flow(false);
+        r4.Controls.Add(W.Labeled("البريد المرسِل", tMailUser));
+        r4.Controls.Add(W.Labeled(Store.Get("notify_mail_pass") != "" ? "كلمة المرور (محفوظة)" : "كلمة المرور", tMailPass, "key-round"));
+        p.Controls.Add(r4);
+        var r5 = W.Flow(false);
+        r5.Controls.Add(W.Labeled("يُرسل إلى", tMailTo));
+        var bMail = W.Btn("إرسال بريد تجربة", "send", BtnKind.Soft, 150); bMail.Margin = new Padding(4, 27, 4, 4);
+        r5.Controls.Add(bMail);
+        p.Controls.Add(r5);
+
+        p.Controls.Add(W.Head("تنبيهات فورية عند", 780));
+        foreach (var (k, t) in Notify.Alerts)
+        {
+            var tg = new Toggle { Text = t, Width = 360 };
+            alertToggles.Add((k, tg));
+            p.Controls.Add(tg);
+        }
+        var r6 = W.Flow(false);
+        var bNow = W.Btn("إرسال تقرير اليوم الآن", "send", BtnKind.Primary, 190);
+        r6.Controls.Add(bNow);
+        p.Controls.Add(r6);
+        p.Controls.Add(notifyStatus);
+
+        tgDaily.Checked = Notify.DailyOn;
+        dDaily.Value = DateTime.Today.Add(TimeSpan.Parse(Notify.DailyTime));
+        tTgChat.Text = Notify.TgChat;
+        tMailHost.Text = Store.Get("notify_mail_host"); tMailPort.Text = Store.Get("notify_mail_port", "587");
+        tgSsl.Checked = Store.Flag("notify_mail_ssl", true);
+        tMailUser.Text = Store.Get("notify_mail_user"); tMailTo.Text = Store.Get("notify_mail_to");
+        foreach (var (k, t) in alertToggles) t.Checked = Notify.AlertOn(k);
+        NotifyStatus();
+
+        bChat.Click += async (s, e) =>
+        {
+            var token = tTgToken.Text.Trim() != "" ? tTgToken.Text.Trim() : Notify.TgToken;
+            if (token == "") { tTgToken.Focus(); Toast.Show("الصق رمز البوت أولاً", Tone.Warning); return; }
+            try
+            {
+                var id = await Notify.FindChatId(token);
+                if (id == "") { Dialogs.Warn("لم أجد رسائل. افتح البوت في تيليجرام وأرسل له أي رسالة، ثم أعد المحاولة."); return; }
+                tTgChat.Text = id;
+                Toast.Show("وُجد رقم المحادثة — اضغط «إرسال رسالة تجربة»");
+            }
+            catch (Exception ex) { Dialogs.Warn("تعذّر الاتصال بتيليجرام: " + ex.Message); }
+        };
+        bTg.Click += async (s, e) => await TestSend("✅ رسالة تجربة من " + Store.ShopName + "\nالتنبيهات تعمل.");
+        bMail.Click += async (s, e) => await TestSend("رسالة تجربة من " + Store.ShopName + " — التنبيهات تعمل.");
+        bNow.Click += async (s, e) =>
+        {
+            SaveNotify();
+            if (!Notify.Configured) { Dialogs.Warn("اضبط تيليجرام أو البريد أولاً."); return; }
+            bNow.Enabled = false;
+            var err = await Notify.Send("تقرير يوم " + Txt.Today + " — " + Store.ShopName, Notify.DailyText(Txt.Today));
+            bNow.Enabled = true;
+            if (err == "") Toast.Show("أُرسل تقرير اليوم"); else Dialogs.Warn("تعذّر الإرسال:\n" + err);
+            NotifyStatus();
+        };
+        bTgClear.Click += (s, e) =>
+        {
+            Store.Set("notify_tg_token", ""); Store.Set("notify_tg_chat", "");
+            tTgToken.Clear(); tTgChat.Clear();
+            Toast.Show("حُذفت إعدادات تيليجرام");
+            NotifyStatus();
+        };
+        return p;
+    }
+
+    async Task TestSend(string text)
+    {
+        SaveNotify();
+        if (!Notify.Configured) { Dialogs.Warn("أكمل بيانات تيليجرام أو البريد أولاً."); return; }
+        var err = await Notify.Send("رسالة تجربة — " + Store.ShopName, text);
+        if (err == "") Toast.Show("أُرسلت رسالة التجربة — تحقق من تيليجرام أو بريدك");
+        else Dialogs.Warn("تعذّر الإرسال:\n" + err);
+        NotifyStatus();
+    }
+
+    void NotifyStatus()
+    {
+        var ch = new List<string>();
+        if (Notify.TelegramOn) ch.Add("تيليجرام");
+        if (Notify.EmailOn) ch.Add("البريد");
+        var last = Store.Get("notify_daily_last");
+        notifyStatus.Text = (ch.Count == 0 ? "لا توجد قناة إرسال مضبوطة." : "القنوات المفعّلة: " + string.Join(" و", ch)) +
+            (last != "" ? $"   •   آخر تقرير يومي: {Txt.FmtDate(last)}" : "") +
+            (Notify.LastError != "" ? "\nآخر خطأ: " + Notify.LastError : "");
+        notifyStatus.ForeColor = Notify.LastError != "" ? Pal.Bad : Theme.Muted;
+    }
+
+    void SaveNotify()
+    {
+        Store.SetFlag("notify_daily", tgDaily.Checked);
+        Store.Set("notify_daily_time", dDaily.Value.ToString("HH:mm"));
+        if (tTgToken.Text.Trim() != "") Store.Set("notify_tg_token", Secret.Protect(tTgToken.Text.Trim()));
+        Store.Set("notify_tg_chat", tTgChat.Text.Trim());
+        Store.Set("notify_mail_host", tMailHost.Text.Trim());
+        Store.Set("notify_mail_port", int.TryParse(Txt.LatinDigits(tMailPort.Text.Trim()), out var port) ? port.ToString() : "587");
+        Store.SetFlag("notify_mail_ssl", tgSsl.Checked);
+        Store.Set("notify_mail_user", tMailUser.Text.Trim());
+        if (tMailPass.Text != "") Store.Set("notify_mail_pass", Secret.Protect(tMailPass.Text));
+        Store.Set("notify_mail_to", tMailTo.Text.Trim());
+        foreach (var (k, t) in alertToggles) Store.SetFlag("notify_alert_" + k, t.Checked);
+    }
+}

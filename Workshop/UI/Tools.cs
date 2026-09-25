@@ -52,7 +52,7 @@ public class CloseDayDialog : DialogShell
         var ledger = new Ledger { Width = 820, Height = 100, MinCell = 180, Margin = new Padding(4) };
         ledger.Set(new[]
         {
-            new Ledger.Cell("المقبوض", Txt.Money(c.CashIn), $"{c.Payments.Count} دفعة", Pal.Good),
+            new Ledger.Cell("المقبوض", Txt.Money(c.CashIn), c.RefundTotal > 0 ? $"{c.Payments.Count} دفعة — بعد إرجاع {Txt.Money(c.RefundTotal)}" : $"{c.Payments.Count} دفعة", Pal.Good),
             new Ledger.Cell("المصاريف ودفعات الموردين", Txt.Money(c.ExpTotal + c.SupPaid), $"مصاريف {Txt.Money(c.ExpTotal)} — موردون {Txt.Money(c.SupPaid)}", Pal.Bad),
             new Ledger.Cell("صافي حركة النقد", Txt.Money(c.Drawer), "النقد المقبوض ناقص ما دُفع", null, c.Drawer >= 0 ? 1 : -1),
             new Ledger.Cell("صافي ربح اليوم", Txt.Money(c.Profit), "إيراد " + Txt.Money(c.Revenue), null, c.Profit >= 0 ? 1 : -1),
@@ -65,14 +65,19 @@ public class CloseDayDialog : DialogShell
         };
         void Section(string t) => flow.Controls.Add(W.Head(t, 820));
         Section("المقبوض حسب طريقة الدفع");
-        if (c.CashIn <= 0) flow.Controls.Add(Line("لا توجد دفعات في هذا اليوم", Theme.Subtle));
-        foreach (var (k, v) in c.Methods.Where(x => x.Value > 0)) flow.Controls.Add(Line($"{k}:   {Txt.Money(v)}   ({Math.Round(v * 100 / c.CashIn)}%)"));
+        if (c.Payments.Count == 0 && c.Refunds.Count == 0) flow.Controls.Add(Line("لا توجد دفعات في هذا اليوم", Theme.Subtle));
+        foreach (var (k, v) in c.Methods.Where(x => x.Value != 0)) flow.Controls.Add(Line($"{k}:   {Txt.Money(v)}" + (c.CashIn > 0 ? $"   ({Math.Round(v * 100 / c.CashIn)}%)" : "")));
         Section("حركة الأجهزة");
         flow.Controls.Add(Line($"استُلم: {c.Received.Count}      سُلّم: {c.Delivered.Count}      أُلغي: {c.Cancelled.Count}"));
         flow.Controls.Add(Line("ديون جديدة من تسليمات اليوم: " + Txt.Money(c.NewDebt), c.NewDebt > 0 ? Pal.Bad : null));
         Section("الدفعات");
         if (c.Payments.Count == 0) flow.Controls.Add(Line("لا شيء", Theme.Subtle));
         foreach (var (o, p) in c.Payments) flow.Controls.Add(Link(Line($"{o.RefNo}   {o.CustomerName}   ·  {p.Method}   —   {Txt.Money(p.Amount)}"), o));
+        if (c.Refunds.Count > 0)
+        {
+            Section("مبالغ أُرجعت للزبائن");
+            foreach (var (o, p) in c.Refunds) flow.Controls.Add(Link(Line($"{o.RefNo}   {o.CustomerName}   ·  {p.Method}   —   {Txt.Money(-p.Amount)}   ({p.Note.Replace("استرجاع: ", "")})", Pal.Bad), o));
+        }
         Section("المصاريف");
         if (c.Exps.Count == 0) flow.Controls.Add(Line("لا شيء", Theme.Subtle));
         foreach (var e in c.Exps) flow.Controls.Add(Line($"{e.Description}   —   {Txt.Money(e.Amount)}"));
@@ -93,8 +98,9 @@ public class CloseDayDialog : DialogShell
     {
         var c = Calc.Close(Txt.Iso(date.Value));
         var sb = new System.Text.StringBuilder(Printer.Header("تقفيل يوم " + Txt.FmtDate(c.D)));
-        sb.Append(Printer.Row("المقبوض", Txt.Money(c.CashIn)));
-        foreach (var (k, v) in c.Methods.Where(x => x.Value > 0)) sb.Append(Printer.Row("&nbsp;&nbsp;— " + Txt.Esc(k), Txt.Money(v)));
+        sb.Append(Printer.Row("المقبوض", Txt.Money(c.CashIn + c.RefundTotal)));
+        if (c.RefundTotal > 0) sb.Append(Printer.Row("مُرجَع للزبائن", Txt.Money(c.RefundTotal), "bad"));
+        foreach (var (k, v) in c.Methods.Where(x => x.Value != 0)) sb.Append(Printer.Row("&nbsp;&nbsp;— " + Txt.Esc(k), Txt.Money(v)));
         sb.Append(Printer.Row("المصاريف", Txt.Money(c.ExpTotal)));
         if (c.SupPaid > 0) sb.Append(Printer.Row("دفعات الموردين", Txt.Money(c.SupPaid)));
         sb.Append(Printer.Row("صافي حركة النقد", Txt.Money(c.Drawer), c.Drawer >= 0 ? "good" : "bad"));
@@ -422,6 +428,9 @@ public class PaletteDialog : BaseForm
             new("أوامر", "تعريفات الطابعات", null, "printer", DriversDialog.Open),
             new("أوامر", "المحذوفات", null, "trash-2", TrashDialog.Open),
             new("أوامر", "القطع المعيبة ومرتجعات الموردين", null, "triangle-alert", DefectsDialog.Open),
+            new("أوامر", "التذكيرات", null, "bell", RemindersDialog.Open),
+            new("أوامر", "حسابات التجار والشركات", null, "briefcase", () => main?.Go("accounts")),
+            new("أوامر", "التقرير اليومي والتنبيهات", null, "send", () => SettingsDialog.Open("notify")),
             new("أوامر", "الفنيون والعمولات", null, "wrench", () => SettingsDialog.Open("techs")),
             new("أوامر", "تعديل القوائم (الأعطال، الملحقات، الضمان...)", null, "list", () => SettingsDialog.Open("lists")),
             new("أوامر", "تعديل رسائل واتساب", null, "message-circle", () => SettingsDialog.Open("messages")),
@@ -436,7 +445,7 @@ public class PaletteDialog : BaseForm
             res.AddRange(Calc.GetCustomers().Where(c => Txt.Fold(c.Name + " " + c.Phone).Contains(f)).Take(4)
                 .Select(c => new Item("زبائن", c.Name, c.Phone, "user", () => CustomerDialog.Open(c.Key))));
         }
-        res.AddRange(cmds.Take(f != "" ? 4 : 17));
+        res.AddRange(cmds.Take(f != "" ? 4 : 20));
         items = res;
         list.BeginUpdate();
         list.Items.Clear();

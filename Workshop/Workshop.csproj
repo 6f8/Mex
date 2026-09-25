@@ -13,6 +13,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <!-- تشفير رمز تيليجرام وكلمة مرور البريد بحساب ويندوز الحالي -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <!-- الخطوط مضمّنة داخل البرنامج: لا حاجة لتثبيتها على جهاز المستخدم -->

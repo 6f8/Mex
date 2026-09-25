@@ -94,6 +94,7 @@ public class OrderView : DialogShell
         grid.MaximumSize = new Size(920, 0);
         grid.Margin = new Padding(0, 10, 0, 0);
         grid.Controls.Add(KV("الزبون", o.CustomerName));
+        if (Accounts.Find(o.AccountId) is Account acc) grid.Controls.Add(KV("الحساب", $"{acc.Name} ({Accounts.KindText(acc)}) — يُسدَّد من الحساب", 890, Theme.BrandDark));
         grid.Controls.Add(KV("الهاتف", o.Phone));
         grid.Controls.Add(KV("الجهاز", o.Device));
         grid.Controls.Add(KV("نوع العطل", o.IssueType));
@@ -158,7 +159,39 @@ public class OrderView : DialogShell
         {
             flow.Controls.Add(W.Head("الدفعات", 900));
             foreach (var p in o.PaymentHistory)
-                flow.Controls.Add(Line($"{Txt.FmtDate(p.Date)} — {p.Method}{(p.Note != "" ? " — " + p.Note : "")}", Txt.Money(p.Amount), Pal.Good));
+                flow.Controls.Add(p.IsRefund
+                    ? Line($"↩ مُرجَع للزبون {Txt.FmtDate(p.Date)} — {p.Method} — {p.Note.Replace("استرجاع: ", "")}", "- " + Txt.Money(-p.Amount), Pal.Bad)
+                    : Line($"{Txt.FmtDate(p.Date)} — {p.Method}{(p.Note != "" ? " — " + p.Note : "")}", Txt.Money(p.Amount), Pal.Good));
+        }
+        if (o.Paid > 0)
+        {
+            var bRefund = W.Btn("إرجاع مبلغ للزبون", "rotate-ccw", BtnKind.Ghost, 150);
+            bRefund.Click += (_, _) => RefundDialog.ForOrder(Calc.Find(id));
+            flow.Controls.Add(bRefund);
+        }
+
+        // ---------- التذكيرات ----------
+        var rems = Reminders.For(o.Id);
+        flow.Controls.Add(W.Head(rems.Count > 0 ? "التذكيرات" : "التذكيرات — لا يوجد", 900));
+        foreach (var r in rems)
+        {
+            var line = Line($"{(r.Done ? "✓ " : "⏰ ")}{r.Text}", r.Done ? "أُنجز" : Reminders.When(r),
+                r.Done ? Theme.Muted : string.CompareOrdinal(r.Date, Txt.Today) <= 0 ? Pal.Bad : Pal.Primary);
+            line.Cursor = Cursors.Hand;
+            foreach (Control c in line.Controls) { c.Cursor = Cursors.Hand; c.Click += (_, _) => { Reminders.SetDone(r, !r.Done); Store.NotifyChanged(); }; }
+            new ToolTip().SetToolTip(line.Controls[0], "انقر لتعليمه منجزاً أو إلغاء ذلك");
+            flow.Controls.Add(line);
+        }
+        var bRem = W.Btn("تذكير جديد", "bell", BtnKind.Soft, 130);
+        bRem.Click += (_, _) => ReminderDialog.New(id);
+        flow.Controls.Add(bRem);
+
+        // ---------- سجل التعديلات ----------
+        if (o.History.Count > 0)
+        {
+            flow.Controls.Add(W.Head("سجل التعديلات", 900));
+            foreach (var h in o.History.AsEnumerable().Reverse())
+                flow.Controls.Add(Line(h.Text, Txt.FmtDate(Txt.Cut10(h.At)) + " " + (Txt.ParseTime(h.At)?.ToString("HH:mm") ?? ""), Theme.Muted));
         }
         return flow;
     }

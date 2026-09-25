@@ -129,7 +129,9 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
         sb.Append(Row("الضمان", o.Warranty + (we != "" ? " — حتى " + FmtDate(we) : "")));
         if (src != null) sb.Append(Row("طلب ضمان", "للطلب " + src.RefNo));
         sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص (الطلب ملغى)" : "مبلغ الصيانة", Money(Calc.ChargeOf(o))));
-        sb.Append(Row("المدفوع", Money(o.Paid), "good"));
+        double refunded = -o.PaymentHistory.Where(p => p.IsRefund).Sum(p => p.Amount);
+        if (refunded > 0) { sb.Append(Row("المدفوع", Money(o.Paid + refunded), "good")); sb.Append(Row("مُرجَع للزبون", Money(refunded), "bad")); }
+        else sb.Append(Row("المدفوع", Money(o.Paid), "good"));
         sb.Append($"<div class=\"row total\"><span>المتبقي</span><span class=\"{(rem > 0 ? "bad" : "good")}\">{(rem > 0 ? Esc(Money(rem)) : "مسدد بالكامل")}</span></div>");
         if (Store.Terms != "") sb.Append($"<div class=\"foot\">{Esc(Store.Terms)}</div>");
         sb.Append("<div class=\"thanks\">شكراً لثقتكم</div>");
@@ -162,7 +164,10 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
         var sb = new StringBuilder(Header("وصل استلام مبلغ", o.RefNo));
         sb.Append($"<div class=\"grid\"><div><span class=\"k\">الزبون: </span><b>{Esc(o.CustomerName)}</b></div><div><span class=\"k\">الجهاز: </span><b>{Esc(o.Device)}</b></div></div>");
         if (legacy > 0) sb.Append(Row("دفعة سابقة " + FmtDate(o.DateReceived), Money(legacy)));
-        foreach (var p in o.PaymentHistory) sb.Append(Row($"دفعة {FmtDate(p.Date)} — {Esc(p.Method)}{(p.Note != "" ? " — " + Esc(p.Note) : "")}", Money(p.Amount)));
+        foreach (var p in o.PaymentHistory)
+            sb.Append(p.IsRefund
+                ? Row($"مُرجَع {FmtDate(p.Date)} — {Esc(p.Method)} — {Esc(p.Note.Replace("استرجاع: ", ""))}", "- " + Money(-p.Amount), "bad")
+                : Row($"دفعة {FmtDate(p.Date)} — {Esc(p.Method)}{(p.Note != "" ? " — " + Esc(p.Note) : "")}", Money(p.Amount)));
         sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص" : "المبلغ الكلي", Money(Calc.ChargeOf(o))));
         sb.Append($"<div class=\"row total\"><span>المبلغ المستلم</span><span class=\"good\">{Esc(Money(o.Paid))}</span></div>");
         sb.Append("<div style=\"text-align:center;margin-top:14px;padding:10px;border-radius:8px;background:#E1F3EA;color:#1D8657;font-weight:700\">تم سداد كامل المبلغ</div>");

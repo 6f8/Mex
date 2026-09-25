@@ -177,6 +177,14 @@ public class DashboardPage : StackPage
             if (outS.Count + lowS.Count > 6) items.Add(new($"+{outS.Count + lowS.Count - 6} أخرى", GoLow));
             list.Add(new(0, "package", title, items));
         }
+        var due = Reminders.Due();
+        if (due.Count > 0)
+            list.Insert(0, new(1, "bell", $"{due.Count} تذكير مستحق اليوم", due.Take(6).Select(r => new AlertsPanel.Item(
+                $"{Reminders.Label(r)}{(string.CompareOrdinal(r.Date, Txt.Today) < 0 ? $"  ({Reminders.When(r)})" : "")}",
+                () => { if (Calc.Find(r.OrderId) is Order o) Acts.View(o); else RemindersDialog.Open(); })).ToList(), null, "كل التذكيرات", RemindersDialog.Open));
+        double accDue = Store.Accounts.Sum(Accounts.Due);
+        if (accDue > 0)
+            list.Add(new(0, "store", $"مستحق على حسابات التجار والشركات {Txt.Money(accDue)}", new(), null, "الحسابات", () => MainForm.Instance?.Go("accounts")));
         var debts = Calc.GetDebts();
         if (debts.Count > 0)
             list.Add(new(1, "wallet", $"ديون مستحقة على {debts.Count} زبون بمجموع {Txt.Money(debts.Sum(c => c.Debt))}", new(), null, "متابعة الديون", () => MainForm.Instance?.Go("debts")));

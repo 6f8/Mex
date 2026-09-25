@@ -214,7 +214,7 @@ public class ReportsPage : StackPage
         });
         l2.Set(new[]
         {
-            new Ledger.Cell("المقبوض فعلياً", Txt.Money(S1.Cash), "دفعات مستلمة داخل الفترة", Pal.Good),
+            new Ledger.Cell("المقبوض فعلياً", Txt.Money(S1.Cash), S1.Refunds > 0 ? $"بعد إرجاع {Txt.Money(S1.Refunds)} للزبائن" : "دفعات مستلمة داخل الفترة", Pal.Good),
             new Ledger.Cell("ديون من هذه الفترة", Txt.Money(S1.Debt), "أجهزة سُلّمت ولم تُدفع كاملاً", null, S1.Debt > 0 ? -1 : 0),
             new Ledger.Cell("هامش الربح", margin, null, null, S1.Profit >= 0 ? 1 : -1),
             new Ledger.Cell("مقارنة بالفترة السابقة", growth, growthFoot, null, gtone),

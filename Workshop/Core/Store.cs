@@ -22,6 +22,8 @@ public static class Store
     public static List<SupplierTx> SupplierTx { get; private set; } = new();
     public static List<Driver> Drivers { get; private set; } = new();
     public static List<Defect> Defects { get; private set; } = new();
+    public static List<Reminder> Reminders { get; private set; } = new();
+    public static List<Account> Accounts { get; private set; } = new();
 
     /// <summary>بعد أي تعديل: الشاشة الحالية تُحدَّث والعدادات في القائمة الجانبية</summary>
     public static event Action Changed;
@@ -41,7 +43,7 @@ CREATE TABLE IF NOT EXISTS docs(kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT 
 CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
 
     // أنواع السجلات في جدول docs
-    const string KOrder = "orders", KTrash = "trash", KInv = "inventory", KExp = "expenses", KStx = "supplierTx", KDrv = "drivers", KDef = "defects";
+    const string KOrder = "orders", KTrash = "trash", KInv = "inventory", KExp = "expenses", KStx = "supplierTx", KDrv = "drivers", KDef = "defects", KRem = "reminders", KAcc = "accounts";
 
     public static void Init()
     {
@@ -84,6 +86,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         Expenses = Load(c, KExp, Json.Expense).OrderByDescending(e => e.Date, StringComparer.Ordinal).ToList();
         SupplierTx = Load(c, KStx, Json.Stx);
         Drivers = Load(c, KDrv, Json.Driver);
+        Reminders = Load(c, KRem, Json.Reminder).OrderBy(r => r.Date, StringComparer.Ordinal).ToList();
+        Accounts = Load(c, KAcc, Json.Account).OrderBy(a => a.Name, StringComparer.CurrentCulture).ToList();
         Defects = Load(c, KDef, Json.Defect).OrderByDescending(d => d.Date, StringComparer.Ordinal).ThenByDescending(d => d.Id, StringComparer.Ordinal).ToList();
         // الأرقام المرجعية الناقصة تُكمَّل مرة واحدة
         var used = new HashSet<string>(Orders.Concat(Trash).Select(o => o.RefNo));
@@ -230,10 +234,31 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
     }
     public static void DeleteDefect(Defect d) { Del(KDef, d.Id); Defects.Remove(d); Touch(); }
 
+    public static void SaveReminder(Reminder r)
+    {
+        Put(KRem, r.Id, Json.ToJson(r));
+        int k = Reminders.FindIndex(x => x.Id == r.Id);
+        if (k >= 0) Reminders[k] = r; else Reminders.Add(r);
+        Touch();
+    }
+    public static void DeleteReminder(Reminder r) { Del(KRem, r.Id); Reminders.Remove(r); Touch(); }
+
+    public static void SaveAccount(Account a)
+    {
+        Put(KAcc, a.Id, Json.ToJson(a));
+        int k = Accounts.FindIndex(x => x.Id == a.Id);
+        if (k >= 0) Accounts[k] = a; else Accounts.Add(a);
+        Touch();
+    }
+    public static void DeleteAccount(Account a) { Del(KAcc, a.Id); Accounts.Remove(a); Touch(); }
+
     /// <summary>استبدال كل البيانات (استعادة نسخة أو مسح) في معاملة واحدة. defects = null: تبقى القطع المعيبة الحالية</summary>
-    public static void ReplaceAll(List<Order> orders, List<Order> trash, List<InvItem> inv, List<Expense> exps, List<SupplierTx> stx, List<Driver> drv, List<Defect> defects = null)
+    public static void ReplaceAll(List<Order> orders, List<Order> trash, List<InvItem> inv, List<Expense> exps, List<SupplierTx> stx, List<Driver> drv, List<Defect> defects = null,
+                                  List<Reminder> reminders = null, List<Account> accounts = null)
     {
         defects ??= Defects.ToList();
+        reminders ??= Reminders.ToList();
+        accounts ??= Accounts.ToList();
         using (var c = Open())
         using (var t = c.BeginTransaction())
         {
@@ -245,6 +270,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
             foreach (var s in stx) Put(KStx, s.Id, Json.ToJson(s), c, t);
             foreach (var d in drv) Put(KDrv, d.Id, Json.ToJson(d), c, t);
             foreach (var d in defects) Put(KDef, d.Id, Json.ToJson(d), c, t);
+            foreach (var r in reminders) Put(KRem, r.Id, Json.ToJson(r), c, t);
+            foreach (var a in accounts) Put(KAcc, a.Id, Json.ToJson(a), c, t);
             // صور لم يعد يستعملها أي طلب
             var refs = orders.Concat(trash).Select(o => o.PhotoRef).Where(r => r != null).ToHashSet();
             using (var cmd = c.CreateCommand())
@@ -360,7 +387,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
     public static void SetFlag(string key, bool on) => Set(key, on ? "1" : "0");
 
     /// <summary>الإعدادات التي تنتقل مع نسخة JSON: القوائم المعدّلة والفنيون وقوالب الرسائل</summary>
-    public static bool IsCustomKey(string k) => k.StartsWith("list_") || k.StartsWith("tpl_") || k == "technicians";
+    public static bool IsCustomKey(string k) => k.StartsWith("list_") || k.StartsWith("tpl_") || k is "technicians" or "sup_warranty" or "lock_delivered";
     public static IEnumerable<KeyValuePair<string, string>> CustomSettings() => settings.Where(kv => IsCustomKey(kv.Key) && kv.Value != "").ToList();
 
     public static string ShopName => Get("shop_name", "ورشة الصيانة") is var n && n != "" ? n : "ورشة الصيانة";

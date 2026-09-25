@@ -326,13 +326,14 @@ public class InvItemDialog : DialogShell
 {
     readonly InvItem item;
     readonly TextBox tName = new() { Width = 420 }, tModel = new() { Width = 420 }, tSup = new() { Width = 420 }, tNotes = new() { Width = 420 },
-                     tQty = new() { Width = 200, PlaceholderText = "فارغ = لا أتابع الكمية" }, tMin = new() { Width = 200, PlaceholderText = "افتراضياً 1" };
+                     tQty = new() { Width = 200, PlaceholderText = "فارغ = لا أتابع الكمية" }, tMin = new() { Width = 200, PlaceholderText = "افتراضياً 1" },
+                     tSupW = new() { Width = 200, PlaceholderText = "مثل 30" };
     readonly ComboBox cbCat = W.Combo(420, K.InvCats);
     readonly NumericUpDown nCost = W.Money(200), nSale = W.Money(200);
     readonly Label lblProfit = W.Note("", 420, 28);
     public InvItem Saved { get; private set; }
 
-    public InvItemDialog(InvItem i, string model, string category) : base(i != null ? "تعديل قطعة" : model != "" ? $"إضافة قطعة لـ {model}" : "إضافة قطعة", 520, 720, "package-plus")
+    public InvItemDialog(InvItem i, string model, string category) : base(i != null ? "تعديل قطعة" : model != "" ? $"إضافة قطعة لـ {model}" : "إضافة قطعة", 520, 790, "package-plus")
     {
         item = i;
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Surface };
@@ -349,6 +350,7 @@ public class InvItemDialog : DialogShell
         qty.Controls.Add(W.Labeled("الكمية في المخزون", tQty));
         qty.Controls.Add(W.Labeled("نبّهني عندما تصل إلى", tMin));
         flow.Controls.Add(qty);
+        flow.Controls.Add(W.Labeled("ضمان المورد على القطعة (أيام)", tSupW, "shield-check"));
         flow.Controls.Add(W.Labeled("ملاحظات", tNotes));
         Body.Controls.Add(flow);
         W.Suggest(tModel, Store.Inventory.Select(x => x.Compatible).Concat(Store.Orders.Select(o => o.Device)));
@@ -364,6 +366,7 @@ public class InvItemDialog : DialogShell
         W.Set(nSale, i?.SalePrice ?? 0);
         tQty.Text = i?.Qty?.ToString() ?? "";
         tMin.Text = i?.MinQty?.ToString() ?? "";
+        tSupW.Text = i?.SupWarranty?.ToString() ?? "";
         if (i != null && i.Category != "" && !cbCat.Items.Contains(i.Category)) cbCat.Items.Add(i.Category);
         W.Pick(cbCat, i?.Category ?? (category != "" ? category : K.InvCats[0]));
         nCost.ValueChanged += (s, e) => Profit();
@@ -386,7 +389,8 @@ public class InvItemDialog : DialogShell
         var n = new InvItem
         {
             Id = item?.Id ?? Txt.Uid("inv"), Name = tName.Text.Trim(), Category = cbCat.Text, Compatible = tModel.Text.Trim(), Supplier = tSup.Text.Trim(),
-            Cost = (double)nCost.Value, SalePrice = (double)nSale.Value, Qty = Txt.OptInt(tQty.Text), MinQty = Txt.OptInt(tMin.Text), Notes = tNotes.Text.Trim(), UpdatedAt = Txt.Now
+            Cost = (double)nCost.Value, SalePrice = (double)nSale.Value, Qty = Txt.OptInt(tQty.Text), MinQty = Txt.OptInt(tMin.Text), Notes = tNotes.Text.Trim(), UpdatedAt = Txt.Now,
+            SupWarranty = Txt.OptInt(tSupW.Text) is int w && w > 0 ? w : null
         };
         Store.SaveInv(n);
         Saved = n;
@@ -416,11 +420,25 @@ public class SuppliersPage : Page
         var bBuy = W.Btn("شراء بالدَّين", "plus", BtnKind.Primary, 120);
         var bStatement = W.Btn("كشف حساب المورد", "scroll-text", BtnKind.Secondary, 140);
         bDefects = W.Btn("القطع المعيبة", "triangle-alert", BtnKind.Secondary, 140);
-        bar.Controls.AddRange(new Control[] { bBuy, bPay, bStatement, bDefects });
+        var bWarranty = W.Btn("ضمان المورد", "shield-check", BtnKind.Ghost, 120);
+        bar.Controls.AddRange(new Control[] { bBuy, bPay, bStatement, bDefects, bWarranty });
+        bWarranty.Click += (s, e) =>
+        {
+            if (Sel is not Calc.SupplierBalance x) { Toast.Show("اختر مورداً من الجدول", Tone.Info); return; }
+            var cur = SupWarranty.ForSupplier(x.Name);
+            var v = Ask.Reason("ضمان المورد — " + x.Name, $"كم يوماً يضمن {x.Name} قطعه؟ (يُستعمل للقطع التي لم يُسجَّل لها ضمان خاص){(cur != null ? $"\nالحالي: {cur} يوم" : "")}\nاكتب 0 لإلغاء الضمان.",
+                new[] { "7", "15", "30", "90", "0" }, "حفظ");
+            if (v == null) return;
+            var days = Txt.OptInt(v);
+            SupWarranty.SetForSupplier(x.Name, days);
+            Toast.Show(days > 0 ? $"ضمان {x.Name}: {days} يوم" : $"أُلغي ضمان {x.Name}");
+            Reload();
+        };
         grid.Columns.Add("name", "المورد");
         grid.Columns.Add("purchases", "المشتريات");
         grid.Columns.Add("payments", "المدفوع");
         grid.Columns.Add("returns", "مرتجعات معيبة");
+        grid.Columns.Add("warranty", "ضمانه");
         grid.Columns.Add("balance", "الرصيد");
         grid.Columns.Add("last", "آخر حركة");
         grid.CellFormatting += (s, e) =>
@@ -464,6 +482,7 @@ public class SuppliersPage : Page
         grid.Rows.Clear();
         foreach (var x in rows)
             grid.Rows.Add(x.Name, Txt.Money(x.Purchases), Txt.Money(x.Payments), x.Returns > 0 ? Txt.Money(x.Returns) : "—",
+                SupWarranty.ForSupplier(x.Name) is int sw ? sw + " يوم" : "—",
                 x.Balance > 0 ? Txt.Money(x.Balance) : x.Balance < 0 ? Txt.Money(-x.Balance) + "  (لك عنده)" : "مسدد", Txt.FmtDate(x.Last));
     }
 }
