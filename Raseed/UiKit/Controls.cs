@@ -1,8 +1,12 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using static Raseed.Dpi;
 
 namespace Raseed;
+
+// ملاحظة الدقة: أحجام الأدوات تُكتب بالبكسل المنطقي (عند 100%) وتُكبَّر مرة واحدة مع الشاشة (Dpi.ScaleTree)،
+// أما الأرقام داخل دوال الرسم فتُمرَّر عبر S() لأنها تُحسب عند كل رسم بالبكسل الفعلي.
 
 public enum BtnKind { Primary, Secondary, Soft, Danger, Warning, Ghost, Dark, Success, Glass, Accent, Coral, Amber }
 
@@ -11,6 +15,7 @@ public class ModernButton : Button
 {
     BtnKind kind = BtnKind.Primary;
     bool hover, down;
+    int fitMin;
 
     [DefaultValue(BtnKind.Primary)]
     public BtnKind Kind { get => kind; set { kind = value; Invalidate(); } }
@@ -30,12 +35,25 @@ public class ModernButton : Button
         Height = 38;
     }
 
-    /// <summary>يوسّع الزر ليتسع للنص والأيقونة</summary>
+    /// <summary>يوسّع الزر ليتسع للنص والأيقونة (min بالبكسل المنطقي)</summary>
     public void FitWidth(int min)
     {
+        fitMin = Math.Max(1, min);
+        Width = FitCalc();
+    }
+
+    int FitCalc()
+    {
         int text = string.IsNullOrEmpty(Text) ? 0 : TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-        int icon = Icons.Get(IconName) != null && FontKit.HasIcons ? 18 + (text > 0 ? 8 : 0) : 0;
-        Width = Math.Max(min, text + icon + (text > 0 ? 32 : 20));
+        int icon = Icons.Has(IconName) ? S(18) + (text > 0 ? S(8) : 0) : 0;
+        return Math.Max(S(fitMin), text + icon + (text > 0 ? S(32) : S(20)));
+    }
+
+    /// <summary>العرض المحسوب من قياس النص هو بالبكسل الفعلي أصلًا: لا يُضرب مرة ثانية</summary>
+    protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+    {
+        base.ScaleControl(factor, specified);
+        if (fitMin > 0) Width = FitCalc();
     }
 
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -73,7 +91,6 @@ public class ModernButton : Button
     {
         var g = e.Graphics;
         // الأزرار في WinForms «معتمة» فلا تُرسم خلفيتها تلقائيًا؛ نرسمها بلون الحاوية
-        // (الشفافية المتداخلة ترسم بإزاحة خاطئة، وبدون مسح تظهر بقايا من المخزن المؤقت)
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
         var (bg, fg, bd) = Colors();
@@ -82,16 +99,17 @@ public class ModernButton : Button
             bg = bg.A == 0 ? bg : Gfx.Mix(bg, Theme.GraySoft, 0.6f);
             fg = Theme.Subtle;
         }
+        float rad = S((float)Radius);
         var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-        if (bg.A > 0) Gfx.FillRound(g, r, Radius, bg);
-        if (!bd.IsEmpty) Gfx.DrawRound(g, r, Radius, bd);
+        if (bg.A > 0) Gfx.FillRound(g, r, rad, bg);
+        if (!bd.IsEmpty) Gfx.DrawRound(g, r, rad, bd);
         if (Focused && ShowFocusCues)
-            Gfx.DrawRound(g, RectangleF.Inflate(r, -2.5f, -2.5f), Radius - 2, kind == BtnKind.Primary ? Gfx.Alpha(Color.White, 170) : Gfx.Alpha(Theme.Brand, 150), 1.5f);
+            Gfx.DrawRound(g, RectangleF.Inflate(r, -S(2.5f), -S(2.5f)), rad - S(2f), kind == BtnKind.Primary ? Gfx.Alpha(Color.White, 170) : Gfx.Alpha(Theme.Brand, 150), S(1.5f));
 
         bool rtl = RightToLeft == RightToLeft.Yes;
-        bool hasIcon = Icons.Get(IconName) != null && FontKit.HasIcons;
-        int iconPx = 18, gap = string.IsNullOrEmpty(Text) || !hasIcon ? 0 : 8;
-        int tw = string.IsNullOrEmpty(Text) ? 0 : Math.Min(Width - 16 - (hasIcon ? iconPx + gap : 0),
+        bool hasIcon = Icons.Has(IconName);
+        int iconPx = S(18), gap = string.IsNullOrEmpty(Text) || !hasIcon ? 0 : S(8);
+        int tw = string.IsNullOrEmpty(Text) ? 0 : Math.Min(Width - S(16) - (hasIcon ? iconPx + gap : 0),
             TextRenderer.MeasureText(g, Text, Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width);
         int total = tw + (hasIcon ? iconPx + gap : 0);
         int x0 = (Width - total) / 2;
@@ -104,9 +122,9 @@ public class ModernButton : Button
         if (Badge > 0)
         {
             var txt = Badge > 99 ? "99+" : Badge.ToString();
-            int bw = Math.Max(18, TextRenderer.MeasureText(txt, Theme.FS(8)).Width + 6);
-            var br = new Rectangle(rtl ? 2 : Width - bw - 2, 2, bw, 18);
-            Gfx.FillRound(g, br, 9, Theme.Danger);
+            int bh = S(18), bw = Math.Max(bh, TextRenderer.MeasureText(txt, Theme.FS(8)).Width + S(6));
+            var br = new Rectangle(rtl ? S(2) : Width - bw - S(2), S(2), bw, bh);
+            Gfx.FillRound(g, br, bh / 2f, Theme.Danger);
             TextRenderer.DrawText(g, txt, Theme.FS(8), br, Color.White, Gfx.Center);
         }
     }
@@ -160,10 +178,11 @@ public class InputBox : Panel
         Controls.Add(clip);
         if (c is ComboBox combo)
         {
-            arrow = new ChevronBox(combo);
+            arrow = new ComboFace(combo);
             clip.Controls.Add(arrow);
             arrow.BringToFront();
             combo.HandleCreated += (s, e) => Arrange();
+            combo.DropDownStyleChanged += (s, e) => { Arrange(); arrow.Invalidate(); };
         }
         c.Dock = DockStyle.None;
         c.Enter += (s, e) => { focused = true; Invalidate(); };
@@ -188,6 +207,13 @@ public class InputBox : Panel
     protected override void OnResize(EventArgs e) { base.OnResize(e); Arrange(); }
     protected override void OnRightToLeftChanged(EventArgs e) { base.OnRightToLeftChanged(e); Arrange(); }
 
+    /// <summary>الأداة الداخلية يرتبها Arrange بالبكسل الفعلي بعد التكبير</summary>
+    protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+    {
+        base.ScaleControl(factor, specified);
+        Arrange();
+    }
+
     bool arranging;
     void Arrange()
     {
@@ -196,15 +222,15 @@ public class InputBox : Panel
         try
         {
             bool rtl = RightToLeft == RightToLeft.Yes;
-            int iconW = LeadingIcon != null && FontKit.HasIcons ? 28 : 0;
-            int trailW = trailing != null ? trailing.Width + 4 : 0;
-            int padS = 11 + iconW, padE = 11 + trailW;    // بداية (يمين) ونهاية (يسار)
-            if (trailing != null) trailing.Location = new Point(rtl ? 6 : Width - 6 - trailing.Width, (Height - trailing.Height) / 2);
+            int iconW = Icons.Has(LeadingIcon) ? S(28) : 0;
+            int trailW = trailing != null ? trailing.Width + S(4) : 0;
+            int padS = S(11) + iconW, padE = S(11) + trailW;    // بداية (يمين) ونهاية (يسار)
+            if (trailing != null) trailing.Location = new Point(rtl ? S(6) : Width - S(6) - trailing.Width, (Height - trailing.Height) / 2);
             int x = rtl ? padE : padS, w = Math.Max(10, Width - padS - padE);
             switch (Inner)
             {
                 case TextBox { Multiline: true } t:
-                    clip.Bounds = new Rectangle(x, 8, w, Height - 16);
+                    clip.Bounds = new Rectangle(x, S(8), w, Height - S(16));
                     t.Bounds = new Rectangle(0, 0, clip.Width, clip.Height);
                     break;
                 case TextBox t:
@@ -230,12 +256,19 @@ public class InputBox : Panel
                         // نقص 3 بكسل من كل جهة لإخفاء إطار القائمة الأصلي
                         clip.Bounds = new Rectangle(x - 3, (Height - (h - 6)) / 2, w + 6, h - 6);
                         cb.Bounds = new Rectangle(-3, -3, clip.Width + 6, h);
-                        // موضع سهم القائمة الأصلي كما يرسمه النظام (يمين أو يسار حسب الاتجاه)
-                        int aw = SystemInformation.VerticalScrollBarWidth + 4;
+                        if (cb.DropDownStyle == ComboBoxStyle.DropDownList)
+                        {
+                            // القائمة غير القابلة للكتابة: واجهة مرسومة بالكامل فوقها (النص والسهم)
+                            // فتبدو واضحة وموحدة على كل الأجهزة ولا يظهر سهم النظام أو يُقص النص
+                            arrow.Bounds = new Rectangle(0, 0, clip.Width, clip.Height);
+                            break;
+                        }
+                        // القائمة القابلة للبحث: سهم موحد فوق سهم القائمة الأصلي (يمين أو يسار حسب الاتجاه)
+                        int aw = SystemInformation.VerticalScrollBarWidth + S(4);
                         int ax = rtl ? 0 : clip.Width - aw;
                         if (cb.IsHandleCreated && ComboButton(cb, out var btn))
                         {
-                            aw = btn.Width + 6;
+                            aw = btn.Width + S(6);
                             ax = btn.X + cb.Left - 3 < clip.Width / 2 ? 0 : clip.Width - aw;
                         }
                         arrow.Bounds = new Rectangle(ax, 0, aw, clip.Height);
@@ -249,7 +282,7 @@ public class InputBox : Panel
                         break;
                     }
                 default:
-                    clip.Bounds = new Rectangle(x, 4, w, Height - 8);
+                    clip.Bounds = new Rectangle(x, S(4), w, Height - S(8));
                     Inner.Bounds = new Rectangle(0, 0, clip.Width, clip.Height);
                     break;
             }
@@ -279,47 +312,73 @@ public class InputBox : Panel
     {
         var g = e.Graphics;
         Gfx.Hq(g);
-        var r = new RectangleF(1.5f, 1.5f, Width - 3.5f, Height - 3.5f);
-        if (focused) Gfx.DrawRound(g, RectangleF.Inflate(r, 1f, 1f), 10, Theme.BrandSoft2, 3f);
-        Gfx.FillRound(g, r, 8, Inner.Enabled ? Theme.Surface : Theme.SurfaceAlt);
-        Gfx.DrawRound(g, r, 8, focused ? Theme.Brand : hover ? ColorTranslator.FromHtml("#B8C2D0") : Theme.BorderStrong, focused ? 1.4f : 1f);
-        if (LeadingIcon != null && FontKit.HasIcons)
+        var r = new RectangleF(S(1.5f), S(1.5f), Width - S(3.5f), Height - S(3.5f));
+        if (focused) Gfx.DrawRound(g, RectangleF.Inflate(r, S(1f), S(1f)), S(10f), Theme.BrandSoft2, S(3f));
+        Gfx.FillRound(g, r, S(8f), Inner.Enabled ? Theme.Surface : Theme.SurfaceAlt);
+        Gfx.DrawRound(g, r, S(8f), focused ? Theme.Brand : hover ? ColorTranslator.FromHtml("#B8C2D0") : Theme.BorderStrong, focused ? S(1.4f) : 1f);
+        if (Icons.Has(LeadingIcon))
         {
             bool rtl = RightToLeft == RightToLeft.Yes;
-            var ir = new RectangleF(rtl ? Width - 36 : 10, (Height - 18) / 2f, 18, 18);
+            var ir = new RectangleF(rtl ? Width - S(36) : S(10), (Height - S(18)) / 2f, S(18), S(18));
             Icons.Draw(g, LeadingIcon, ir, focused ? Theme.Brand : Theme.Subtle, 17);
         }
     }
 
-    /// <summary>سهم القائمة المنسدلة بشكل موحد</summary>
-    sealed class ChevronBox : Control
+    /// <summary>
+    /// واجهة القائمة المنسدلة: في القوائم غير القابلة للكتابة ترسم النص المختار والسهم فوق القائمة الأصلية كلها،
+    /// وفي القوائم القابلة للبحث ترسم السهم فقط. النقر يفتح القائمة، ولوحة المفاتيح تعمل على القائمة الأصلية.
+    /// </summary>
+    sealed class ComboFace : Control
     {
         readonly ComboBox cb;
-        public ChevronBox(ComboBox c)
+        bool hover;
+        public ComboFace(ComboBox c)
         {
             cb = c;
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.Surface;
             Cursor = Cursors.Hand;
             c.EnabledChanged += (s, e) => { BackColor = c.Enabled ? Theme.Surface : Theme.SurfaceAlt; Invalidate(); };
+            c.SelectedIndexChanged += (s, e) => Invalidate();
+            c.TextChanged += (s, e) => Invalidate();
+            c.GotFocus += (s, e) => Invalidate();
+            c.LostFocus += (s, e) => Invalidate();
+            c.FontChanged += (s, e) => Invalidate();
         }
+        bool Full => cb.DropDownStyle == ComboBoxStyle.DropDownList;
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (!cb.Enabled) return;
+            if (!cb.Enabled || e.Button != MouseButtons.Left) return;
             cb.Focus();
             cb.DroppedDown = !cb.DroppedDown;
         }
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            // التمرير بالعجلة يغيّر الاختيار فقط إذا كانت القائمة مركَّزًا عليها (حتى لا تتغير القيم أثناء تمرير الصفحة)
+            if (!Full || !cb.Focused || cb.Items.Count == 0) { base.OnMouseWheel(e); return; }
+            int i = Math.Clamp(cb.SelectedIndex + (e.Delta > 0 ? -1 : 1), 0, cb.Items.Count - 1);
+            if (i != cb.SelectedIndex) cb.SelectedIndex = i;
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
-            e.Graphics.Clear(BackColor);
-            if (FontKit.HasIcons) Icons.Draw(e.Graphics, "chevron-down", new RectangleF(0, 0, Width, Height), Theme.Muted, 16);
-            else
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            bool rtl = cb.RightToLeft == RightToLeft.Yes;
+            int aw = S(26);
+            var ar = rtl ? new RectangleF(0, 0, aw, Height) : new RectangleF(Width - aw, 0, aw, Height);
+            if (!Full)
             {
-                Gfx.Hq(e.Graphics);
-                float cx = Width / 2f, cy = Height / 2f;
-                using var pen = new Pen(Theme.Muted, 1.6f);
-                e.Graphics.DrawLines(pen, new[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
+                Icons.Draw(g, "chevron-down", new RectangleF(0, 0, Width, Height), Theme.Muted, 16);
+                return;
             }
+            Icons.Draw(g, "chevron-down", ar, hover || cb.Focused ? Theme.Brand : Theme.Muted, 16);
+            var text = cb.SelectedItem != null ? cb.GetItemText(cb.SelectedItem) : cb.Text;
+            var tr = rtl ? new Rectangle(aw, 0, Width - aw - S(3), Height) : new Rectangle(S(3), 0, Width - aw - S(3), Height);
+            var fg = !cb.Enabled ? Theme.Subtle : Theme.Ink;
+            TextRenderer.DrawText(g, text, cb.Font, tr, fg,
+                (rtl ? TextFormatFlags.Right | TextFormatFlags.RightToLeft : TextFormatFlags.Left) | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         }
     }
 }
@@ -346,16 +405,17 @@ public class Toggle : CheckBox
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
         bool rtl = RightToLeft == RightToLeft.Yes;
-        const int tw = 40, th = 22;
-        var track = new RectangleF(rtl ? Width - tw - 2 : 2, (Height - th) / 2f, tw, th);
+        float tw = S(40f), th = S(22f);
+        var track = new RectangleF(rtl ? Width - tw - S(2) : S(2), (Height - th) / 2f, tw, th);
         var on = Checked;
         var col = !Enabled ? Theme.BorderStrong : on ? (hover ? Theme.BrandDark : Theme.Brand) : (hover ? ColorTranslator.FromHtml("#B8C2D0") : Theme.BorderStrong);
         Gfx.FillRound(g, track, th / 2f, col);
-        float k = th - 6;
-        float kx = on ^ rtl ? track.Right - k - 3 : track.X + 3;
-        using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, kx, track.Y + 3, k, k);
-        if (Focused && ShowFocusCues) Gfx.DrawRound(g, RectangleF.Inflate(track, 2, 2), th / 2f + 2, Theme.BrandSoft2, 2);
-        var tr = rtl ? new Rectangle(0, 0, (int)track.X - 10, Height) : new Rectangle((int)track.Right + 10, 0, Width - (int)track.Right - 10, Height);
+        float pad = S(3f), k = th - 2 * pad;
+        float kx = on ^ rtl ? track.Right - k - pad : track.X + pad;
+        using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, kx, track.Y + pad, k, k);
+        if (Focused && ShowFocusCues) Gfx.DrawRound(g, RectangleF.Inflate(track, S(2f), S(2f)), th / 2f + S(2f), Theme.BrandSoft2, S(2f));
+        int gap = S(10);
+        var tr = rtl ? new Rectangle(0, 0, (int)track.X - gap, Height) : new Rectangle((int)track.Right + gap, 0, Width - (int)track.Right - gap, Height);
         TextRenderer.DrawText(g, Text, Font, tr, Enabled ? Theme.Ink : Theme.Subtle, rtl ? Gfx.RtlStart : TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }
@@ -364,10 +424,12 @@ public class Toggle : CheckBox
 public class CardPanel : Panel
 {
     string title, subtitle;
+    Padding autoPad = new(-1);
     public string IconName { get; set; }
     public Color IconColor { get; set; } = Theme.Brand;
     public int Radius { get; set; } = 12;
-    public int HeaderHeight => string.IsNullOrEmpty(title) ? 0 : (string.IsNullOrEmpty(subtitle) ? 52 : 64);
+    /// <summary>ارتفاع رأس البطاقة بالبكسل الفعلي</summary>
+    public int HeaderHeight => string.IsNullOrEmpty(title) ? 0 : S(string.IsNullOrEmpty(subtitle) ? 52 : 64);
 
     public string Title { get => title; set { title = value; UpdatePadding(); Invalidate(); } }
     public string Subtitle { get => subtitle; set { subtitle = value; UpdatePadding(); Invalidate(); } }
@@ -379,17 +441,26 @@ public class CardPanel : Panel
         Padding = new Padding(16);
     }
 
-    void UpdatePadding() => Padding = new Padding(16, 12 + HeaderHeight, 16, 16);
+    void UpdatePadding() => Padding = autoPad = new Padding(S(16), S(12) + HeaderHeight, S(16), S(16));
+
+    /// <summary>الهامش المحسوب من العنوان هو بالبكسل الفعلي أصلًا: يُعاد حسابه بدل مضاعفته</summary>
+    protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+    {
+        bool auto = Padding == autoPad;
+        base.ScaleControl(factor, specified);
+        if (auto) UpdatePadding();
+    }
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
-        var r = new RectangleF(1.5f, 0.5f, Width - 4f, Height - 4f);
-        Gfx.Shadow(g, r, Radius);
-        Gfx.FillRound(g, r, Radius, Theme.Surface);
-        Gfx.DrawRound(g, r, Radius, Theme.Border);
+        float rad = S((float)Radius);
+        var r = new RectangleF(S(1.5f), 0.5f, Width - S(4f), Height - S(4f));
+        Gfx.Shadow(g, r, rad);
+        Gfx.FillRound(g, r, rad, Theme.Surface);
+        Gfx.DrawRound(g, r, rad, Theme.Border);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -399,27 +470,27 @@ public class CardPanel : Panel
         var g = e.Graphics;
         Gfx.Hq(g);
         bool rtl = RightToLeft == RightToLeft.Yes;
-        int x = 18, iconBox = 0;
-        if (IconName != null && FontKit.HasIcons)
+        int x = S(18), iconBox = 0;
+        if (Icons.Has(IconName))
         {
-            iconBox = 36;
-            var ir = new RectangleF(rtl ? Width - x - iconBox - 2 : x, 14, iconBox, iconBox);
-            Gfx.FillRound(g, ir, 10, Gfx.Mix(IconColor, Color.White, 0.88f));
+            iconBox = S(36);
+            var ir = new RectangleF(rtl ? Width - x - iconBox - S(2) : x, S(14), iconBox, iconBox);
+            Gfx.FillRound(g, ir, S(10f), Gfx.Mix(IconColor, Color.White, 0.88f));
             Icons.Draw(g, IconName, ir, IconColor, 18);
-            iconBox += 12;
+            iconBox += S(12);
         }
-        var tr = rtl ? new Rectangle(18, 12, Width - 38 - iconBox, 26) : new Rectangle(x + iconBox, 12, Width - 38 - iconBox, 26);
-        if (string.IsNullOrEmpty(subtitle)) tr.Y = 18;
+        var tr = rtl ? new Rectangle(S(18), S(12), Width - S(38) - iconBox, S(26)) : new Rectangle(x + iconBox, S(12), Width - S(38) - iconBox, S(26));
+        if (string.IsNullOrEmpty(subtitle)) tr.Y = S(18);
         TextRenderer.DrawText(g, title, Theme.FS(11.5f), tr, Theme.Ink, rtl ? Gfx.RtlStart : TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
         if (!string.IsNullOrEmpty(subtitle))
         {
-            var sr = tr; sr.Y += 24; sr.Height = 22;
+            var sr = tr; sr.Y += S(24); sr.Height = S(22);
             TextRenderer.DrawText(g, subtitle, Theme.F(9), sr, Theme.Muted, rtl ? Gfx.RtlStart : TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
         }
     }
 }
 
-/// <summary>شريط أدوات على شكل بطاقة (يُستخدم عبر Theme.Bar)</summary>
+/// <summary>شريط أدوات على شكل بطاقة (يُستخدم عبر Theme.Bar)؛ الأزرار تنتقل لسطر جديد عند ضيق المساحة</summary>
 public class ToolbarCard : FlowLayoutPanel
 {
     public const int Gap = 12;
@@ -438,10 +509,12 @@ public class ToolbarCard : FlowLayoutPanel
         var g = e.Graphics;
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
-        var r = new RectangleF(1.5f, 0.5f, Width - 4f, Height - Gap - 2f);
-        Gfx.Shadow(g, r, 12);
-        Gfx.FillRound(g, r, 12, Theme.Surface);
-        Gfx.DrawRound(g, r, 12, Theme.Border);
+        // الفراغ أسفل البطاقة = الفرق بين الهامشين السفلي والعلوي (يكبر مع الشاشة)
+        int gap = Math.Max(0, Padding.Bottom - Padding.Top);
+        var r = new RectangleF(S(1.5f), 0.5f, Width - S(4f), Height - gap - S(2f));
+        Gfx.Shadow(g, r, S(12f));
+        Gfx.FillRound(g, r, S(12f), Theme.Surface);
+        Gfx.DrawRound(g, r, S(12f), Theme.Border);
     }
 }
 
@@ -470,34 +543,35 @@ public class KpiCard : Control
         var g = e.Graphics;
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
-        var r = new RectangleF(1.5f, 0.5f, Width - 4f, Height - 4f);
-        Gfx.Shadow(g, r, 14);
-        Gfx.FillRound(g, r, 14, Theme.Surface);
-        Gfx.DrawRound(g, r, 14, hover && Cursor == Cursors.Hand ? Theme.BrandSoft2 : Theme.Border);
+        var r = new RectangleF(S(1.5f), 0.5f, Width - S(4f), Height - S(4f));
+        Gfx.Shadow(g, r, S(14f));
+        Gfx.FillRound(g, r, S(14f), Theme.Surface);
+        Gfx.DrawRound(g, r, S(14f), hover && Cursor == Cursors.Hand ? Theme.BrandSoft2 : Theme.Border);
 
         bool rtl = RightToLeft == RightToLeft.Yes;
-        var ir = new RectangleF(rtl ? 18 : Width - 60, 18, 40, 40);
-        Gfx.FillRound(g, ir, 12, Gfx.Mix(Accent, Color.White, 0.88f));
-        if (IconName != null) Icons.Draw(g, IconName, ir, Accent, 20);
+        int m = S(18), box = S(40);
+        var ir = new RectangleF(rtl ? m : Width - m - box, m, box, box);
+        Gfx.FillRound(g, ir, S(12f), Gfx.Mix(Accent, Color.White, 0.88f));
+        Icons.Draw(g, IconName, ir, Accent, 20);
 
         var flags = rtl ? Gfx.RtlStart : TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
-        int tx = rtl ? 62 : 18, tw = Width - 18 - 62;
-        TextRenderer.DrawText(g, Title, Theme.F(9.5f), new Rectangle(tx, 20, tw, 22), Theme.Muted, flags);
+        int tx = rtl ? m + box + S(4) : m, tw = Width - 2 * m - box - S(4);
+        TextRenderer.DrawText(g, Title, Theme.F(9.5f), new Rectangle(tx, S(20), tw, S(22)), Theme.Muted, flags);
         var vf = Theme.FS(Value != null && Value.Length > 11 ? 15 : 18);
-        TextRenderer.DrawText(g, Value, vf, new Rectangle(rtl ? 18 : 18, 46, Width - 36, 36), Theme.Ink, flags);
+        TextRenderer.DrawText(g, Value, vf, new Rectangle(m, S(46), Width - 2 * m, S(36)), Theme.Ink, flags);
         if (!string.IsNullOrEmpty(Hint))
-            TextRenderer.DrawText(g, Hint, Theme.F(8.5f), new Rectangle(18, Height - 32, Width - 36, 20), Accent, flags);
+            TextRenderer.DrawText(g, Hint, Theme.F(8.5f), new Rectangle(m, Height - S(32), Width - 2 * m, S(20)), Accent, flags);
     }
 }
 
-/// <summary>تبويبات حديثة: أفقية (خط سفلي) أو عمودية (قائمة جانبية)</summary>
+/// <summary>تبويبات حديثة: أفقية (خط سفلي، سطر واحد دائمًا) أو عمودية (قائمة جانبية)</summary>
 public class ModernTabs : Panel
 {
     readonly TabStrip strip;
     readonly Panel body = new() { Dock = DockStyle.Fill, BackColor = Theme.Bg };
     readonly List<(string Title, string Icon, Control Page)> pages = new();
+    readonly List<string> shortTitles = new();
     int selected = -1;
-
     public event EventHandler SelectedIndexChanged;
     public bool Vertical { get; }
 
@@ -514,6 +588,15 @@ public class ModernTabs : Panel
 
     public int Count => pages.Count;
     internal IReadOnlyList<(string Title, string Icon, Control Page)> Pages => pages;
+
+    /// <summary>داخل بطاقة بيضاء تأخذ التبويبات لون البطاقة بدل لون الخلفية الرمادي</summary>
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent == null) return;
+        var back = Gfx.OpaqueBack(this);
+        if (back == Theme.Surface) { BackColor = strip.BackColor = body.BackColor = back; }
+    }
 
     public int SelectedIndex
     {
@@ -538,12 +621,14 @@ public class ModernTabs : Panel
         Add(tp.Text, panel, icon);
     }
 
-    public void Add(string title, Control page, string icon = null)
+    /// <summary>shortTitle: عنوان مختصر يظهر عند ضيق المساحة (مثل «الأساسية» بدل «المعلومات الأساسية»)</summary>
+    public void Add(string title, Control page, string icon = null, string shortTitle = null)
     {
         page.Dock = DockStyle.Fill;
         page.Visible = false;
         body.Controls.Add(page);
         pages.Add((title, icon, page));
+        shortTitles.Add(shortTitle ?? title);
         strip.Relayout();
         if (selected < 0) SelectedIndex = 0;
     }
@@ -552,15 +637,16 @@ public class ModernTabs : Panel
     {
         readonly ModernTabs owner;
         readonly List<Rectangle> rects = new();
+        bool compact;   // مساحة ضيقة: بلا أيقونات
         int hover = -1;
-        const int ItemH = 44;
+        readonly ToolTip tip = new();
 
         public TabStrip(ModernTabs o)
         {
             owner = o;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.Bg;
-            Height = ItemH + 12;
+            Height = 56;
             Cursor = Cursors.Hand;
         }
 
@@ -572,27 +658,44 @@ public class ModernTabs : Panel
             var font = Theme.FS(10);
             if (owner.Vertical)
             {
-                int y = 12;
-                foreach (var p in owner.pages) { rects.Add(new Rectangle(8, y, Width - 16, 42)); y += 46; }
+                int y = S(12);
+                foreach (var p in owner.pages) { rects.Add(new Rectangle(S(8), y, Width - S(16), S(42))); y += S(46); }
             }
             else
             {
-                int x = Width - 4, y = 4, rows = 1;
-                foreach (var p in owner.pages)
+                // سطر واحد دائمًا: عند الضيق تُحذف الأيقونات ثم تُضغط العناوين بالتساوي (مع «...» وتلميح بالاسم الكامل)
+                int avail = Width - S(8), gap = S(4);
+                int[] Widths(bool icons, int pad) => owner.pages.Select((p, i) =>
+                    TextRenderer.MeasureText(icons ? p.Title : owner.shortTitles[i], font).Width + pad + (icons && Icons.Has(p.Icon) ? S(24) : 0)).ToArray();
+                var w = Widths(true, S(28));
+                compact = false;
+                if (w.Sum() + gap * w.Length > avail) { w = Widths(false, S(16)); compact = true; }
+                if (w.Sum() + gap * w.Length > avail && w.Length > 0)
                 {
-                    int w = TextRenderer.MeasureText(p.Title, font).Width + 28 + (p.Icon != null && FontKit.HasIcons ? 24 : 0);
-                    if (x - w < 4 && x < Width - 4) { x = Width - 4; y += ItemH; rows++; }
-                    rects.Add(new Rectangle(x - w, y, w, ItemH));
-                    x -= w + 4;
+                    double k = (double)Math.Max(1, avail - gap * w.Length) / w.Sum();
+                    w = w.Select(x => Math.Max(S(56), (int)(x * k))).ToArray();
                 }
-                int h = rows * ItemH + 16;
+                int xr = Width - S(4);
+                for (int i = 0; i < w.Length; i++)
+                {
+                    rects.Add(new Rectangle(xr - w[i], S(4), w[i], S(44)));
+                    xr -= w[i] + gap;
+                }
+                int h = S(56);
                 if (Height != h) Height = h;
             }
             Invalidate();
         }
 
         int HitTest(Point p) { for (int i = 0; i < rects.Count; i++) if (rects[i].Contains(p)) return i; return -1; }
-        protected override void OnMouseMove(MouseEventArgs e) { int h = HitTest(e.Location); if (h != hover) { hover = h; Invalidate(); } }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int h = HitTest(e.Location);
+            if (h == hover) return;
+            hover = h;
+            tip.SetToolTip(this, h >= 0 && h < owner.pages.Count ? owner.pages[h].Title : null);
+            Invalidate();
+        }
         protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); }
         protected override void OnMouseDown(MouseEventArgs e) { int h = HitTest(e.Location); if (h >= 0) owner.SelectedIndex = h; }
 
@@ -603,15 +706,15 @@ public class ModernTabs : Panel
             Gfx.Hq(g);
             if (owner.Vertical)
             {
-                var card = new RectangleF(1.5f, 0.5f, Width - 4f, Math.Min(Height - 4f, rects.Count * 46 + 24));
-                Gfx.Shadow(g, card, 12);
-                Gfx.FillRound(g, card, 12, Theme.Surface);
-                Gfx.DrawRound(g, card, 12, Theme.Border);
+                var card = new RectangleF(S(1.5f), 0.5f, Width - S(4f), Math.Min(Height - S(4f), rects.Count * S(46) + S(24)));
+                Gfx.Shadow(g, card, S(12f));
+                Gfx.FillRound(g, card, S(12f), Theme.Surface);
+                Gfx.DrawRound(g, card, S(12f), Theme.Border);
             }
             else
             {
                 using var pen = new Pen(Theme.Border);
-                g.DrawLine(pen, 0, Height - 13, Width, Height - 13);
+                g.DrawLine(pen, 0, Height - S(13), Width, Height - S(13));
             }
             for (int i = 0; i < rects.Count && i < owner.pages.Count; i++)
             {
@@ -621,38 +724,75 @@ public class ModernTabs : Panel
                 Color fg = sel ? Theme.BrandDark : hov ? Theme.Ink : Theme.Muted;
                 if (owner.Vertical)
                 {
-                    if (sel) Gfx.FillRound(g, r, 8, Theme.BrandSoft);
-                    else if (hov) Gfx.FillRound(g, r, 8, Theme.SurfaceAlt);
-                    if (sel) Gfx.FillRound(g, new RectangleF(r.Right - 4, r.Y + 10, 4, r.Height - 20), 2, Theme.Brand);
+                    if (sel) Gfx.FillRound(g, r, S(8f), Theme.BrandSoft);
+                    else if (hov) Gfx.FillRound(g, r, S(8f), Theme.SurfaceAlt);
+                    if (sel) Gfx.FillRound(g, new RectangleF(r.Right - S(4), r.Y + S(10), S(4), r.Height - S(20)), S(2f), Theme.Brand);
                 }
                 else
                 {
-                    if (hov && !sel) Gfx.FillRound(g, new RectangleF(r.X, r.Y + 4, r.Width, r.Height - 10), 8, ColorTranslator.FromHtml("#E9EEF4"));
-                    if (sel) Gfx.FillRound(g, new RectangleF(r.X + 10, r.Bottom - 5, r.Width - 20, 3), 1.5f, Theme.Brand);
+                    if (hov && !sel) Gfx.FillRound(g, new RectangleF(r.X, r.Y + S(4), r.Width, r.Height - S(10)), S(8f), ColorTranslator.FromHtml("#E6E0D4"));
+                    if (sel) Gfx.FillRound(g, new RectangleF(r.X + S(10), r.Bottom - S(5), r.Width - S(20), S(3)), S(1.5f), Theme.Brand);
                 }
-                int iconW = icon != null && FontKit.HasIcons ? 24 : 0;
-                if (iconW > 0) Icons.Draw(g, icon, new RectangleF(r.Right - 14 - 18, r.Y + (r.Height - 18) / 2f - (owner.Vertical ? 0 : 2), 18, 18), sel ? Theme.Brand : fg, 17);
-                var tr = new Rectangle(r.X + 8, r.Y - (owner.Vertical ? 0 : 2), r.Width - 22 - iconW, r.Height);
-                TextRenderer.DrawText(g, title, sel ? Theme.FS(10) : Theme.F(10), tr, fg, owner.Vertical ? Gfx.RtlStart : Gfx.Center);
+                bool showIcon = Icons.Has(icon) && (owner.Vertical || !compact);
+                int iconW = showIcon ? S(24) : 0;
+                int lift = owner.Vertical ? 0 : S(2);
+                if (showIcon) Icons.Draw(g, icon, new RectangleF(r.Right - S(14) - S(18), r.Y + (r.Height - S(18)) / 2f - lift, S(18), S(18)), sel ? Theme.Brand : fg, 17);
+                var tr = owner.Vertical || showIcon
+                    ? new Rectangle(r.X + S(8), r.Y - lift, r.Width - S(22) - iconW, r.Height)
+                    : new Rectangle(r.X + S(6), r.Y - lift, r.Width - S(12), r.Height);
+                var shown = compact && !owner.Vertical ? owner.shortTitles[i] : title;
+                TextRenderer.DrawText(g, shown, sel ? Theme.FS(10) : Theme.F(10), tr, fg, owner.Vertical ? Gfx.RtlStart : Gfx.Center);
             }
         }
     }
 }
 
-/// <summary>رأس قسم في القائمة الجانبية (يُفتح ويُطوى): دائرة ملونة بأيقونة، عنوان، وسهم</summary>
+/// <summary>عنوان مجموعة صغير في القائمة الجانبية (العمليات، الحسابات والتقارير، الإدارة)</summary>
+public class NavLabel : Control
+{
+    bool rail;
+    /// <summary>في الوضع المصغّر يصبح خطًا فاصلًا قصيرًا</summary>
+    public bool Rail { get => rail; set { rail = value; Invalidate(); } }
+
+    public NavLabel()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Height = 34;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Theme.Sidebar);
+        if (rail)
+        {
+            using var pen = new Pen(Theme.SidebarBorder);
+            g.DrawLine(pen, S(20), Height / 2, Width - S(20), Height / 2);
+            return;
+        }
+        TextRenderer.DrawText(g, Text, Theme.FS(8.5f), new Rectangle(S(16), S(8), Width - S(38), Height - S(8)), Theme.SidebarMuted, Gfx.RtlStart);
+    }
+}
+
+/// <summary>
+/// رأس قسم في القائمة الجانبية: أيقونة ملونة في مربع ناعم، عنوان، وسهم للفتح والطي.
+/// في الوضع المصغّر (Rail) تظهر الأيقونة وحدها في الوسط.
+/// </summary>
 public class NavSection : Control
 {
-    bool hover, expanded, active;
+    bool hover, expanded, active, rail;
     public string IconName { get; set; }
     public Color Tint { get; set; } = Theme.Orange;
-    public bool HasChildren { get; set; } = true;
+    public bool Expandable { get; set; } = true;
     public bool Expanded { get => expanded; set { expanded = value; Invalidate(); } }
+    /// <summary>الشاشة الحالية ضمن هذا القسم</summary>
     public bool Active { get => active; set { active = value; Invalidate(); } }
+    public bool Rail { get => rail; set { rail = value; Invalidate(); } }
 
     public NavSection()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Height = 58;
+        Height = 44;
         Cursor = Cursors.Hand;
     }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -661,31 +801,47 @@ public class NavSection : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(hover ? Theme.SidebarHover : Theme.Sidebar);
+        g.Clear(Theme.Sidebar);
         Gfx.Hq(g);
-        var circle = new RectangleF(Width - 18 - 42, (Height - 42) / 2f, 42, 42);
-        using (var b = new SolidBrush(Gfx.Mix(Tint, Color.White, expanded || active ? 0.70f : 0.82f))) g.FillEllipse(b, circle);
-        Icons.Draw(g, IconName, circle, Tint, 20);
-        TextRenderer.DrawText(g, Text, Theme.FS(12.5f), new Rectangle(40, 0, Width - 40 - 18 - 42 - 12, Height), Theme.SidebarText, Gfx.RtlStart);
-        if (HasChildren)
-            Icons.Draw(g, expanded ? "chevron-down" : "chevron-left", new RectangleF(14, (Height - 18) / 2f, 18, 18), Theme.SidebarMuted, 16);
-        else if (active)
-            Gfx.FillRound(g, new RectangleF(Width - 5, 12, 5, Height - 24), 2.5f, Theme.Orange);
+        // «مختار» ظاهريًا: قسم بلا عناصر وشاشته مفتوحة، أو قسم مطوي يحتوي الشاشة الحالية
+        bool selected = active && (!Expandable || !expanded || rail);
+        var pill = new RectangleF(S(10), S(3), Width - S(20), Height - S(6));
+        if (selected) Gfx.FillRound(g, pill, S(10f), Gfx.Mix(Tint, Color.White, 0.87f));
+        else if (hover) Gfx.FillRound(g, pill, S(10f), Theme.SidebarHover);
+
+        int box = S(30);
+        var ib = rail
+            ? new RectangleF((Width - box) / 2f, (Height - box) / 2f, box, box)
+            : new RectangleF(Width - S(20) - box, (Height - box) / 2f, box, box);
+        Gfx.FillRound(g, ib, S(8f), selected ? Tint : Gfx.Mix(Tint, Color.White, expanded ? 0.80f : 0.88f));
+        Icons.Draw(g, IconName, ib, selected ? Color.White : Tint, 17);
+        if (rail) return;
+
+        int textRight = (int)ib.X - S(10);
+        int left = S(20) + (Expandable ? S(20) : 0);
+        TextRenderer.DrawText(g, Text, Theme.FS(10.5f), new Rectangle(left, 0, textRight - left, Height),
+            selected ? Gfx.Mix(Tint, Theme.Ink, 0.45f) : Theme.SidebarText, Gfx.RtlStart);
+        if (Expandable)
+            Icons.Draw(g, expanded ? "chevron-down" : "chevron-left", new RectangleF(S(18), (Height - S(16)) / 2f, S(16), S(16)),
+                expanded ? Theme.SidebarText : Theme.SidebarMuted, 15);
     }
 }
 
-/// <summary>عنصر داخل قسم مفتوح: شريط بتدرج برتقالي/كهرماني وأيقونة ونص أبيض</summary>
+/// <summary>شاشة داخل قسم مفتوح: سطر خفيف بأيقونة صغيرة وخط إرشاد يربطه بالقسم، وتمييز ناعم للشاشة الحالية</summary>
 public class NavItem : Control
 {
     bool hover, active;
     public string IconName { get; set; }
+    /// <summary>لون القسم (للتمييز)</summary>
     public Color Fill { get; set; } = Theme.Orange;
     public bool Active { get => active; set { active = value; Invalidate(); } }
+    /// <summary>آخر عنصر في القسم (ينتهي عنده خط الإرشاد)</summary>
+    public bool Last { get; set; }
 
     public NavItem()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Height = 50;
+        Height = 36;
         Cursor = Cursors.Hand;
     }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -694,14 +850,23 @@ public class NavItem : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        var fill = active ? Gfx.Mix(Fill, ColorTranslator.FromHtml("#B23A0E"), 0.28f) : hover ? Gfx.Mix(Fill, Color.White, 0.14f) : Fill;
-        g.Clear(fill);
+        g.Clear(Theme.Sidebar);
         Gfx.Hq(g);
-        // فاصل أبيض رفيع بين العناصر
-        using (var pen = new Pen(Color.FromArgb(110, 255, 255, 255))) g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
-        if (active) g.FillRectangle(Brushes.White, Width - 5, 0, 5, Height);
-        Icons.Draw(g, IconName, new RectangleF(Width - 30 - 26, (Height - 26) / 2f, 26, 26), Color.White, 21);
-        TextRenderer.DrawText(g, Text, active ? Theme.FS(11.5f) : Theme.FS(11), new Rectangle(12, 0, Width - 12 - 30 - 26 - 14, Height), Color.White, Gfx.RtlStart);
+        // خط الإرشاد تحت منتصف أيقونة القسم
+        float guide = Width - S(20) - S(15);
+        using (var pen = new Pen(Theme.SidebarBorder, Math.Max(1f, S(1.2f))))
+            g.DrawLine(pen, guide, 0, guide, Last ? Height / 2f : Height);
+
+        var pill = new RectangleF(S(10), S(2), guide - S(8) - S(10), Height - S(4));
+        if (active) Gfx.FillRound(g, pill, S(8f), Gfx.Mix(Fill, Color.White, 0.86f));
+        else if (hover) Gfx.FillRound(g, pill, S(8f), Theme.SidebarHover);
+        if (active) Gfx.FillRound(g, new RectangleF(guide - S(1.5f), S(8), S(3), Height - S(16)), S(1.5f), Fill);
+
+        int ic = S(17);
+        var ir = new RectangleF(pill.Right - S(10) - ic, (Height - ic) / 2f, ic, ic);
+        var fg = active ? Gfx.Mix(Fill, Theme.Ink, 0.45f) : hover ? Theme.Ink : Theme.Text2;
+        Icons.Draw(g, IconName, ir, active ? Fill : Theme.SidebarMuted, 16);
+        TextRenderer.DrawText(g, Text, active ? Theme.FS(10) : Theme.F(10), new Rectangle((int)pill.X + S(6), 0, (int)(ir.X - pill.X) - S(14), Height), fg, Gfx.RtlStart);
     }
 }
 
@@ -713,15 +878,16 @@ public class DocTabs : Control
     readonly List<(Rectangle Box, Rectangle Close)> rects = new();
     int hover = -1;
     bool hoverClose;
+    readonly ToolTip tip = new();
     public string ActiveKey { get; private set; }
     public event Action<string> Selected, Closed;
     /// <summary>لون شريط التبويبات (التبويب النشط بلون خلفية الصفحة فيتصل بها)</summary>
-    public static readonly Color Strip = ColorTranslator.FromHtml("#E2DCCF");
+    public static readonly Color Strip = ColorTranslator.FromHtml("#E4DED2");
 
     public DocTabs()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Height = 46;
+        Height = 44;
         BackColor = Strip;
     }
 
@@ -743,16 +909,17 @@ public class DocTabs : Control
         rects.Clear();
         if (tabs.Count == 0) { Invalidate(); return; }
         var font = Theme.FS(10);
-        var widths = tabs.Select(t => TextRenderer.MeasureText(t.Title, font).Width + 30 + (t.Icon != null ? 24 : 0) + (t.Closable ? 26 : 0)).ToList();
-        int avail = Width - 12, total = widths.Sum() + 4 * tabs.Count;
-        if (total > avail) { double k = (double)avail / total; widths = widths.Select(w => Math.Max(90, (int)(w * k))).ToList(); }
-        int x = Width - 4;
+        var widths = tabs.Select(t => Math.Min(S(240), TextRenderer.MeasureText(t.Title, font).Width + S(30) + (t.Icon != null ? S(24) : 0) + (t.Closable ? S(26) : 0))).ToList();
+        int avail = Width - S(12), gap = S(4), total = widths.Sum() + gap * tabs.Count;
+        if (total > avail) { double k = (double)Math.Max(1, avail - gap * tabs.Count) / widths.Sum(); widths = widths.Select(w => Math.Max(S(84), (int)(w * k))).ToList(); }
+        int x = Width - S(4), top = S(7);
         for (int i = 0; i < tabs.Count; i++)
         {
-            var box = new Rectangle(x - widths[i], 8, widths[i], Height - 8);
-            var close = tabs[i].Closable ? new Rectangle(box.X + 8, box.Y + (box.Height - 20) / 2, 20, 20) : Rectangle.Empty;
+            var box = new Rectangle(x - widths[i], top, widths[i], Height - top);
+            int cs = S(20);
+            var close = tabs[i].Closable ? new Rectangle(box.X + S(8), box.Y + (box.Height - cs) / 2, cs, cs) : Rectangle.Empty;
             rects.Add((box, close));
-            x -= widths[i] + 4;
+            x -= widths[i] + gap;
         }
         Invalidate();
     }
@@ -761,6 +928,7 @@ public class DocTabs : Control
     {
         int h = rects.FindIndex(r => r.Box.Contains(e.Location));
         bool hc = h >= 0 && rects[h].Close.Contains(e.Location);
+        if (h != hover) tip.SetToolTip(this, h >= 0 && h < tabs.Count ? tabs[h].Title : null);
         if (h != hover || hc != hoverClose) { hover = h; hoverClose = hc; Invalidate(); }
         Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
     }
@@ -787,22 +955,22 @@ public class DocTabs : Control
             bool isAct = i == act;
             if (isAct || i == hover)
             {
-                using var path = TopRounded(box, 9);
-                using var b = new SolidBrush(isAct ? Theme.Bg : ColorTranslator.FromHtml("#D8D1C3"));
+                using var path = TopRounded(box, S(9));
+                using var b = new SolidBrush(isAct ? Theme.Bg : ColorTranslator.FromHtml("#D9D2C4"));
                 g.FillPath(b, path);
-                if (isAct) Gfx.FillRound(g, new RectangleF(box.X + 10, box.Y, box.Width - 20, 3), 1.5f, Theme.Orange);
+                if (isAct) Gfx.FillRound(g, new RectangleF(box.X + S(10), box.Y, box.Width - S(20), S(3)), S(1.5f), Theme.Orange);
             }
             // فاصل رفيع بين التبويبات غير النشطة
             else if (i + 1 != act && i != rects.Count - 1)
-                using (var pen = new Pen(Theme.BorderStrong)) g.DrawLine(pen, box.X - 2, box.Y + 10, box.X - 2, box.Bottom - 8);
+                using (var pen = new Pen(Theme.BorderStrong)) g.DrawLine(pen, box.X - S(2), box.Y + S(10), box.X - S(2), box.Bottom - S(8));
 
-            int right = box.Right - 14;
-            if (t.Icon != null && FontKit.HasIcons)
+            int right = box.Right - S(14);
+            if (Icons.Has(t.Icon))
             {
-                Icons.Draw(g, t.Icon, new RectangleF(right - 18, box.Y + (box.Height - 18) / 2f, 18, 18), isAct ? Theme.Orange : Theme.Muted, 16);
-                right -= 26;
+                Icons.Draw(g, t.Icon, new RectangleF(right - S(18), box.Y + (box.Height - S(18)) / 2f, S(18), S(18)), isAct ? Theme.Orange : Theme.Muted, 16);
+                right -= S(26);
             }
-            int left = t.Closable ? close.Right + 4 : box.X + 10;
+            int left = t.Closable ? close.Right + S(4) : box.X + S(10);
             TextRenderer.DrawText(g, t.Title, isAct ? Theme.FS(10) : Theme.F(10), new Rectangle(left, box.Y, right - left, box.Height), isAct ? Theme.Ink : Theme.Text2, Gfx.RtlStart | TextFormatFlags.EndEllipsis);
             if (t.Closable)
             {
@@ -813,9 +981,9 @@ public class DocTabs : Control
         }
     }
 
-    static System.Drawing.Drawing2D.GraphicsPath TopRounded(Rectangle r, int rad)
+    static GraphicsPath TopRounded(Rectangle r, int rad)
     {
-        var p = new System.Drawing.Drawing2D.GraphicsPath();
+        var p = new GraphicsPath();
         int d = rad * 2;
         p.AddArc(r.X, r.Y, d, d, 180, 90);
         p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
@@ -848,13 +1016,15 @@ public class StatChip : Control
         Gfx.Hq(g);
         var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
         var active = Count > 0;
-        Gfx.FillRound(g, r, 12, hover ? Gfx.Mix(Accent, Color.White, 0.9f) : Theme.SurfaceAlt);
-        Gfx.DrawRound(g, r, 12, hover ? Gfx.Mix(Accent, Color.White, 0.6f) : Theme.Border);
-        var ir = new RectangleF(Width - 50, (Height - 38) / 2f, 38, 38);
-        Gfx.FillRound(g, ir, 10, active ? Gfx.Mix(Accent, Color.White, 0.85f) : Theme.GraySoft);
+        Gfx.FillRound(g, r, S(12f), hover ? Gfx.Mix(Accent, Color.White, 0.9f) : Theme.SurfaceAlt);
+        Gfx.DrawRound(g, r, S(12f), hover ? Gfx.Mix(Accent, Color.White, 0.6f) : Theme.Border);
+        int box = S(38);
+        var ir = new RectangleF(Width - S(12) - box, (Height - box) / 2f, box, box);
+        Gfx.FillRound(g, ir, S(10f), active ? Gfx.Mix(Accent, Color.White, 0.85f) : Theme.GraySoft);
         Icons.Draw(g, IconName, ir, active ? Accent : Theme.Subtle, 18);
-        TextRenderer.DrawText(g, Count.ToString("#,0"), Theme.FS(15), new Rectangle(10, 6, Width - 70, 28), active ? Theme.Ink : Theme.Subtle, Gfx.RtlStart);
-        TextRenderer.DrawText(g, Text, Theme.F(8.5f), new Rectangle(10, 33, Width - 70, 22), Theme.Muted, Gfx.RtlStart);
+        int tw = Width - S(70);
+        TextRenderer.DrawText(g, Count.ToString("#,0"), Theme.FS(15), new Rectangle(S(10), S(6), tw, S(28)), active ? Theme.Ink : Theme.Subtle, Gfx.RtlStart);
+        TextRenderer.DrawText(g, Text, Theme.F(8.5f), new Rectangle(S(10), S(33), tw, S(22)), Theme.Muted, Gfx.RtlStart);
     }
 }
 
@@ -876,7 +1046,7 @@ public class BarChart : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         int h = -1;
-        for (int i = 0; i < bars.Count; i++) if (e.X >= bars[i].X - 4 && e.X <= bars[i].Right + 4) h = i;
+        for (int i = 0; i < bars.Count; i++) if (e.X >= bars[i].X - S(4) && e.X <= bars[i].Right + S(4)) h = i;
         if (h != hover) { hover = h; Invalidate(); }
     }
     protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); }
@@ -892,19 +1062,20 @@ public class BarChart : Control
         // تقريب الحد الأعلى لرقم جميل
         double mag = Math.Pow(10, Math.Floor(Math.Log10(max)));
         double top = Math.Ceiling(max / mag) * mag;
-        int left = 8, right = 64, topPad = 26, bottom = 30;
+        int left = S(8), right = S(64), topPad = S(26), bottom = S(30);
         var plot = new RectangleF(left, topPad, Width - left - right, Height - topPad - bottom);
+        if (plot.Width < 10 || plot.Height < 10) return;
         using var grid = new Pen(Theme.Border) { DashStyle = DashStyle.Dash };
         var lf = Theme.F(8.5f);
         for (int i = 0; i <= 4; i++)
         {
             float y = plot.Bottom - plot.Height * i / 4f;
             g.DrawLine(grid, plot.X, y, plot.Right, y);
-            TextRenderer.DrawText(g, Short(top * i / 4), lf, new Rectangle((int)plot.Right + 6, (int)y - 10, right - 8, 20), Theme.Subtle,
+            TextRenderer.DrawText(g, Short(top * i / 4), lf, new Rectangle((int)plot.Right + S(6), (int)y - S(10), right - S(8), S(20)), Theme.Subtle,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
         int n = Data.Count;
-        float slot = plot.Width / n, bw = Math.Min(34, slot * 0.56f);
+        float slot = plot.Width / n, bw = Math.Min(S(34f), slot * 0.56f);
         for (int i = 0; i < n; i++)
         {
             // من اليمين إلى اليسار: أقدم يوم على اليمين
@@ -915,11 +1086,12 @@ public class BarChart : Control
             var col = i == hover ? ColorTranslator.FromHtml("#D24A17")
                 : !HighlightLast ? Gfx.Mix(Theme.Orange, Theme.Amber, 0.35f)
                 : i == n - 1 ? Theme.Orange : Gfx.Mix(Theme.Amber, Color.White, 0.25f);
-            using (var path = TopRound(br, Math.Min(6, bw / 2)))
+            using (var path = TopRound(br, Math.Min(S(6f), bw / 2)))
             using (var b = new SolidBrush(col)) g.FillPath(b, path);
-            int every = slot < 30 ? 3 : slot < 46 ? 2 : 1;
+            float per = slot / F;
+            int every = per < 30 ? 3 : per < 46 ? 2 : 1;
             if (i % every == (n - 1) % every || i == hover)
-                TextRenderer.DrawText(g, Data[i].Label, lf, new Rectangle((int)(cx - slot / 2) - 10, (int)plot.Bottom + 6, (int)slot + 20, 20),
+                TextRenderer.DrawText(g, Data[i].Label, lf, new Rectangle((int)(cx - slot / 2) - S(10), (int)plot.Bottom + S(6), (int)slot + S(20), S(20)),
                     i == hover ? Theme.Ink : Theme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
         }
         if (hover >= 0 && hover < bars.Count)
@@ -927,9 +1099,9 @@ public class BarChart : Control
             var b = bars[hover];
             var txt = Ui.M(Data[hover].Value);
             var sz = TextRenderer.MeasureText(txt, Theme.FS(9));
-            var tip = new RectangleF(b.X + b.Width / 2 - sz.Width / 2f - 10, Math.Max(0, b.Y - 32), sz.Width + 20, 26);
+            var tip = new RectangleF(b.X + b.Width / 2 - sz.Width / 2f - S(10), Math.Max(0, b.Y - S(32)), sz.Width + S(20), S(26));
             tip.X = Math.Max(0, Math.Min(Width - tip.Width, tip.X));
-            Gfx.FillRound(g, tip, 7, Theme.Ink);
+            Gfx.FillRound(g, tip, S(7f), Theme.Ink);
             TextRenderer.DrawText(g, txt, Theme.FS(9), Rectangle.Round(tip), Color.White, Gfx.Center);
         }
     }
@@ -958,7 +1130,7 @@ public static class Avatar
         Gfx.Hq(g);
         using (var b = new SolidBrush(bg)) g.FillEllipse(b, r);
         var initials = Initials(name);
-        TextRenderer.DrawText(g, initials, Theme.FS(r.Height > 36 ? 12 : 10), Rectangle.Round(r), Color.White, Gfx.Center);
+        TextRenderer.DrawText(g, initials, Theme.FS(r.Height > S(36f) ? 12 : 10), Rectangle.Round(r), Color.White, Gfx.Center);
     }
 
     public static string Initials(string name)
@@ -989,7 +1161,7 @@ public class StatLabel : Control
     {
         var g = e.Graphics;
         g.Clear(Gfx.OpaqueBack(this));
-        TextRenderer.DrawText(g, caption, Theme.F(9), new Rectangle(2, 2, Width - 4, 22), Theme.Muted, Gfx.RtlStart);
-        TextRenderer.DrawText(g, value, Theme.FS(ValueSize), new Rectangle(2, 24, Width - 4, Height - 26), valueColor, Gfx.RtlStart);
+        TextRenderer.DrawText(g, caption, Theme.F(9), new Rectangle(S(2), S(2), Width - S(4), S(22)), Theme.Muted, Gfx.RtlStart);
+        TextRenderer.DrawText(g, value, Theme.FS(ValueSize), new Rectangle(S(2), S(24), Width - S(4), Height - S(26)), valueColor, Gfx.RtlStart);
     }
 }

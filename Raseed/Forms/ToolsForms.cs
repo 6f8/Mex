@@ -5,6 +5,14 @@ public class ChangelogForm : BaseForm
 {
     static readonly (string Version, string[] Items)[] Log =
     {
+        ("8", new[]
+        {
+            "وضوح كامل على كل الشاشات: البرنامج يتعامل مع تكبير ويندوز (100% و125% و150% و200%) فتبقى الخطوط والأيقونات حادة وغير مشوّشة.",
+            "الأيقونات مرسومة كأشكال متجهة داخل البرنامج فتظهر على كل الأجهزة، والخط العربي المضمّن يُحمَّل بطريقة أثبت على ويندوز.",
+            "قائمة جانبية جديدة: مجموعات واضحة (العمليات اليومية، الحسابات والتقارير، الإدارة)، وتمييز هادئ للشاشة الحالية، ووضع مصغّر بالأيقونات مع قوائم منبثقة.",
+            "كل الشاشات متجاوبة: الحقول تتمدد مع العرض وتنزل تحت عناوينها في الشاشات الصغيرة فلا يتداخل شيء ولا يخرج عن حدوده، والتبويبات في سطر واحد دائمًا.",
+            "القوائم المنسدلة بشكل موحد وواضح، وقائمة البيع تحافظ على ظهور المجاميع وأزرار الحفظ مع طي الحقول الإضافية في الشاشات القصيرة.",
+        }),
         ("7", new[]
         {
             "سند قبض وسند دفع بالدينار والدولار مع الخصم والمبلغ كتابةً ولوحة الرصيد السابق والحالي، وطباعة نسخة للعميل.",
@@ -30,20 +38,36 @@ public class ChangelogForm : BaseForm
     {
         Text = "سجل التحديثات";
         AutoScroll = true;
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Bg };
+        // البطاقات بعرض الشاشة، وارتفاع كل بطاقة حسب طول نصها بعد الالتفاف
+        var host = new Panel { Dock = DockStyle.Top, BackColor = Theme.Bg };
+        var cards = new List<(CardPanel Card, Label Text)>();
         foreach (var (v, items) in Log)
         {
-            var card = new CardPanel { Title = $"الإصدار {v}", IconName = "sparkles", Width = 1000, Height = 70 + items.Length * 52, Margin = new Padding(0, 0, 0, 14) };
+            var card = new CardPanel { Title = $"الإصدار {v}", IconName = "sparkles" };
             var list = new Label
             {
                 Dock = DockStyle.Fill, Font = Theme.F(10.5f), ForeColor = Theme.Text2, BackColor = Theme.Surface,
                 Text = string.Join("\n\n", items.Select(x => "•  " + x))
             };
             card.Controls.Add(list);
-            flow.Controls.Add(card);
+            host.Controls.Add(card);
+            cards.Add((card, list));
         }
-        Controls.Add(flow);
-        Resize += (s, e) => { foreach (Control c in flow.Controls) c.Width = Math.Max(600, ClientSize.Width - 30); };
+        Controls.Add(host);
+        void Arrange()
+        {
+            int w = Math.Max(Dpi.S(320), ClientSize.Width - Dpi.S(4)), y = 0;
+            foreach (var (card, text) in cards)
+            {
+                int tw = w - card.Padding.Horizontal - Dpi.S(4);
+                var sz = TextRenderer.MeasureText(text.Text, text.Font, new Size(tw, 10000), TextFormatFlags.WordBreak | TextFormatFlags.RightToLeft | TextFormatFlags.TextBoxControl);
+                int h = card.Padding.Vertical + sz.Height + Dpi.S(10);
+                card.SetBounds(0, y, w, h);
+                y += h + Dpi.S(14);
+            }
+            host.Height = y;
+        }
+        Resize += (s, e) => Arrange();
     }
 }
 

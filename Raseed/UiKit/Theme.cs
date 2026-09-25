@@ -19,8 +19,9 @@ public static class Theme
     public static readonly Color OrangeSoft = C("#FDE7DA");
 
     // ---- الشريط الجانبي (فاتح بلون كريمي) ----
-    public static readonly Color Sidebar = C("#F3EFE6");
-    public static readonly Color SidebarHover = C("#E9E2D4");
+    public static readonly Color Sidebar = C("#FAF8F4");
+    public static readonly Color SidebarHover = C("#F0EBE1");
+    public static readonly Color SidebarBorder = C("#E6E0D4");
     public static readonly Color SidebarText = C("#1F2937");
     public static readonly Color SidebarMuted = C("#8B8171");
 
@@ -114,8 +115,9 @@ public static class Theme
         g.ColumnHeadersDefaultCellStyle.Padding = new Padding(6, 0, 6, 0);
         g.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.False;
         g.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-        g.ColumnHeadersHeight = 44;
-        g.RowTemplate.Height = 40;
+        // الجداول لا تُكبَّر تلقائيًا مع الشاشة: الارتفاعات بالبكسل الفعلي
+        g.ColumnHeadersHeight = Dpi.S(44);
+        g.RowTemplate.Height = Dpi.S(40);
         g.DefaultCellStyle.Font = F(10);
         g.DefaultCellStyle.ForeColor = Ink;
         g.DefaultCellStyle.BackColor = Surface;
@@ -143,16 +145,16 @@ public static class Theme
                 if (c.DataGridView == null) continue;
                 if (c.Name == "id") c.Visible = false;
                 // حد أدنى للعرض حسب العنوان: شريط تمرير أفقي بدل «...» في الشاشات الصغيرة
-                int head = TextRenderer.MeasureText(c.HeaderText ?? "", FS(9.5f)).Width + 28;
+                int head = TextRenderer.MeasureText(c.HeaderText ?? "", FS(9.5f)).Width + Dpi.S(28);
                 // عرض أطول قيمة في أول الصفوف (التواريخ مثلاً) حتى لا تُقص
                 int content = 0;
                 if (c.Visible)
                     for (int i = 0; i < Math.Min(g.Rows.Count, 25); i++)
                     {
                         var v = g.Rows[i].Cells[c.Index].FormattedValue as string;
-                        if (!string.IsNullOrEmpty(v)) content = Math.Max(content, TextRenderer.MeasureText(v, F(10)).Width + 28);
+                        if (!string.IsNullOrEmpty(v)) content = Math.Max(content, TextRenderer.MeasureText(v, F(10)).Width + Dpi.S(28));
                     }
-                int min = Math.Max(c.ValueType == typeof(double) || c.ValueType == typeof(long) ? 80 : 100, Math.Min(Math.Max(head, content), 240));
+                int min = Math.Max(Dpi.S(c.ValueType == typeof(double) || c.ValueType == typeof(long) ? 64 : 90), Math.Min(Math.Max(head, content), Dpi.S(220)));
                 try { if (c.DataGridView != null && c.MinimumWidth != min) c.MinimumWidth = min; } catch { /* العمود يُعاد بناؤه أثناء الربط */ }
                 if (c.ValueType == typeof(double) || c.ValueType == typeof(long))
                 {
@@ -201,7 +203,7 @@ public static class Theme
             Gfx.Hq(gr);
             var font = FS(9);
             var sz = TextRenderer.MeasureText(gr, text, font, Size.Empty, TextFormatFlags.NoPadding);
-            int w = Math.Min(e.CellBounds.Width - 12, sz.Width + 22), h = 26;
+            int w = Math.Min(e.CellBounds.Width - Dpi.S(12), sz.Width + Dpi.S(22)), h = Math.Min(e.CellBounds.Height - 4, Dpi.S(26));
             var r = new Rectangle(e.CellBounds.X + (e.CellBounds.Width - w) / 2, e.CellBounds.Y + (e.CellBounds.Height - h) / 2, w, h);
             Gfx.FillRound(gr, r, h / 2f, bg);
             TextRenderer.DrawText(gr, text, font, r, fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.RightToLeft);
@@ -214,12 +216,13 @@ public static class Theme
             if (g.Rows.Count > 0 || g.Columns.Count == 0) return;
             int top = g.ColumnHeadersVisible ? g.ColumnHeadersHeight : 0;
             var area = new Rectangle(0, top, g.Width, g.Height - top);
-            if (area.Height < 90) return;
+            if (area.Height < Dpi.S(90)) return;
             Gfx.Hq(e.Graphics);
-            var circle = new RectangleF(area.X + area.Width / 2f - 28, area.Y + area.Height / 2f - 50, 56, 56);
-            e.Graphics.FillEllipse(new SolidBrush(GraySoft), circle);
+            float cs = Dpi.S(56f);
+            var circle = new RectangleF(area.X + area.Width / 2f - cs / 2, area.Y + area.Height / 2f - Dpi.S(50f), cs, cs);
+            using (var gb = new SolidBrush(GraySoft)) e.Graphics.FillEllipse(gb, circle);
             Icons.Draw(e.Graphics, "inbox", circle, Subtle, 26);
-            TextRenderer.DrawText(e.Graphics, "لا توجد بيانات لعرضها", FS(10.5f), new Rectangle(area.X, (int)circle.Bottom + 10, area.Width, 26), Muted,
+            TextRenderer.DrawText(e.Graphics, "لا توجد بيانات لعرضها", FS(10.5f), new Rectangle(area.X, (int)circle.Bottom + Dpi.S(10), area.Width, Dpi.S(28)), Muted,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.RightToLeft);
         };
     }
@@ -286,8 +289,9 @@ public static class Gfx
     /// <summary>ظل ناعم أسفل البطاقة</summary>
     public static void Shadow(Graphics g, RectangleF r, float rad)
     {
+        float k = Dpi.F;
         for (int i = 1; i <= 3; i++)
-            FillRound(g, new RectangleF(r.X - i + 1, r.Y + i, r.Width + 2 * i - 2, r.Height + i - 1), rad + i, Color.FromArgb(7 - i, 15, 23, 42));
+            FillRound(g, new RectangleF(r.X - (i - 1) * k, r.Y + i * k, r.Width + (2 * i - 2) * k, r.Height + (i - 1) * k), rad + i * k, Color.FromArgb(7 - i, 15, 23, 42));
     }
 
     public static Color Mix(Color a, Color b, float t) => Color.FromArgb(

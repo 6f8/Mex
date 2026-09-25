@@ -16,6 +16,37 @@ public class BaseForm : Form
         AutoScaleMode = AutoScaleMode.None;
     }
 
+    /// <summary>تم تكبير أبعاد الشاشة حسب دقة العرض (مرة واحدة فقط)</summary>
+    internal bool DpiScaled { get; set; }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        // النوافذ المستقلة تُكبَّر هنا؛ الشاشات داخل التبويبات تُكبَّر عند فتحها في النافذة الرئيسية
+        if (TopLevel && !DpiScaled)
+        {
+            Dpi.ScaleTree(this);
+            FitToScreen();
+        }
+        base.OnLoad(e);
+    }
+
+    /// <summary>لا تتجاوز النافذة مساحة الشاشة (شاشات صغيرة أو تكبير 150%) وتبقى في الوسط</summary>
+    void FitToScreen()
+    {
+        var area = Screen.FromPoint(Owner != null ? Owner.Location : Cursor.Position).WorkingArea;
+        if (MinimumSize.Width > area.Width || MinimumSize.Height > area.Height)
+            MinimumSize = new Size(Math.Min(MinimumSize.Width, area.Width), Math.Min(MinimumSize.Height, area.Height));
+        if (WindowState == FormWindowState.Normal)
+        {
+            Size = new Size(Math.Min(Width, area.Width), Math.Min(Height, area.Height));
+            if (StartPosition == FormStartPosition.CenterParent && Owner != null)
+                Location = new Point(Owner.Left + (Owner.Width - Width) / 2, Owner.Top + (Owner.Height - Height) / 2);
+            else if (StartPosition is FormStartPosition.CenterScreen or FormStartPosition.CenterParent)
+                Location = new Point(area.X + (area.Width - Width) / 2, area.Y + (area.Height - Height) / 2);
+            Location = new Point(Math.Max(area.X, Math.Min(Left, area.Right - Width)), Math.Max(area.Y, Math.Min(Top, area.Bottom - Height)));
+        }
+    }
+
     /// <summary>يُستدعى كلما عادت الشاشة لتكون التبويب النشط (لتحديث القوائم مثلًا)</summary>
     public virtual void OnPageActivated() { }
     /// <summary>قبل إغلاق التبويب: false لإلغاء الإغلاق (مثل فاتورة لم تُحفظ)</summary>
@@ -112,10 +143,10 @@ public static class Ui
     {
         var field = Wrap(c, c is TextBox { PlaceholderText.Length: > 0 } t && t.PlaceholderText.StartsWith("بحث") ? "search" : null);
         // بلا لون خلفية صريح: يرث لون الحاوية (بطاقة بيضاء غالبًا)
-        var p = new Panel { Width = field.Width + 4, Height = field.Height + 25, Margin = new Padding(6, 2, 6, 4) };
+        var p = new Panel { Width = field.Width + 4, Height = field.Height + 23, Margin = new Padding(6, 1, 6, 3) };
         var l = new Label
         {
-            Text = caption, Dock = DockStyle.Top, Height = 25, ForeColor = Theme.Text2, Font = Theme.F(9), AutoEllipsis = true,
+            Text = caption, Dock = DockStyle.Top, Height = 23, ForeColor = Theme.Text2, Font = Theme.F(9), AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(2, 0, 2, 0)
         };
         field.Dock = DockStyle.Bottom;
@@ -128,7 +159,7 @@ public static class Ui
     public static Control SearchBox(TextBox t, int width = 0)
     {
         if (width > 0) t.Width = width;
-        return new InputBox(t, t.Width, "search") { Margin = new Padding(6, 27, 6, 4) };
+        return new InputBox(t, t.Width, "search") { Margin = new Padding(6, 24, 6, 3) };
     }
 
     public static DataGridView NewGrid(bool readOnly = true)

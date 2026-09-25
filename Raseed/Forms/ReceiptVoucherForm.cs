@@ -48,22 +48,21 @@ public class ReceiptVoucherForm : BaseForm
         head.Paint += (s, e) =>
         {
             var g = e.Graphics;
-            TextRenderer.DrawText(g, Title, Theme.FS(22), new Rectangle(24, 8, head.Width - 48, 50), Theme.BrandDark, Gfx.RtlStart);
-            using var pen = new Pen(Tone, 4);
-            g.DrawLine(pen, 24, 66, head.Width - 24, 66);
+            TextRenderer.DrawText(g, Title, Theme.FS(22), new Rectangle(Dpi.S(24), Dpi.S(8), head.Width - Dpi.S(48), Dpi.S(50)), Theme.BrandDark, Gfx.RtlStart);
+            using var pen = new Pen(Tone, Dpi.S(4f));
+            g.DrawLine(pen, Dpi.S(24), Dpi.S(66), head.Width - Dpi.S(24), Dpi.S(66));
         };
 
+        // سطر متجاوب: العنوان ثم الحقل الذي يتمدد مع العرض، وينزل العنوان فوقه في الشاشات الضيقة
         Control Row(string caption, Control c, int capW = 140)
         {
-            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 4) };
-            row.Controls.Add(new Label { Text = caption, AutoSize = false, Width = capW, Height = 40, Font = Theme.FS(11), ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft });
-            var f = Ui.Wrap(c); f.Margin = new Padding(4, 0, 4, 0);
-            row.Controls.Add(f);
-            return row;
+            var label = new Label { Text = caption, AutoSize = false, Width = capW, Height = 40, Font = Theme.FS(11), ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft };
+            var f = Ui.Wrap(c); f.Margin = new Padding(0);
+            return new FormRow(label, new[] { f }) { Margin = new Padding(0, 4, 0, 4) };
         }
-        FlowLayoutPanel Col(int leftMargin = 0) => new() { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(leftMargin, 0, 0, 0) };
+        FormStack Col() => new() { Padding = new Padding(0) };
 
-        // ---------- عمود الدينار (يمين) وعمود الدولار ولوحة الرصيد (يسار) ----------
+        // ---------- عمود الدينار (يمين) وعمود الدولار ولوحة الرصيد (يسار)؛ ينزل الثاني تحت الأول في الشاشات الضيقة ----------
         var right = Col();
         right.Controls.Add(Row("رقم السند", tNo));
         right.Controls.Add(Row("تاريخ السند", dDate));
@@ -73,46 +72,37 @@ public class ReceiptVoucherForm : BaseForm
         right.Controls.Add(Row("الخصم دينار", nDiscIqd));
         right.Controls.Add(Row("المبلغ كتابة", tWordsIqd));
 
-        var left = Col(40);
+        var left = Col();
         left.Controls.Add(balance);
         left.Controls.Add(Row("صندوق الدولار", cbBoxUsd, 130));
         left.Controls.Add(Row("المبلغ دولار", nUsd, 130));
         left.Controls.Add(Row("الخصم دولار", nDiscUsd, 130));
         left.Controls.Add(Row("المبلغ كتابة", tWordsUsd, 130));
 
-        var cols = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
+        var cols = new FormColumns { MinColumn = 420, Gap = 40, Margin = new Padding(0, 8, 0, 0) };
         cols.Controls.Add(right);
         cols.Controls.Add(left);
 
-        var notesRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 10, 0, 0) };
-        notesRow.Controls.Add(new Label { Text = "الملاحظات", AutoSize = false, Width = 140, Height = 40, Font = Theme.FS(11), ForeColor = Theme.BrandDark, TextAlign = ContentAlignment.MiddleLeft });
-        var noteHost = Ui.Wrap(tNote); noteHost.Margin = new Padding(4, 0, 4, 0);
-        notesRow.Controls.Add(noteHost);
+        var notesRow = Row("الملاحظات", tNote);
+        notesRow.Margin = new Padding(0, 10, 0, 0);
 
         // ---------- آخر تسديد وآخر حركة، وكشف الحساب وتقرير السندات ----------
-        var info = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(144, 10, 0, 0) };
         foreach (var l in new[] { lblLastPay, lblLastMove })
         {
             l.AutoSize = false; l.Width = 320; l.Height = 34; l.Font = Theme.FS(10); l.ForeColor = Theme.BrandDark; l.TextAlign = ContentAlignment.MiddleLeft;
-            info.Controls.Add(l);
         }
-        var bStatement = new ModernButton { Text = "كشف الحساب", IconName = "scroll-text", Height = 42, Margin = new Padding(8, 0, 4, 0) }; bStatement.FitWidth(150);
-        var bReport = new ModernButton { Text = "تقرير السندات", IconName = "list", Height = 42, Margin = new Padding(4, 0, 4, 0) }; bReport.FitWidth(150);
-        info.Controls.Add(bStatement);
-        info.Controls.Add(bReport);
+        var bStatement = new ModernButton { Text = "كشف الحساب", IconName = "scroll-text", Height = 42 }; bStatement.FitWidth(150);
+        var bReport = new ModernButton { Text = "تقرير السندات", IconName = "list", Height = 42 }; bReport.FitWidth(150);
+        var info = new FormRow(null, new Control[] { lblLastPay, lblLastMove, bStatement, bReport }) { Margin = new Padding(144, 10, 0, 0) };
 
         // ---------- الأزرار ----------
-        var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(144, 16, 0, 10) };
-        var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 48, Width = 170, Margin = new Padding(0, 0, 10, 0) };
-        var bSave = new ModernButton { Text = "حفظ", IconName = "save", Height = 48, Width = 170, Margin = new Padding(0, 0, 10, 0) };
-        bDel = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 48, Width = 170, Margin = new Padding(0, 0, 30, 0) };
-        actions.Controls.AddRange(new Control[] { bNew, bSave, bDel });
-        tgPrint.Margin = tgCopy.Margin = new Padding(6, 8, 6, 0);
+        var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 48, Width = 160 };
+        var bSave = new ModernButton { Text = "حفظ", IconName = "save", Height = 48, Width = 160 };
+        bDel = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 48, Width = 160, Margin = new Padding(0, 0, 20, 0) };
         tgPrint.Visible = tgCopy.Visible = Session.Can("print");
-        actions.Controls.Add(tgPrint);
-        actions.Controls.Add(tgCopy);
+        var actions = new FormRow(null, new Control[] { bNew, bSave, bDel, tgPrint, tgCopy }) { Margin = new Padding(144, 16, 0, 10), Gap = 10 };
 
-        var body = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(24, 6, 24, 10) };
+        var body = new FormStack { Dock = DockStyle.Top, MaxContent = 1500, Padding = new Padding(24, 6, 24, 10) };
         body.Controls.Add(cols);
         body.Controls.Add(notesRow);
         body.Controls.Add(info);
@@ -121,7 +111,7 @@ public class ReceiptVoucherForm : BaseForm
         var card = new CardPanel { Dock = DockStyle.Top, Padding = new Padding(8) };
         card.Controls.Add(body);
         card.Controls.Add(head);
-        body.SizeChanged += (s, e) => card.Height = body.Height + head.Height + 20;
+        body.SizeChanged += (s, e) => card.Height = body.Height + head.Height + card.Padding.Vertical + Dpi.S(4);
         Controls.Add(card);
 
         // ---------- الأحداث ----------
@@ -309,26 +299,26 @@ public class ReceiptVoucherForm : BaseForm
             var g = e.Graphics;
             g.Clear(Gfx.OpaqueBack(this));
             Gfx.Hq(g);
-            Gfx.FillRound(g, new RectangleF(0, 0, Width - 1, Height - 1), 8, Tone);
+            Gfx.FillRound(g, new RectangleF(0, 0, Width - 1, Height - 1), Dpi.S(8f), Tone);
             var rows = new (string K, string V)[]
             {
                 ("الرصيد السابق دينار", Fmt(prev)), ("الرصيد الحالي دينار", Fmt(now)),
                 ("الرصيد السابق دولار", Fmt(prev / rate)), ("الرصيد الحالي دولار", Fmt(now / rate)),
             };
-            int y = 14;
+            int y = Dpi.S(14), kw = Math.Min(Dpi.S(210), Width / 2);
             for (int i = 0; i < rows.Length; i++)
             {
                 if (i == 2)
                 {
-                    using var pen = new Pen(Color.FromArgb(200, 255, 255, 255), 2);
-                    g.DrawLine(pen, 22, y + 4, Width - 22, y + 4);
-                    y += 16;
+                    using var pen = new Pen(Color.FromArgb(200, 255, 255, 255), Dpi.S(2f));
+                    g.DrawLine(pen, Dpi.S(22), y + Dpi.S(4), Width - Dpi.S(22), y + Dpi.S(4));
+                    y += Dpi.S(16);
                 }
-                TextRenderer.DrawText(g, rows[i].K, Theme.FS(11.5f), new Rectangle(Width - 230, y, 210, 36), Color.White, Gfx.RtlStart);
-                TextRenderer.DrawText(g, rows[i].V, Theme.FS(10.5f), new Rectangle(16, y, Width - 250, 36), Color.White, Gfx.RtlStart);
-                y += 40;
+                TextRenderer.DrawText(g, rows[i].K, Theme.FS(11.5f), new Rectangle(Width - kw - Dpi.S(20), y, kw, Dpi.S(36)), Color.White, Gfx.RtlStart);
+                TextRenderer.DrawText(g, rows[i].V, Theme.FS(10.5f), new Rectangle(Dpi.S(16), y, Width - kw - Dpi.S(40), Dpi.S(36)), Color.White, Gfx.RtlStart);
+                y += Dpi.S(40);
             }
-            TextRenderer.DrawText(g, "الدولار بالمعادل حسب سعر الصرف", Theme.F(8), new Rectangle(16, Height - 22, Width - 32, 18), Color.FromArgb(230, 255, 255, 255), Gfx.RtlStart);
+            TextRenderer.DrawText(g, "الدولار بالمعادل حسب سعر الصرف", Theme.F(8), new Rectangle(Dpi.S(16), Height - Dpi.S(24), Width - Dpi.S(32), Dpi.S(20)), Color.FromArgb(230, 255, 255, 255), Gfx.RtlStart);
         }
     }
 }

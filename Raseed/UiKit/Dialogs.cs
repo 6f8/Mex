@@ -73,15 +73,15 @@ public class DialogShell : BaseForm
     {
         var g = e.Graphics;
         Gfx.Hq(g);
-        int x = header.Width - 22;
-        if (icon != null && FontKit.HasIcons)
+        int x = header.Width - Dpi.S(22), box = Dpi.S(36);
+        if (Icons.Has(icon))
         {
-            var ir = new RectangleF(x - 36, 16, 36, 36);
-            g.FillEllipse(new SolidBrush(Gfx.Mix(tone, Color.White, 0.87f)), ir);
+            var ir = new RectangleF(x - box, (header.Height - box) / 2f, box, box);
+            using (var b = new SolidBrush(Gfx.Mix(tone, Color.White, 0.87f))) g.FillEllipse(b, ir);
             Icons.Draw(g, icon, ir, tone, 19);
-            x -= 48;
+            x -= box + Dpi.S(12);
         }
-        TextRenderer.DrawText(g, Text, Theme.FS(12.5f), new Rectangle(60, 12, x - 60, 44), Theme.Ink, Gfx.RtlStart);
+        TextRenderer.DrawText(g, Text, Theme.FS(12.5f), new Rectangle(Dpi.S(60), 0, x - Dpi.S(60), header.Height), Theme.Ink, Gfx.RtlStart);
     }
 
     /// <summary>إضافة زر إلى شريط الأزرار (الأول هو الأساسي)</summary>
@@ -128,8 +128,9 @@ public static class Dialogs
         var (icon, color) = Look(tone);
         var font = Theme.F(10.5f);
         int width = 480;
-        var size = TextRenderer.MeasureText(text ?? "", font, new Size(width - 48, 2000), TextFormatFlags.WordBreak | TextFormatFlags.RightToLeft);
-        int height = Math.Min(620, 62 + 66 + Math.Max(40, size.Height) + 30);
+        // القياس بالبكسل الفعلي ثم التحويل للمنطقي (النافذة تُكبَّر مع الشاشة عند فتحها)
+        var size = TextRenderer.MeasureText(text ?? "", font, new Size(Dpi.S(width - 48), 4000), TextFormatFlags.WordBreak | TextFormatFlags.RightToLeft);
+        int height = Math.Min(620, 62 + 66 + Math.Max(40, Dpi.U(size.Height)) + 30);
         using var d = new DialogShell(title, width, height, icon, color);
         var lbl = new Label { Text = text, Dock = DockStyle.Fill, Font = font, ForeColor = Theme.Text2, TextAlign = ContentAlignment.TopLeft, BackColor = Theme.Surface };
         d.Body.Controls.Add(lbl);
@@ -159,7 +160,7 @@ public static class Toast
         if (owner == null) { Dialogs.Message(text, "رصيد", tone); return; }
         var t = new ToastForm(text, tone);
         var area = owner.RectangleToScreen(owner.ClientRectangle);
-        int y = area.Bottom - t.Height - 28 - open.Sum(o => o.Height + 10);
+        int y = area.Bottom - t.Height - Dpi.S(28) - open.Sum(o => o.Height + Dpi.S(10));
         t.Location = new Point(area.X + (area.Width - t.Width) / 2, y);
         open.Add(t);
         t.FormClosed += (s, e) => open.Remove(t);
@@ -187,8 +188,8 @@ internal sealed class ToastForm : Form
         RightToLeft = RightToLeft.Yes;
         DoubleBuffered = true;
         var font = Theme.FS(10);
-        int w = Math.Min(560, TextRenderer.MeasureText(text, font).Width + 90);
-        Size = new Size(Math.Max(260, w), 52);
+        int w = Math.Min(Dpi.S(560), TextRenderer.MeasureText(text, font).Width + Dpi.S(90));
+        Size = new Size(Math.Max(Dpi.S(260), w), Dpi.S(52));
         timer.Tick += (s, e) =>
         {
             ticks++;
@@ -222,8 +223,8 @@ internal sealed class ToastForm : Form
             Tone.Danger => ("circle-alert", ColorTranslator.FromHtml("#F87171")),
             _ => ("info", ColorTranslator.FromHtml("#60A5FA"))
         };
-        Icons.Draw(g, icon, new RectangleF(Width - 42, 15, 22, 22), col, 20);
-        TextRenderer.DrawText(g, text, Theme.FS(10), new Rectangle(16, 0, Width - 66, Height), Color.White, Gfx.RtlStart);
+        Icons.Draw(g, icon, new RectangleF(Width - Dpi.S(42), (Height - Dpi.S(22)) / 2f, Dpi.S(22), Dpi.S(22)), col, 20);
+        TextRenderer.DrawText(g, text, Theme.FS(10), new Rectangle(Dpi.S(16), 0, Width - Dpi.S(66), Height), Color.White, Gfx.RtlStart);
     }
 
     protected override void Dispose(bool disposing) { if (disposing) timer.Dispose(); base.Dispose(disposing); }

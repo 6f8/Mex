@@ -121,9 +121,9 @@ public class SettingsForm : BaseForm
         // الحقول العريضة تتبع عرض البطاقة (لا شريط تمرير أفقي في الشاشات الصغيرة)
         flow.Resize += (s, e) =>
         {
-            int w = Math.Max(300, flow.ClientSize.Width - 24);
+            int w = Math.Max(Dpi.S(300), flow.ClientSize.Width - Dpi.S(24));
             foreach (Control c in flow.Controls)
-                if (c.Tag as string == "wide") c.Width = Math.Min(740, w);
+                if (c.Tag as string == "wide") c.Width = Math.Min(Dpi.S(740), w);
                 else if (c.Width > w) c.Width = w;
         };
         card.Controls.Add(cur);
