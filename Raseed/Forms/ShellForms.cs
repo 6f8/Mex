@@ -248,7 +248,7 @@ public class MainForm : BaseForm
     static readonly Section[] Sections =
     {
         new("المخزن", "warehouse", Theme.Orange, Theme.Orange, Theme.Amber),
-        new("بيع", "shopping-cart", Theme.Success, ColorTranslator.FromHtml("#15803D"), ColorTranslator.FromHtml("#22A55A")),
+        new("بيع", "shopping-cart", Theme.Success, ColorTranslator.FromHtml("#0F8B6E"), ColorTranslator.FromHtml("#16A383")),
         new("شراء", "truck", Theme.Info, ColorTranslator.FromHtml("#1D4ED8"), ColorTranslator.FromHtml("#3B82F6")),
         new("الأقساط", "calendar-clock", ColorTranslator.FromHtml("#4F46E5"), ColorTranslator.FromHtml("#4338CA"), ColorTranslator.FromHtml("#6366F1")),
         new("السندات", "receipt-text", Theme.Purple, ColorTranslator.FromHtml("#6D28D9"), ColorTranslator.FromHtml("#8B5CF6")),
@@ -259,9 +259,14 @@ public class MainForm : BaseForm
         new("تقارير المواد", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
         new("تقارير المخازن", "file-text", Report, Report, Report),
         new("تقارير المتابعة", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
+        new("تحليل البيانات", "chart-pie", Report, Report, Report),
         new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0891B2")),
-        new("الإدارة", "settings", Theme.Gray, ColorTranslator.FromHtml("#4B5563"), ColorTranslator.FromHtml("#6B7280")),
+        new("المستخدمين", "users-round", ColorTranslator.FromHtml("#DB2777"), ColorTranslator.FromHtml("#DB2777"), ColorTranslator.FromHtml("#DB2777")),
+        new("الأدوات", "settings", Theme.Gray, ColorTranslator.FromHtml("#4B5563"), ColorTranslator.FromHtml("#6B7280")),
     };
+
+    /// <summary>لون القسم (لبطاقات الوصول السريع)</summary>
+    public static Color TintOf(string group) => Sections.FirstOrDefault(x => x.Name == group)?.Tint ?? Theme.Brand;
 
     readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), BackColor = Theme.Bg };
     readonly TopBar top;
@@ -296,11 +301,12 @@ public class MainForm : BaseForm
             new("نقل بين المخازن", "stock", "arrow-left-right", "المخزن", "نقل مواد من مخزن إلى آخر مع حفظ الصلاحية والكلفة", () => new TransferForm()),
             new("المواد التالفة", "damage", "ban", "المخزن", "إخراج المواد التالفة أو المنتهية من المخزن", () => new InvoiceForm("Damage")),
 
-            new("فاتورة بيع", "sales", "shopping-cart", "بيع", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
-            new("إرجاع بيع", "returns", "undo-2", "بيع", "إرجاع مواد من عميل إلى المخزن", () => new InvoiceForm("SaleReturn")),
+            new("قائمة بيع", "sales", "shopping-cart", "بيع", "امسح الباركود أو اكتب اسم المادة — F10 للحفظ", () => new InvoiceForm("Sale")),
+            new("قائمة إرجاع بيع", "returns", "undo-2", "بيع", "إرجاع مواد من زبون إلى المخزن", () => new InvoiceForm("SaleReturn")),
+            new("قائمة عرض سعر", "sales", "file-text", "بيع", "عرض سعر للزبون لا يمس المخزون ولا الحساب، ويُحوَّل إلى قائمة بيع", () => new InvoiceForm("Quote")),
 
-            new("فاتورة شراء", "purchases", "truck", "شراء", "إدخال بضاعة من المورد إلى المخزن", () => new InvoiceForm("Purchase")),
-            new("إرجاع شراء", "returns", "redo-2", "شراء", "إرجاع مواد إلى المورد", () => new InvoiceForm("PurchaseReturn")),
+            new("قائمة شراء", "purchases", "truck", "شراء", "إدخال بضاعة من المجهز إلى المخزن", () => new InvoiceForm("Purchase")),
+            new("قائمة إرجاع شراء", "returns", "redo-2", "شراء", "إرجاع مواد إلى المجهز", () => new InvoiceForm("PurchaseReturn")),
 
             new("الأقساط", "installments", "calendar-clock", "الأقساط", "متابعة الأقساط وتسديدها وتذكير العملاء والكفلاء", () => new InstallmentsForm()),
 
@@ -326,7 +332,13 @@ public class MainForm : BaseForm
             new("أعمار الديون", "reports", "history", "تقارير الحسابات", "الديون المتأخرة حسب مدة التأخير", () => new ReportsForm("أعمار الديون")),
             new("مراكز الكلفة", "reports", "layers", "تقارير الحسابات", "الإيرادات والمصاريف لكل مركز كلفة", () => new ReportsForm("مراكز الكلفة")),
 
-            new("سجل الفواتير", "reports", "receipt-text", "تقارير القوائم", "البحث في الفواتير والسندات السابقة وطباعتها وتعديلها", () => new InvoicesListForm()),
+            new("تقرير المبيعات", "reports", "receipt-text", "تقارير القوائم", "قوائم البيع والمرتجع — عام أو مفصل مع المجاميع", () => new ListReportForm(ListReportForm.Kind.Sales)),
+            new("تقرير المشتريات", "reports", "receipt", "تقارير القوائم", "قوائم الشراء والمرتجع — عام أو مفصل مع المجاميع", () => new ListReportForm(ListReportForm.Kind.Purchases)),
+            new("عروض الأسعار", "reports", "tag", "تقارير القوائم", "عروض الأسعار المحفوظة", () => new ListReportForm(ListReportForm.Kind.Quotes)),
+            new("تسديد المبيعات", "reports", "hand-coins", "تقارير القوائم", "المبالغ المستلمة من الزبائن", () => new ListReportForm(ListReportForm.Kind.SalesPayments)),
+            new("تسديد المشتريات", "reports", "banknote", "تقارير القوائم", "المبالغ المدفوعة للمجهزين", () => new ListReportForm(ListReportForm.Kind.PurchasePayments)),
+            new("ملخص البيع والشراء", "reports", "chart-line", "تقارير القوائم", "المبيعات والمشتريات والمقبوض والمدفوع يومًا بيوم", () => new ListReportForm(ListReportForm.Kind.Summary)),
+            new("سجل القوائم", "reports", "list", "تقارير القوائم", "البحث في القوائم والسندات السابقة وطباعتها وتعديلها وتحويل العروض", () => new InvoicesListForm()),
             new("اليومية", "reports", "calendar-days", "تقارير القوائم", "حركة الصناديق يومًا بيوم", () => new ReportsForm("اليومية")),
             new("طلبات التوصيل", "reports", "truck", "تقارير القوائم", "طلبات شركات التوصيل وحالاتها", () => new ReportsForm("طلبات التوصيل")),
 
@@ -342,10 +354,13 @@ public class MainForm : BaseForm
             new("الصيانة", "repairs", "wrench", "الصيانة والموظفون", "استلام الأجهزة ومتابعتها وتسليمها", () => new RepairsForm()),
             new("الموارد البشرية", "hr", "id-card", "الصيانة والموظفون", "الحضور والسلف والرواتب", () => new HrForm()),
 
-            new("مدير المهام", "tasks", "list-todo", "الإدارة", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
-            new("التعريفات", "settings", "layers", "الإدارة", "مراكز الكلفة وشركات التوصيل والشركاء", () => new DefsHubForm()),
-            new("المستخدمون والصلاحيات", "users", "shield-check", "الإدارة", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
-            new("الإعدادات", "settings", "settings", "الإدارة", "بيانات المحل والطباعة والنسخ الاحتياطي وواتساب والميزان", () => new SettingsForm()),
+            new("تحليل البيانات", "reports", "chart-pie", "تحليل البيانات", "مخططات المبيعات والأرباح وأكثر المواد مبيعًا وأفضل الزبائن", () => new AnalysisForm()),
+
+            new("المستخدمون والصلاحيات", "users", "shield-check", "المستخدمين", "حسابات الدخول وصلاحيات كل مستخدم", () => new UsersForm()),
+
+            new("الإعدادات", "settings", "settings", "الأدوات", "بيانات المحل والطباعة والنسخ الاحتياطي وواتساب والميزان", () => new SettingsForm()),
+            new("مدير المهام", "tasks", "list-todo", "الأدوات", "تذكيرات ومهام تلقائية مثل النسخ الاحتياطي", () => new CrudForm(Defs.Tasks())),
+            new("التعريفات", "settings", "layers", "الأدوات", "مراكز الكلفة وشركات التوصيل والشركاء", () => new DefsHubForm()),
         };
         if (Session.IsAdmin)
             list.Insert(list.FindIndex(p => p.Group == "الصيانة والموظفون"),

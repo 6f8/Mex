@@ -439,22 +439,30 @@ public class InvoicesListForm : BaseForm
     readonly ComboBox cbType = Ui.Combo(150);
     readonly TextBox search = new() { Width = 220, PlaceholderText = "اسم الجهة أو رقم الفاتورة" };
     readonly DataGridView grid = Ui.NewGrid(), lines = Ui.NewGrid();
-    static readonly string[] Codes = { "", "Sale", "Purchase", "SaleReturn", "PurchaseReturn", "Damage", "StockIn", "StockOut" };
+    static readonly string[] Codes = { "", "Sale", "Purchase", "SaleReturn", "PurchaseReturn", "Quote", "Damage", "StockIn", "StockOut" };
 
     public InvoicesListForm()
     {
-        cbType.Items.AddRange(new object[] { "الكل", "بيع", "شراء", "إرجاع بيع", "إرجاع شراء", "إتلاف", "إدخال مخزني", "إخراج مخزني" });
+        cbType.Items.AddRange(new object[] { "الكل", "بيع", "شراء", "إرجاع بيع", "إرجاع شراء", "عرض سعر", "إتلاف", "إدخال مخزني", "إخراج مخزني" });
         var bar = Theme.Bar();
         bar.Controls.Add(Ui.Labeled("النوع", cbType));
         bar.Controls.Add(Ui.Labeled("بحث", search));
-        var bPrint = Theme.Btn("طباعة الفاتورة", Theme.Purple, 130);
+        var bPrint = Theme.Btn("طباعة القائمة", Theme.Purple, 130);
+        var bConvert = Theme.Btn("تحويل عرض السعر إلى بيع", Theme.Accent, 190, "repeat");
+        bConvert.Click += (s, e) =>
+        {
+            if (Sel == 0 || !Session.Guard("sales")) return;
+            if (Db.S(Db.Scalar("SELECT type FROM invoices WHERE id=@p0", Sel)) != "Quote") { Ui.Warn("اختر عرض سعر من القائمة."); return; }
+            if (Parent?.FindForm() is MainForm m) m.Open($"قائمة بيع — من عرض {Sel}", InvoiceForm.SaleFromQuote(Sel));
+        };
         var bEdit = Theme.Btn("تعديل", Theme.Accent, 90);
         var bDel = Theme.Btn("حذف", Theme.Danger, 80);
         var bWa = Theme.Btn("واتساب", Theme.Success, 90);
         if (Session.Can("print")) bar.Controls.Add(bPrint);
         if (Session.Can("edit_invoice")) { bar.Controls.Add(bEdit); bar.Controls.Add(bDel); }
         bar.Controls.Add(bWa);
-        Ui.GridTools(bar, grid, () => "سجل الفواتير");
+        if (Session.Can("sales")) bar.Controls.Add(bConvert);
+        Ui.GridTools(bar, grid, () => "سجل القوائم");
         bPrint.Click += (s, e) => { if (Sel > 0) InvoiceOps.BuildPrint(Sel)?.Print(); };
         bEdit.Click += (s, e) => Edit();
         bDel.Click += (s, e) => Delete();
@@ -466,7 +474,7 @@ public class InvoicesListForm : BaseForm
         Controls.Add(grid);
         Controls.Add(lines);
         Controls.Add(bar);
-        Controls.Add(Theme.Title("سجل الفواتير"));
+        Controls.Add(Theme.Title("سجل القوائم"));
 
         cbType.SelectedIndexChanged += (s, e) => LoadGrid();
         search.TextChanged += (s, e) => LoadGrid();
@@ -492,7 +500,7 @@ public class InvoicesListForm : BaseForm
         long id = Sel;
         if (id == 0 || !Session.Guard("edit_invoice")) return;
         var type = Db.S(Db.Scalar("SELECT type FROM invoices WHERE id=@p0", id));
-        var perm = type switch { "Sale" => "sales", "Purchase" => "purchases", "Damage" => "damage", "StockIn" or "StockOut" => "stock", _ => "returns" };
+        var perm = type switch { "Sale" or "Quote" => "sales", "Purchase" => "purchases", "Damage" => "damage", "StockIn" or "StockOut" => "stock", _ => "returns" };
         if (!Session.Guard(perm)) return;
         if (Db.S(Db.Scalar("SELECT notes FROM invoices WHERE id=@p0", id)).StartsWith("تسوية جرد")) { Ui.Warn("قيود الجرد لا تُعدَّل، يمكن حذفها فقط."); return; }
         var f = new InvoiceForm(type, id);
@@ -547,17 +555,8 @@ public class DashboardForm : BaseForm
         AutoScroll = true;   // الشاشات القصيرة: تمرير عمودي بدل إخفاء التنبيهات
         int expDays = Settings.Int("expiry_days", 30), remDays = Settings.Int("reminder_days", 3);
 
-        // ---------- الترحيب ----------
-        var hello = new Panel { Dock = DockStyle.Top, Height = 62 };
-        var ar = new System.Globalization.CultureInfo("ar-IQ");
-        ar.DateTimeFormat.Calendar = new System.Globalization.GregorianCalendar();
-        string greet = DateTime.Now.Hour < 12 ? "صباح الخير" : "مساء الخير";
-        string today = DateTime.Now.ToString("dddd، d MMMM yyyy", ar);
-        hello.Paint += (s, e) =>
-        {
-            TextRenderer.DrawText(e.Graphics, $"{greet}، {Session.UserName}", Theme.FS(16), new Rectangle(0, 2, hello.Width - 4, 32), Theme.Ink, Gfx.RtlStart);
-            TextRenderer.DrawText(e.Graphics, $"{today}  •  إليك ملخص نشاط اليوم", Theme.F(10), new Rectangle(0, 34, hello.Width - 4, 24), Theme.Muted, Gfx.RtlStart);
-        };
+        // ---------- الترحيب والوصول السريع (شريط كحلي) ----------
+        var hello = new HomeHero(main) { Dock = DockStyle.Top, Height = 250 };
 
         // ---------- المؤشرات ----------
         double todaySales = Stats.TodaySales();
@@ -566,12 +565,12 @@ public class DashboardForm : BaseForm
         long todayCount = Db.L(Db.Scalar("SELECT COUNT(*) FROM invoices WHERE type='Sale' AND date LIKE @p0", Ui.Today + "%"));
         double pct = yesterday > 0 ? Math.Round((todaySales - yesterday) / yesterday * 100) : 0;
         string trend = yesterday > 0
-            ? (pct >= 0 ? "+" : "−") + Math.Abs(pct).ToString("0") + "% عن أمس  •  " + todayCount + " فاتورة"
-            : todayCount + " فاتورة اليوم";
+            ? (pct >= 0 ? "+" : "−") + Math.Abs(pct).ToString("0") + "% عن أمس  •  " + todayCount + " قائمة"
+            : todayCount + " قائمة اليوم";
         var kpis = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 140, WrapContents = false, Padding = new Padding(0, 4, 0, 0) };
         var cards = new[]
         {
-            Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Orange, "trending-up", trend, "سجل الفواتير"),
+            Kpi("صافي مبيعات اليوم", Ui.M(todaySales), Theme.Orange, "trending-up", trend, "تقرير المبيعات"),
             Kpi("النقد في الصناديق (د.ع)", Ui.M(Stats.CashTotal()), Theme.Success, "wallet", "كل الصناديق بالدينار", "حساب الصناديق"),
             Kpi("ديون لنا", Ui.M(Stats.Receivables()), Theme.Warning, "hand-coins", "على الزبائن", "حساب الزبائن"),
             Kpi("ديون علينا", Ui.M(Stats.Payables()), Theme.Danger, "landmark", "للمجهزين", "حساب المجهزين"),
@@ -599,31 +598,7 @@ public class DashboardForm : BaseForm
         }
         chartCard.Controls.Add(chart);
 
-        var actions = new CardPanel { Dock = DockStyle.Left, Width = 340, Title = "إجراءات سريعة", Subtitle = "أكثر العمليات استخدامًا", IconName = "sparkles" };
-        var grid2 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, BackColor = Theme.Surface };
-        grid2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        grid2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < 3; i++) grid2.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
-        var quick = new (string Text, string Icon, string Page, BtnKind Kind)[]
-        {
-            ("فاتورة بيع", "shopping-cart", "فاتورة بيع", BtnKind.Accent),
-            ("فاتورة شراء", "truck", "فاتورة شراء", BtnKind.Soft),
-            ("استلام جهاز", "wrench", "الصيانة", BtnKind.Soft),
-            ("سند قبض", "wallet", "سند قبض", BtnKind.Soft),
-            ("تسديد قسط", "calendar-clock", "الأقساط", BtnKind.Soft),
-            ("مادة جديدة", "package-plus", "المواد", BtnKind.Soft),
-        };
-        foreach (var q in quick)
-        {
-            if (!main.Pages.Any(p => p.Text == q.Page)) continue;
-            var b = new ModernButton { Text = q.Text, IconName = q.Icon, Kind = q.Kind, Dock = DockStyle.Fill, Margin = new Padding(5), Radius = 10, Font = Theme.FS(10) };
-            b.Click += (s, e) => main.Go(q.Page);
-            grid2.Controls.Add(b);
-        }
-        actions.Controls.Add(grid2);
         mid.Controls.Add(chartCard);
-        mid.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 16 });
-        mid.Controls.Add(actions);
 
         // ---------- التنبيهات ----------
         var alertsCard = new CardPanel { Dock = DockStyle.Fill, Title = "التنبيهات", Subtitle = "ما يحتاج انتباهك اليوم", IconName = "bell" };

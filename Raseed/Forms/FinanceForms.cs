@@ -374,3 +374,91 @@ public class StockForm : BaseForm
         }
     }
 }
+
+/// <summary>سند تعديل رصيد الحساب: رقم وتاريخ السند، والمبلغ بالدينار والدولار «لنا» أو «علينا»</summary>
+public class BalanceEntryDialog : DialogShell
+{
+    readonly long partyId;
+    long entryId;
+    readonly NumericUpDown nIqdFor = Ui.Num(200, 2), nIqdAgainst = Ui.Num(200, 2), nUsdFor = Ui.Num(200, 2), nUsdAgainst = Ui.Num(200, 2);
+    readonly DateTimePicker dDate = new() { Width = 200, Format = DateTimePickerFormat.Short };
+    readonly TextBox tNo = new() { Width = 200, ReadOnly = true }, tName = new() { Width = 200, ReadOnly = true }, tNote = new() { Width = 560 };
+    readonly Label lblNow = new() { AutoSize = false, Width = 640, Height = 30, ForeColor = Theme.BrandDark, Font = Theme.FS(10), TextAlign = ContentAlignment.MiddleLeft };
+
+    public BalanceEntryDialog(long party) : base("تعديل رصيد", 860, 480, "square-pen")
+    {
+        partyId = party;
+        foreach (var n in new[] { nIqdFor, nIqdAgainst, nUsdFor, nUsdAgainst }) n.Minimum = 0;
+        tName.Text = Db.S(Db.Scalar("SELECT name FROM parties WHERE id=@p0", party));
+
+        Control Row(string caption, Control c, int capW = 150)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 3, 0, 3) };
+            row.Controls.Add(new Label { Text = caption, AutoSize = false, Width = capW, Height = 40, Font = Theme.FS(10), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft });
+            var f = Ui.Wrap(c); f.Margin = new Padding(4, 0, 4, 0);
+            row.Controls.Add(f);
+            return row;
+        }
+
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Theme.Surface, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        flow.Controls.Add(Row("رقم السند", tNo));
+        flow.Controls.Add(Row("تاريخ السند", dDate));
+        flow.Controls.Add(Row("اسم الحساب", tName));
+        // عمودا الدينار والدولار جنبًا إلى جنب
+        var money = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
+        var iqd = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface };
+        iqd.Controls.Add(Row("المبلغ دينار / لنا", nIqdFor, 175));
+        iqd.Controls.Add(Row("المبلغ دينار / علينا", nIqdAgainst, 175));
+        var usd = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(24, 0, 0, 0) };
+        usd.Controls.Add(Row("المبلغ دولار / لنا", nUsdFor, 175));
+        usd.Controls.Add(Row("المبلغ دولار / علينا", nUsdAgainst, 175));
+        money.Controls.Add(iqd);
+        money.Controls.Add(usd);
+        flow.Controls.Add(money);
+        flow.Controls.Add(Row("البيان", tNote));
+        flow.Controls.Add(lblNow);
+        Body.Controls.Add(flow);
+
+        var bSave = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
+        var bDel = AddButton("حذف", DialogResult.None, BtnKind.Coral, "trash-2");
+        AddButton("إغلاق", DialogResult.Cancel, BtnKind.Secondary, "x");
+        AcceptButton = bSave;
+        bSave.Click += (s, e) => Save();
+        bDel.Click += (s, e) =>
+        {
+            if (entryId == 0 || !Session.Guard("delete") || !Ui.Confirm($"حذف سند تعديل الرصيد رقم {entryId}؟")) return;
+            Ledger.DeleteBalanceEntry(entryId);
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+
+        // آخر سند تعديل لهذا الحساب يُفتح للتعديل، وإلا سند جديد
+        var last = Db.Query("SELECT * FROM balance_entries WHERE party_id=@p0 ORDER BY id DESC LIMIT 1", party);
+        if (last.Rows.Count > 0)
+        {
+            var r = last.Rows[0];
+            entryId = Db.L(r["id"]);
+            if (DateTime.TryParse(Db.S(r["date"]), out var d)) dDate.Value = d;
+            double iq = Db.D(r["iqd"]), us = Db.D(r["usd"]);
+            nIqdFor.Value = (decimal)Math.Max(0, iq); nIqdAgainst.Value = (decimal)Math.Max(0, -iq);
+            nUsdFor.Value = (decimal)Math.Max(0, us); nUsdAgainst.Value = (decimal)Math.Max(0, -us);
+            tNote.Text = Db.S(r["note"]);
+        }
+        else dDate.Value = DateTime.Today;
+        bDel.Enabled = entryId > 0;
+        tNo.Text = entryId > 0 ? entryId.ToString() : Db.L(Db.Scalar("SELECT IFNULL(MAX(id),0)+1 FROM balance_entries")) + " (جديد)";
+        lblNow.Text = $"الرصيد الحالي للحساب: {Ui.M(Ui.PartyBalance(party))} د.ع — سعر الدولار {Ui.M(Ui.Rate("USD"))}";
+        Shown += (s, e) => { nIqdFor.Focus(); nIqdFor.Select(0, nIqdFor.Text.Length); };
+    }
+
+    void Save()
+    {
+        if (!Session.Guard("parties")) return;
+        double iqd = (double)(nIqdFor.Value - nIqdAgainst.Value), usd = (double)(nUsdFor.Value - nUsdAgainst.Value);
+        if (Math.Abs(iqd) < 0.001 && Math.Abs(usd) < 0.001 && entryId == 0) { Ui.Warn("أدخل مبلغًا لنا أو علينا."); return; }
+        entryId = Ledger.SaveBalanceEntry(entryId, partyId, dDate.Value, iqd, usd, tNote.Text.Trim());
+        Toast.Show($"تم حفظ سند تعديل الرصيد رقم {entryId} — الرصيد الآن {Ui.M(Ui.PartyBalance(partyId))}");
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+}

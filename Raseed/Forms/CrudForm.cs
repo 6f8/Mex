@@ -341,16 +341,12 @@ public static class Defs
         RowAction = ("تعديل رصيد", AdjustBalance),
     };
 
-    /// <summary>تعديل رصيد الحساب إلى قيمة جديدة (موجب = عليه لنا، سالب = له علينا)</summary>
+    /// <summary>سند تعديل رصيد (دينار/دولار، لنا/علينا)</summary>
     static void AdjustBalance(long partyId)
     {
         if (!Session.Guard("parties")) return;
-        double cur = Ui.PartyBalance(partyId);
-        var name = Db.S(Db.Scalar("SELECT name FROM parties WHERE id=@p0", partyId));
-        if (!Ui.AskNumber("تعديل رصيد", $"الرصيد الجديد لـ «{name}»", cur, out var target,
-                $"الرصيد الحالي {Ui.M(cur)} — موجب = عليه لنا، سالب = له علينا")) return;
-        double diff = Ledger.AdjustTo(partyId, target);
-        if (Math.Abs(diff) > 0.001) Toast.Show($"تم تعديل رصيد «{name}» إلى {Ui.M(target)}");
+        using var d = new BalanceEntryDialog(partyId);
+        d.ShowModal();
     }
 
     public static EntityDef Guarantors() => new()
