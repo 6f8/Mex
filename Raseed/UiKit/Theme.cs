@@ -9,43 +9,107 @@ public static class Theme
 {
     static Color C(string hex) => ColorTranslator.FromHtml(hex);
 
-    // ---- الهوية: كحلي للأزرار الأساسية، وتدرج برتقالي/كهرماني للقائمة والتمييز ----
-    public static readonly Color Brand = C("#2B3A8F");
-    public static readonly Color BrandDark = C("#1E2A6E");
-    public static readonly Color BrandSoft = C("#EAEDF9");
-    public static readonly Color BrandSoft2 = C("#CFD6F2");
-    public static readonly Color Orange = C("#F0602A");
-    public static readonly Color Amber = C("#F7B52C");
-    public static readonly Color OrangeSoft = C("#FDE7DA");
+    // ---- الألوان الحالية (تُضبط من المظهر المختار عند تشغيل البرنامج، قبل بناء أي شاشة) ----
+    public static Color Brand = C("#2B3A8F"), BrandDark = C("#1E2A6E"), BrandSoft = C("#EAEDF9"), BrandSoft2 = C("#CFD6F2");
+    /// <summary>لون التمييز (التبويب النشط، أعمدة المخطط، أيقونة العنوان) ولونه الثاني للتدرجات</summary>
+    public static Color Orange = C("#F0602A"), Amber = C("#F7B52C"), OrangeSoft = C("#FDE7DA");
 
-    // ---- الشريط الجانبي (فاتح بلون كريمي) ----
-    public static readonly Color Sidebar = C("#FAF8F4");
-    public static readonly Color SidebarHover = C("#F0EBE1");
-    public static readonly Color SidebarBorder = C("#E6E0D4");
-    public static readonly Color SidebarText = C("#1F2937");
-    public static readonly Color SidebarMuted = C("#8B8171");
+    // ---- الشريط الجانبي ----
+    public static Color Sidebar = C("#FAF8F4"), SidebarHover = C("#F0EBE1"), SidebarBorder = C("#E6E0D4"),
+                        SidebarText = C("#1F2937"), SidebarMuted = C("#8B8171");
+    /// <summary>شريط جانبي داكن (النصوص فاتحة والتمييز أقوى)</summary>
+    public static bool DarkSidebar;
+    /// <summary>أيقونات الأقسام بلون الهوية فقط بدل ألوان متعددة</summary>
+    public static bool MonoSections;
 
     // ---- الأسطح والنصوص ----
-    public static readonly Color Bg = C("#EEEAE1");
-    public static readonly Color Surface = Color.White;
-    public static readonly Color SurfaceAlt = C("#F8F6F1");
-    public static readonly Color Border = C("#E4DED2");
-    public static readonly Color BorderStrong = C("#D4CDBF");
-    public static readonly Color Ink = C("#1B1F2A");
-    public static readonly Color Text2 = C("#374151");
-    public static readonly Color Muted = C("#6B6557");
-    public static readonly Color Subtle = C("#A39B8B");
+    public static Color Bg = C("#EEEAE1"), Surface = Color.White, SurfaceAlt = C("#F8F6F1"), Border = C("#E4DED2"), BorderStrong = C("#D4CDBF");
+    public static Color Ink = C("#1B1F2A"), Text2 = C("#374151"), Muted = C("#6B6557"), Subtle = C("#A39B8B");
+    /// <summary>شريط تبويبات الشاشات المفتوحة، وشريط الترحيب في الرئيسية ولون التحية فيه</summary>
+    public static Color Strip = C("#E4DED2"), StripHover = C("#D9D2C4"), Hero1 = C("#2B3A8F"), Hero2 = C("#1E2A6E"), HeroAccent = C("#F7B52C");
 
-    // ---- حالات ----
+    // ---- حالات (ثابتة في كل المظاهر لأن معناها ثابت) ----
     public static readonly Color Success = C("#16A34A"), SuccessSoft = C("#E8F7EE");
     public static readonly Color Danger = C("#DC2626"), DangerSoft = C("#FDECEC");
     public static readonly Color Warning = C("#D97706"), WarningSoft = C("#FEF3E2");
     public static readonly Color Info = C("#2563EB"), InfoSoft = C("#EAF1FE");
     public static readonly Color Purple = C("#7C3AED"), PurpleSoft = C("#F2ECFE");
-    public static readonly Color Gray = C("#6B7280"), GraySoft = C("#EFEBE3");
+    public static readonly Color Gray = C("#6B7280");
+    public static Color GraySoft = C("#EFEBE3");
 
     // أسماء قديمة ما زالت مستخدمة في الشاشات
-    public static readonly Color Accent = Brand;
+    public static Color Accent => Brand;
+
+    // ================= المظاهر =================
+    /// <summary>درجات الرمادي للأسطح والحدود والنصوص الثانوية</summary>
+    public record Neutrals(string Bg, string SurfaceAlt, string Border, string BorderStrong, string Muted, string Subtle, string GraySoft, string Strip);
+    static readonly Neutrals Warm = new("#EEEAE1", "#F8F6F1", "#E4DED2", "#D4CDBF", "#6B6557", "#A39B8B", "#EFEBE3", "#E4DED2");
+    static readonly Neutrals Cool = new("#EEF1F6", "#F7F8FB", "#E3E7EF", "#CDD3DF", "#5B6475", "#98A1B3", "#EDF0F5", "#E1E6EF");
+    static readonly Neutrals Plain = new("#F0F0F1", "#F8F8F9", "#E5E5E7", "#D2D2D6", "#63636B", "#A1A1AA", "#F0F0F2", "#E4E4E7");
+    static readonly Neutrals Mint = new("#EDF3F0", "#F6FAF8", "#DDE8E2", "#C7D6CE", "#5A6B63", "#97A89F", "#EAF1ED", "#DCE7E1");
+
+    /// <summary>مظهر: لون الهوية (الأزرار)، لون التمييز ولونه الثاني، الرماديات، ولون الشريط الجانبي إن كان داكنًا</summary>
+    public record Palette(string Key, string Name, string Brand, string Accent, string Accent2, Neutrals N,
+                          string DarkSide = null, string Hero1 = null, string Hero2 = null, string HeroAccent = null, bool Mono = false);
+
+    public static readonly Palette[] Palettes =
+    {
+        new("classic", "رصيد الكلاسيكي — كحلي وبرتقالي على كريمي", "#2B3A8F", "#F0602A", "#F7B52C", Warm),
+        new("corporate", "أزرق مؤسسي — أزرق وسماوي على رمادي بارد", "#1D4ED8", "#0284C7", "#38BDF8", Cool, Hero1: "#1E40AF", Hero2: "#172554", HeroAccent: "#FDE68A"),
+        new("midnight", "ليلي — شريط كحلي داكن، نيلي وكهرماني", "#4F46E5", "#F59E0B", "#FBBF24", Cool, DarkSide: "#0F172A", Hero1: "#312E81", Hero2: "#1E1B4B"),
+        new("emerald", "زمردي — أخضر هادئ على خلفية نعناعية", "#047857", "#059669", "#34D399", Mint, Hero1: "#065F46", Hero2: "#022C22", HeroAccent: "#FDE68A"),
+        new("violet", "بنفسجي — شريط بنفسجي داكن ولمسات وردية", "#6D28D9", "#DB2777", "#F472B6", Cool, DarkSide: "#1E1537", Hero1: "#5B21B6", Hero2: "#2E1065", HeroAccent: "#FBCFE8"),
+        new("graphite", "جرافيت — فحمي داكن مع برتقالي", "#27272A", "#EA580C", "#FB923C", Plain, DarkSide: "#18181B", Hero1: "#27272A", Hero2: "#09090B", HeroAccent: "#FDBA74"),
+        new("teal", "تركواز — فيروزي منعش على أبيض", "#0F766E", "#0891B2", "#22D3EE", Mint, Hero1: "#115E59", Hero2: "#042F2E", HeroAccent: "#A5F3FC"),
+        new("burgundy", "عنابي وذهبي — فخم ودافئ", "#881337", "#B45309", "#EAB308", Warm, DarkSide: "#2A0A14", Hero1: "#881337", Hero2: "#4C0519", HeroAccent: "#FCD34D"),
+        new("royal", "ملكي — أزرق عميق مع ذهبي", "#1E3A8A", "#CA8A04", "#FACC15", Cool, DarkSide: "#0B1E3F", Hero1: "#1E3A8A", Hero2: "#0B1E3F", HeroAccent: "#FDE047"),
+        new("minimal", "بسيط — أبيض وأسود بلا ألوان", "#18181B", "#3F3F46", "#A1A1AA", Plain, Hero1: "#27272A", Hero2: "#18181B", HeroAccent: "#FAFAFA", Mono: true),
+    };
+
+    public static string Current { get; private set; } = "classic";
+
+    /// <summary>تطبيق المظهر (يُستدعى مرة واحدة عند التشغيل قبل بناء أي شاشة)</summary>
+    public static void Apply(string key)
+    {
+        var p = Palettes.FirstOrDefault(x => x.Key == key) ?? Palettes[0];
+        Current = p.Key;
+        var w = Color.White;
+        Brand = C(p.Brand);
+        BrandDark = Gfx.Mix(Brand, Color.Black, 0.22f);
+        BrandSoft = Gfx.Mix(Brand, w, 0.91f);
+        BrandSoft2 = Gfx.Mix(Brand, w, 0.78f);
+        Orange = C(p.Accent);
+        Amber = C(p.Accent2);
+        OrangeSoft = Gfx.Mix(Orange, w, 0.87f);
+
+        var n = p.N;
+        Bg = C(n.Bg); SurfaceAlt = C(n.SurfaceAlt); Border = C(n.Border); BorderStrong = C(n.BorderStrong);
+        Muted = C(n.Muted); Subtle = C(n.Subtle); GraySoft = C(n.GraySoft);
+        Strip = C(n.Strip); StripHover = Gfx.Mix(Strip, Color.Black, 0.05f);
+        Surface = w; Ink = C("#1B1F2A"); Text2 = C("#374151");
+
+        DarkSidebar = p.DarkSide != null;
+        if (DarkSidebar)
+        {
+            Sidebar = C(p.DarkSide);
+            SidebarHover = Gfx.Mix(Sidebar, w, 0.08f);
+            SidebarBorder = Gfx.Mix(Sidebar, w, 0.13f);
+            SidebarText = C("#E5E7EB");
+            SidebarMuted = Gfx.Mix(Sidebar, w, 0.55f);
+        }
+        else
+        {
+            Sidebar = Gfx.Mix(Bg, w, 0.72f);
+            SidebarHover = Gfx.Mix(Bg, w, 0.15f);
+            SidebarBorder = Border;
+            SidebarText = C("#1F2937");
+            SidebarMuted = Muted;
+        }
+        Hero1 = p.Hero1 != null ? C(p.Hero1) : Brand;
+        Hero2 = p.Hero2 != null ? C(p.Hero2) : BrandDark;
+        HeroAccent = p.HeroAccent != null ? C(p.HeroAccent) : Amber;
+        MonoSections = p.Mono;
+    }
 
     public static Font F(float size = 10f, FontStyle style = FontStyle.Regular) => FontKit.Get(size, style);
     /// <summary>وزن نصف عريض للعناوين والأزرار</summary>
@@ -125,7 +189,7 @@ public static class Theme
         g.DefaultCellStyle.SelectionBackColor = BrandSoft;
         g.DefaultCellStyle.SelectionForeColor = Ink;
         g.AlternatingRowsDefaultCellStyle.BackColor = Surface;
-        g.GridColor = C("#EFEAE0");
+        g.GridColor = Gfx.Mix(Border, Surface, 0.35f);
         g.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
         g.RowHeadersVisible = false;
         g.AllowUserToAddRows = false;
@@ -169,7 +233,7 @@ public static class Theme
         int hover = -1;
         g.CellMouseEnter += (s, e) => { if (e.RowIndex != hover) { int old = hover; hover = e.RowIndex; InvalidateRow(g, old); InvalidateRow(g, hover); } };
         g.MouseLeave += (s, e) => { int old = hover; hover = -1; InvalidateRow(g, old); };
-        var hoverColor = C("#FBF6EC");
+        var hoverColor = Gfx.Mix(Bg, Surface, 0.55f);
         g.CellFormatting += (s, e) =>
         {
             if (e.RowIndex < 0) return;

@@ -8,7 +8,7 @@ namespace Raseed;
 // ملاحظة الدقة: أحجام الأدوات تُكتب بالبكسل المنطقي (عند 100%) وتُكبَّر مرة واحدة مع الشاشة (Dpi.ScaleTree)،
 // أما الأرقام داخل دوال الرسم فتُمرَّر عبر S() لأنها تُحسب عند كل رسم بالبكسل الفعلي.
 
-public enum BtnKind { Primary, Secondary, Soft, Danger, Warning, Ghost, Dark, Success, Glass, Accent, Coral, Amber }
+public enum BtnKind { Primary, Secondary, Soft, Danger, Warning, Ghost, Dark, Success, Glass, Accent, Coral, Amber, SideGhost }
 
 /// <summary>زر حديث: زوايا دائرية، أيقونة، حالات مرور وضغط وتركيز</summary>
 public class ModernButton : Button
@@ -77,7 +77,9 @@ public class ModernButton : Button
             BtnKind.Ghost => (Gfx.Alpha(Theme.GraySoft, (int)(255 * t)), Theme.Text2, Color.Empty),
             BtnKind.Dark => (Gfx.Mix(ColorTranslator.FromHtml("#1F2937"), ColorTranslator.FromHtml("#374151"), t), Color.White, Color.Empty),
             BtnKind.Success => (Gfx.Mix(Theme.Success, ColorTranslator.FromHtml("#15803D"), t), Color.White, Color.Empty),
-            BtnKind.Accent => (Gfx.Mix(Theme.Orange, ColorTranslator.FromHtml("#D24A17"), t), Color.White, Color.Empty),
+            BtnKind.Accent => (Gfx.Mix(Theme.Orange, Gfx.Mix(Theme.Orange, Color.Black, 0.15f), t), Color.White, Color.Empty),
+            // زر شفاف داخل القائمة الجانبية (فاتحة أو داكنة)
+            BtnKind.SideGhost => (Gfx.Alpha(Theme.SidebarHover, (int)(255 * t)), Theme.SidebarText, Color.Empty),
             // زر حذف بلون مرجاني صريح (مثل أزرار الحذف في الشاشات المألوفة)
             BtnKind.Coral => (Gfx.Mix(ColorTranslator.FromHtml("#F25F5C"), ColorTranslator.FromHtml("#DC4543"), t), Color.White, Color.Empty),
             BtnKind.Amber => (Gfx.Mix(ColorTranslator.FromHtml("#F6BE2C"), ColorTranslator.FromHtml("#E5A812"), t), Color.White, Color.Empty),
@@ -315,7 +317,7 @@ public class InputBox : Panel
         var r = new RectangleF(S(1.5f), S(1.5f), Width - S(3.5f), Height - S(3.5f));
         if (focused) Gfx.DrawRound(g, RectangleF.Inflate(r, S(1f), S(1f)), S(10f), Theme.BrandSoft2, S(3f));
         Gfx.FillRound(g, r, S(8f), Inner.Enabled ? Theme.Surface : Theme.SurfaceAlt);
-        Gfx.DrawRound(g, r, S(8f), focused ? Theme.Brand : hover ? ColorTranslator.FromHtml("#B8C2D0") : Theme.BorderStrong, focused ? S(1.4f) : 1f);
+        Gfx.DrawRound(g, r, S(8f), focused ? Theme.Brand : hover ? Gfx.Mix(Theme.BorderStrong, Theme.Brand, 0.3f) : Theme.BorderStrong, focused ? S(1.4f) : 1f);
         if (Icons.Has(LeadingIcon))
         {
             bool rtl = RightToLeft == RightToLeft.Yes;
@@ -408,7 +410,7 @@ public class Toggle : CheckBox
         float tw = S(40f), th = S(22f);
         var track = new RectangleF(rtl ? Width - tw - S(2) : S(2), (Height - th) / 2f, tw, th);
         var on = Checked;
-        var col = !Enabled ? Theme.BorderStrong : on ? (hover ? Theme.BrandDark : Theme.Brand) : (hover ? ColorTranslator.FromHtml("#B8C2D0") : Theme.BorderStrong);
+        var col = !Enabled ? Theme.BorderStrong : on ? (hover ? Theme.BrandDark : Theme.Brand) : (hover ? Gfx.Mix(Theme.BorderStrong, Theme.Brand, 0.3f) : Theme.BorderStrong);
         Gfx.FillRound(g, track, th / 2f, col);
         float pad = S(3f), k = th - 2 * pad;
         float kx = on ^ rtl ? track.Right - k - pad : track.X + pad;
@@ -730,7 +732,7 @@ public class ModernTabs : Panel
                 }
                 else
                 {
-                    if (hov && !sel) Gfx.FillRound(g, new RectangleF(r.X, r.Y + S(4), r.Width, r.Height - S(10)), S(8f), ColorTranslator.FromHtml("#E6E0D4"));
+                    if (hov && !sel) Gfx.FillRound(g, new RectangleF(r.X, r.Y + S(4), r.Width, r.Height - S(10)), S(8f), Theme.GraySoft);
                     if (sel) Gfx.FillRound(g, new RectangleF(r.X + S(10), r.Bottom - S(5), r.Width - S(20), S(3)), S(1.5f), Theme.Brand);
                 }
                 bool showIcon = Icons.Has(icon) && (owner.Vertical || !compact);
@@ -806,21 +808,22 @@ public class NavSection : Control
         // «مختار» ظاهريًا: قسم بلا عناصر وشاشته مفتوحة، أو قسم مطوي يحتوي الشاشة الحالية
         bool selected = active && (!Expandable || !expanded || rail);
         var pill = new RectangleF(S(10), S(3), Width - S(20), Height - S(6));
-        if (selected) Gfx.FillRound(g, pill, S(10f), Gfx.Mix(Tint, Color.White, 0.87f));
+        bool dark = Theme.DarkSidebar;
+        if (selected) Gfx.FillRound(g, pill, S(10f), Gfx.Mix(Tint, Theme.Sidebar, dark ? 0.72f : 0.87f));
         else if (hover) Gfx.FillRound(g, pill, S(10f), Theme.SidebarHover);
 
         int box = S(30);
         var ib = rail
             ? new RectangleF((Width - box) / 2f, (Height - box) / 2f, box, box)
             : new RectangleF(Width - S(20) - box, (Height - box) / 2f, box, box);
-        Gfx.FillRound(g, ib, S(8f), selected ? Tint : Gfx.Mix(Tint, Color.White, expanded ? 0.80f : 0.88f));
-        Icons.Draw(g, IconName, ib, selected ? Color.White : Tint, 17);
+        Gfx.FillRound(g, ib, S(8f), selected ? Tint : Gfx.Mix(Tint, Theme.Sidebar, dark ? (expanded ? 0.62f : 0.74f) : (expanded ? 0.80f : 0.88f)));
+        Icons.Draw(g, IconName, ib, selected ? Color.White : dark ? Gfx.Mix(Tint, Color.White, 0.35f) : Tint, 17);
         if (rail) return;
 
         int textRight = (int)ib.X - S(10);
         int left = S(20) + (Expandable ? S(20) : 0);
         TextRenderer.DrawText(g, Text, Theme.FS(10.5f), new Rectangle(left, 0, textRight - left, Height),
-            selected ? Gfx.Mix(Tint, Theme.Ink, 0.45f) : Theme.SidebarText, Gfx.RtlStart);
+            selected ? (dark ? Color.White : Gfx.Mix(Tint, Theme.Ink, 0.45f)) : Theme.SidebarText, Gfx.RtlStart);
         if (Expandable)
             Icons.Draw(g, expanded ? "chevron-down" : "chevron-left", new RectangleF(S(18), (Height - S(16)) / 2f, S(16), S(16)),
                 expanded ? Theme.SidebarText : Theme.SidebarMuted, 15);
@@ -858,14 +861,17 @@ public class NavItem : Control
             g.DrawLine(pen, guide, 0, guide, Last ? Height / 2f : Height);
 
         var pill = new RectangleF(S(10), S(2), guide - S(8) - S(10), Height - S(4));
-        if (active) Gfx.FillRound(g, pill, S(8f), Gfx.Mix(Fill, Color.White, 0.86f));
+        bool dark = Theme.DarkSidebar;
+        var fill = dark ? Gfx.Mix(Fill, Color.White, 0.3f) : Fill;
+        if (active) Gfx.FillRound(g, pill, S(8f), Gfx.Mix(Fill, Theme.Sidebar, dark ? 0.7f : 0.86f));
         else if (hover) Gfx.FillRound(g, pill, S(8f), Theme.SidebarHover);
-        if (active) Gfx.FillRound(g, new RectangleF(guide - S(1.5f), S(8), S(3), Height - S(16)), S(1.5f), Fill);
+        if (active) Gfx.FillRound(g, new RectangleF(guide - S(1.5f), S(8), S(3), Height - S(16)), S(1.5f), fill);
 
         int ic = S(17);
         var ir = new RectangleF(pill.Right - S(10) - ic, (Height - ic) / 2f, ic, ic);
-        var fg = active ? Gfx.Mix(Fill, Theme.Ink, 0.45f) : hover ? Theme.Ink : Theme.Text2;
-        Icons.Draw(g, IconName, ir, active ? Fill : Theme.SidebarMuted, 16);
+        var fg = dark ? (active || hover ? Color.White : Theme.SidebarText)
+                      : active ? Gfx.Mix(Fill, Theme.Ink, 0.45f) : hover ? Theme.Ink : Theme.Text2;
+        Icons.Draw(g, IconName, ir, active ? fill : Theme.SidebarMuted, 16);
         TextRenderer.DrawText(g, Text, active ? Theme.FS(10) : Theme.F(10), new Rectangle((int)pill.X + S(6), 0, (int)(ir.X - pill.X) - S(14), Height), fg, Gfx.RtlStart);
     }
 }
@@ -882,7 +888,7 @@ public class DocTabs : Control
     public string ActiveKey { get; private set; }
     public event Action<string> Selected, Closed;
     /// <summary>لون شريط التبويبات (التبويب النشط بلون خلفية الصفحة فيتصل بها)</summary>
-    public static readonly Color Strip = ColorTranslator.FromHtml("#E4DED2");
+    public static Color Strip => Theme.Strip;
 
     public DocTabs()
     {
@@ -956,7 +962,7 @@ public class DocTabs : Control
             if (isAct || i == hover)
             {
                 using var path = TopRounded(box, S(9));
-                using var b = new SolidBrush(isAct ? Theme.Bg : ColorTranslator.FromHtml("#D9D2C4"));
+                using var b = new SolidBrush(isAct ? Theme.Bg : Theme.StripHover);
                 g.FillPath(b, path);
                 if (isAct) Gfx.FillRound(g, new RectangleF(box.X + S(10), box.Y, box.Width - S(20), S(3)), S(1.5f), Theme.Orange);
             }
@@ -1083,7 +1089,7 @@ public class BarChart : Control
             float h = (float)(plot.Height * Data[i].Value / top);
             var br = new RectangleF(cx - bw / 2, plot.Bottom - Math.Max(h, 2), bw, Math.Max(h, 2));
             bars.Add(br);
-            var col = i == hover ? ColorTranslator.FromHtml("#D24A17")
+            var col = i == hover ? Gfx.Mix(Theme.Orange, Color.Black, 0.15f)
                 : !HighlightLast ? Gfx.Mix(Theme.Orange, Theme.Amber, 0.35f)
                 : i == n - 1 ? Theme.Orange : Gfx.Mix(Theme.Amber, Color.White, 0.25f);
             using (var path = TopRound(br, Math.Min(S(6f), bw / 2)))
