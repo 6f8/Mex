@@ -15,9 +15,8 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
   <ItemGroup>
-    <!-- مكتبة الواجهة مشتركة مع برنامج رصيد (نفس الأزرار والبطاقات والجداول والخطوط والأيقونات) -->
-    <Compile Include="..\Raseed\UiKit\*.cs" Link="UiKit\%(Filename)%(Extension)" />
-    <EmbeddedResource Include="..\Raseed\Assets\*.ttf" Link="Assets\%(Filename)%(Extension)" />
-    <None Include="..\Raseed\Assets\*.txt" Link="Assets\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- الخطوط مضمّنة داخل البرنامج: لا حاجة لتثبيتها على جهاز المستخدم -->
+    <EmbeddedResource Include="Assets\*.ttf" />
+    <None Include="Assets\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

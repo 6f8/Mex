@@ -6,7 +6,6 @@
 ## التشغيل
 
 ```
-cd Workshop
 dotnet run
 ```
 
@@ -19,7 +18,7 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 يتطلب ويندوز 10 أو أحدث مع .NET 8 SDK للبناء.
 
 - البيانات في `%LocalAppData%\RaseedWorkshop\workshop.db` (منفصلة تماماً عن بيانات رصيد).
-- مكتبة الواجهة تُقرأ من `..\Raseed\UiKit` (مشتركة بين البرنامجين)، لذلك يجب أن يبقى المجلدان جنباً إلى جنب.
+- مكتبة الواجهة في مجلد `UiKit` والخطوط المضمّنة في `Assets`.
 
 ## الشاشات
 

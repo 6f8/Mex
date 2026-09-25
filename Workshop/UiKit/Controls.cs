@@ -1130,7 +1130,7 @@ public class BarChart : Control
         if (hover >= 0 && hover < bars.Count)
         {
             var b = bars[hover];
-            var txt = Ui.M(Data[hover].Value);
+            var txt = Math.Abs(Data[hover].Value) < 0.005 ? "0" : Data[hover].Value.ToString("#,0.##");
             var sz = TextRenderer.MeasureText(txt, Theme.FS(9));
             var tip = new RectangleF(b.X + b.Width / 2 - sz.Width / 2f - S(10), Math.Max(0, b.Y - S(32)), sz.Width + S(20), S(26));
             tip.X = Math.Max(0, Math.Min(Width - tip.Width, tip.X));
