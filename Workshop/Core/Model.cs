@@ -140,7 +140,7 @@ public class InvItem
 public class Expense { public string Id, Description = "مصروف", Date; public double Amount; }
 
 /// <summary>حركة مورد: شراء بالدَّين، دفعة، أو مرتجع قطعة معيبة (يُخصم من حسابه)</summary>
-public class SupplierTx { public string Id, Supplier = "", Type = "purchase", Date, Note = ""; public double Amount; }
+public class SupplierTx { public string Id, Supplier = "", Type = "purchase", Date, Note = "", DueDate = ""; public double Amount; }
 
 public class Driver { public string Id, Printer = "", Brand = "", Os = "", Url = "", Note = "", UpdatedAt; }
 
@@ -311,11 +311,11 @@ public static class Json
         return new SupplierTx
         {
             Id = OrNull(S(t, "id")) ?? Txt.Uid("st"), Supplier = S(t, "supplier"), Type = S(t, "type") is "payment" or "return" ? S(t, "type") : "purchase",
-            Amount = a, Date = OrNull(Txt.Cut10(S(t, "date"))) ?? Txt.Today, Note = S(t, "note")
+            Amount = a, Date = OrNull(Txt.Cut10(S(t, "date"))) ?? Txt.Today, Note = S(t, "note"), DueDate = Txt.Cut10(S(t, "dueDate"))
         };
     }
 
-    public static JsonObject ToJson(SupplierTx t) => new() { ["id"] = t.Id, ["supplier"] = t.Supplier, ["type"] = t.Type, ["amount"] = t.Amount, ["date"] = t.Date, ["note"] = t.Note };
+    public static JsonObject ToJson(SupplierTx t) => new() { ["id"] = t.Id, ["supplier"] = t.Supplier, ["type"] = t.Type, ["amount"] = t.Amount, ["date"] = t.Date, ["note"] = t.Note, ["dueDate"] = t.DueDate };
 
     public static Driver Driver(JsonNode d)
     {

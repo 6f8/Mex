@@ -44,12 +44,14 @@ public class MainForm : BaseForm
     {
         new("dashboard", "الرئيسية", "house", Blue, () => new DashboardPage()),
         new("orders", "الطلبات", "clipboard-list", Blue, () => new OrdersPage()),
+        new("tech", "شاشة الفني", "wrench", Teal, () => new TechPage()),
         new("debts", "الديون المستحقة", "wallet", Red, () => new DebtsPage()),
         new("customers", "الزبائن", "users", Violet, () => new CustomersPage()),
         new("inventory", "قطع الغيار والأسعار", "package", Amber, () => new InventoryPage()),
         new("suppliers", "حسابات الموردين", "store", Teal, () => new SuppliersPage()),
         new("accounts", "التجار والشركات", "briefcase", Violet, () => new AccountsPage()),
         new("reports", "التقارير والمصاريف", "chart-column", Green, () => new ReportsPage()),
+        new("staff", "الموظفون والرواتب", "id-card", Slate, () => new StaffPage()),
     };
 
     readonly Panel side = new() { Dock = DockStyle.Left, Width = 250, BackColor = Theme.Sidebar };
@@ -264,7 +266,8 @@ public class MainForm : BaseForm
         nav["orders"].Count = Store.Orders.Count(Calc.IsOpen);
         nav["debts"].Count = Calc.GetDebts().Count;
         nav["inventory"].Count = Store.Inventory.Count(i => Calc.StockState(i) is "low" or "out");
-        nav["suppliers"].Count = Calc.SupplierBalances().Count(b => b.Balance > 0.005);
+        nav["suppliers"].Count = SupplierDues.Alerts().Select(d => d.Supplier).Distinct().Count();
+        nav["suppliers"].BadgeColor = nav["suppliers"].Count > 0 ? Red : Teal;
         trashBtn.Count = Store.Trash.Count;
         defectsBtn.Count = Defects.PendingCount;
         remindersBtn.Count = Reminders.DueCount;

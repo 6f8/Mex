@@ -34,7 +34,9 @@ public class InventoryPage : Page
         var bImport = W.Btn("استيراد CSV", "download", BtnKind.Secondary, 110); bImport.Margin = new Padding(4, 26, 4, 4);
         var bExport = W.Btn("تصدير CSV", "file-spreadsheet", BtnKind.Secondary, 110); bExport.Margin = new Padding(4, 26, 4, 4);
         var bNew = W.Btn("إضافة قطعة", "plus", BtnKind.Primary, 120); bNew.Margin = new Padding(4, 26, 4, 4);
-        bar.Controls.AddRange(new Control[] { bLow, bImport, bExport, bNew });
+        var bReorder = W.Btn("اقتراح الشراء", "package", BtnKind.Soft, 120); bReorder.Margin = new Padding(4, 26, 4, 4);
+        bReorder.Click += (s, e) => ReorderDialog.Open();
+        bar.Controls.AddRange(new Control[] { bLow, bReorder, bImport, bExport, bNew });
         var catBar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Bg, Padding = new Padding(0, 6, 0, 0) };
         cat.Dock = DockStyle.Right;
         catBar.Controls.Add(cat);
@@ -441,6 +443,7 @@ public class SuppliersPage : Page
         grid.Columns.Add("payments", "المدفوع");
         grid.Columns.Add("returns", "مرتجعات معيبة");
         grid.Columns.Add("warranty", "ضمانه");
+        grid.Columns.Add("due", "مواعيد السداد");
         grid.Columns.Add("balance", "الرصيد");
         grid.Columns.Add("last", "آخر حركة");
         grid.CellFormatting += (s, e) =>
@@ -448,6 +451,7 @@ public class SuppliersPage : Page
             if (e.RowIndex < 0 || e.RowIndex >= rows.Count) return;
             var c = grid.Columns[e.ColumnIndex].Name;
             if (c is "payments" or "returns") e.CellStyle.ForeColor = Pal.Good;
+            if (c == "due" && e.Value is string dv && dv.Contains('⚠')) e.CellStyle.ForeColor = Pal.Bad;
             if (c == "balance") e.CellStyle.ForeColor = rows[e.RowIndex].Balance > 0 ? Pal.Bad : Pal.Good;
         };
         grid.CellDoubleClick += (s, e) => { if (Sel is Calc.SupplierBalance x) SupplierStatementDialog.Open(x.Key); };
@@ -463,8 +467,24 @@ public class SuppliersPage : Page
 
     Calc.SupplierBalance Sel => grid.CurrentRow != null && grid.CurrentRow.Index < rows.Count ? rows[grid.CurrentRow.Index] : null;
 
+    List<SupplierDues.Due> dues = new();
+    string DueText(string sup)
+    {
+        var mine = dues.Where(d => d.Supplier == sup).ToList();
+        if (mine.Count == 0) return "—";
+        var over = mine.Where(d => d.Overdue).Sum(d => d.Left);
+        var next = mine.Where(d => d.DueDate != "" && !d.Overdue).OrderBy(d => d.DueDate, StringComparer.Ordinal).FirstOrDefault();
+        var parts = new List<string>();
+        if (over > 0) parts.Add("⚠ متأخر " + Txt.Money(over));
+        if (next != null) parts.Add($"{Txt.Money(next.Left)} في {Txt.FmtShortDate(next.DueDate)}");
+        int oldest = mine.Max(d => d.Age);
+        if (parts.Count == 0) parts.Add($"أقدمه منذ {oldest} يوم");
+        return string.Join(" — ", parts);
+    }
+
     public override void Reload()
     {
+        dues = SupplierDues.Open();
         rows = Calc.SupplierBalances().OrderByDescending(x => x.Balance).ThenByDescending(x => x.Last, StringComparer.Ordinal).ToList();
         double owed = rows.Sum(x => Math.Max(0, x.Balance));
         var month = Txt.Today[..7];
@@ -485,6 +505,7 @@ public class SuppliersPage : Page
         foreach (var x in rows)
             grid.Rows.Add(x.Name, Txt.Money(x.Purchases), Txt.Money(x.Payments), x.Returns > 0 ? Txt.Money(x.Returns) : "—",
                 SupWarranty.ForSupplier(x.Name) is int sw ? sw + " يوم" : "—",
+                DueText(x.Name),
                 x.Balance > 0 ? Txt.Money(x.Balance) : x.Balance < 0 ? Txt.Money(-x.Balance) + "  (لك عنده)" : "مسدد", Txt.FmtDate(x.Last));
     }
 }
@@ -496,8 +517,10 @@ public class SupplierTxDialog : DialogShell
     readonly TextBox tSup = new() { Width = 420 }, tNote = new() { Width = 420 };
     readonly NumericUpDown nAmount = W.Money(200);
     readonly DateTimePicker dDate = new() { Width = 200, Format = DateTimePickerFormat.Short };
+    readonly DateTimePicker dDue = new() { Width = 200, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
+    readonly Control dueBox;
 
-    SupplierTxDialog(string kind, string supplier) : base(kind == "payment" ? "دفعة للمورد" : "شراء بالدَّين", 520, 470, "store")
+    SupplierTxDialog(string kind, string supplier) : base(kind == "payment" ? "دفعة للمورد" : "شراء بالدَّين", 520, 540, "store")
     {
         type.Value = kind;
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Surface };
@@ -508,11 +531,15 @@ public class SupplierTxDialog : DialogShell
         r.Controls.Add(W.Labeled("المبلغ *", nAmount));
         r.Controls.Add(W.Labeled("التاريخ", dDate));
         flow.Controls.Add(r);
+        dueBox = W.Labeled("موعد السداد (اختياري)", dDue, "calendar");
+        flow.Controls.Add(dueBox);
         flow.Controls.Add(W.Labeled("ملاحظة", tNote));
         Body.Controls.Add(flow);
+        dDue.Value = DateTime.Today.AddDays(30);
+        dueBox.Visible = kind == "purchase";
         tSup.Text = supplier;
         W.Suggest(tSup, Calc.SupplierBalances().Select(x => x.Name).Concat(Store.Inventory.Select(i => i.Supplier)).Concat(Store.Orders.SelectMany(o => o.Parts.Select(p => p.Supplier))));
-        type.Changed += v => Text = v == "payment" ? "دفعة للمورد" : "شراء بالدَّين";
+        type.Changed += v => { Text = v == "payment" ? "دفعة للمورد" : "شراء بالدَّين"; dueBox.Visible = v == "purchase"; };
         var ok = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
         AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
         ok.Click += (s, e) => Save();
@@ -532,7 +559,8 @@ public class SupplierTxDialog : DialogShell
         if (sup == "" || amount <= 0) { Dialogs.Warn("اكتب اسم المورد والمبلغ."); return; }
         // الكتابة المسجلة سابقًا لنفس المورد
         var known = Calc.SupplierBalances().FirstOrDefault(x => x.Key == Txt.Fold(sup));
-        var t = new SupplierTx { Id = Txt.Uid("st"), Supplier = known?.Name ?? sup, Type = type.Value, Amount = amount, Date = Txt.Iso(dDate.Value), Note = tNote.Text.Trim() };
+        var t = new SupplierTx { Id = Txt.Uid("st"), Supplier = known?.Name ?? sup, Type = type.Value, Amount = amount, Date = Txt.Iso(dDate.Value), Note = tNote.Text.Trim(),
+            DueDate = type.Value == "purchase" && dDue.Checked ? Txt.Iso(dDue.Value) : "" };
         Store.AddSupplierTx(t);
         DialogResult = DialogResult.OK;
         Close();

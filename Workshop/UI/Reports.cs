@@ -21,10 +21,13 @@ public class ReportsPage : StackPage
     readonly DataGridView exps = W.Grid();
     readonly Box expBox;
     readonly MeterList types = new(), devices = new(), methods = new(), sources = new(), areas = new();
+    readonly Ledger forecast = new() { MinCell = 170 };
+    readonly DataGridView peak = W.Grid();
     readonly Label retText = new() { Dock = DockStyle.Top, Height = 96, Font = Theme.F(9.5f), ForeColor = Theme.Text2, BackColor = Theme.Surface, TextAlign = ContentAlignment.TopLeft };
     readonly DataGridView quality = W.Grid(), suppliers = W.Grid(), techs = W.Grid();
     readonly Box retBox, supBox, listBox, techBox;
     List<Techs.Row> techRows = new();
+    int peakMax;
     readonly OrdersGrid closed = new("duration", "estimated") { Height = 420 };
     List<Expense> expRows = new();
 
@@ -151,6 +154,19 @@ public class ReportsPage : StackPage
         Stack.Controls.Add(c2b);
         Stack.Controls.Add(c3);
         Stack.Controls.Add(techBox);
+        Stack.Controls.Add(new Box("توقع السيولة — الثلاثون يوماً القادمة", forecast, "wallet", "ما يُتوقع قبضه مقابل ما يجب دفعه (الرواتب ومتوسط المصاريف الشهرية مشمولة)"));
+        var peakHost = new Panel { Height = 300, BackColor = Theme.Surface };
+        peak.Columns.Add("day", "اليوم");
+        foreach (var sl in Peak.Slots) peak.Columns.Add(sl.Title, sl.Title);
+        peak.Columns.Add("total", "المجموع");
+        peak.CellFormatting += (s, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex <= 0 || e.ColumnIndex > Peak.Slots.Length || e.Value is not int v || peakMax == 0) return;
+            e.CellStyle.BackColor = Gfx.Mix(Pal.Primary, Theme.Surface, 1 - 0.75f * v / peakMax);
+            e.CellStyle.ForeColor = v * 2 > peakMax ? Color.White : Theme.Ink;
+        };
+        peakHost.Controls.Add(peak);
+        Stack.Controls.Add(new Box("أوقات الذروة", peakHost, "clock", "عدد الأجهزة المستلمة حسب اليوم والساعة — لتنظيم دوام الموظفين"));
         Stack.Controls.Add(listBox);
 
         range.Value = "month";
@@ -280,6 +296,32 @@ public class ReportsPage : StackPage
             double pct = Math.Max(x.ReturnRate, x.DefectRate);
             int i = quality.Rows.Add(x.Name, x.Orders, x.WarrantyReturns, x.DefectCount, Math.Round(pct) + "%");
             if (pct > 10) quality.Rows[i].DefaultCellStyle.ForeColor = Pal.Bad;
+        }
+
+        // توقع السيولة
+        var fc = Forecast.Next30();
+        forecast.Set(new[]
+        {
+            new Ledger.Cell("من أجهزة في الورشة", Txt.Money(fc.InWorkshop), "تُقبض عند التسليم", Pal.Good),
+            new Ledger.Cell("ديون الزبائن", Txt.Money(fc.CustomerDebts), "إن سُدّدت", Pal.Good),
+            new Ledger.Cell("حسابات التجار", Txt.Money(fc.Dealers), null, Pal.Good),
+            new Ledger.Cell("للموردين (مستحق خلال 30 يوماً)", Txt.Money(fc.SuppliersDue), fc.SuppliersNoDate > 0 ? $"+ {Txt.Money(fc.SuppliersNoDate)} بدون موعد" : null, Pal.Bad),
+            new Ledger.Cell("رواتب ومصاريف شهرية", Txt.Money(fc.Salaries + fc.Expenses), $"رواتب {Txt.Money(fc.Salaries)} — مصاريف {Txt.Money(fc.Expenses)}", Pal.Bad),
+            new Ledger.Cell("الصافي المتوقع", Txt.Money(fc.Net), fc.Net >= 0 ? "يكفي للالتزامات" : "انتبه: الالتزامات أكبر", null, fc.Net >= 0 ? 1 : -1),
+        });
+
+        // أوقات الذروة
+        var pg = Peak.Grid(a, b);
+        peakMax = 0;
+        peak.Rows.Clear();
+        for (int d = 0; d < Peak.Days.Length; d++)
+        {
+            var row = new object[Peak.Slots.Length + 2];
+            row[0] = Peak.Days[d];
+            int sum = 0;
+            for (int sl = 0; sl < Peak.Slots.Length; sl++) { row[sl + 1] = pg[d, sl]; sum += pg[d, sl]; peakMax = Math.Max(peakMax, pg[d, sl]); }
+            row[^1] = sum;
+            peak.Rows.Add(row);
         }
 
         // الفنيون

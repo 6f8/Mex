@@ -298,6 +298,8 @@ public partial class SettingsDialog
                      tMailUser = new() { Width = 300, PlaceholderText = "you@gmail.com" }, tMailPass = new() { Width = 220, UseSystemPasswordChar = true },
                      tMailTo = new() { Width = 300, PlaceholderText = "البريد الذي يصله التقرير" };
     readonly Toggle tgSsl = new() { Text = "اتصال آمن SSL/TLS", Width = 220 };
+    readonly Toggle tgWeekly = new() { Text = "ملخص أسبوعي يوم", Width = 200 }, tgMonthly = new() { Text = "ملخص شهري أول كل شهر (عن الشهر الماضي)", Width = 420 };
+    readonly ComboBox cbWeekDay = W.Combo(150, new[] { "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت" });
     readonly List<(string Key, Toggle T)> alertToggles = new();
     readonly Label notifyStatus = W.Note("", 760, 44);
 
@@ -311,6 +313,13 @@ public partial class SettingsDialog
         r0.Controls.Add(W.Labeled("وقت الإرسال", dDaily, "clock"));
         p.Controls.Add(r0);
         p.Controls.Add(W.Note("إن كان البرنامج مغلقاً في ذلك الوقت، يُرسل التقرير عند إغلاقه بعد الظهر، أو في اليوم التالي عند فتحه.", 780));
+        var rw = W.Flow(false);
+        tgWeekly.Margin = new Padding(6, 8, 6, 0);
+        rw.Controls.Add(tgWeekly);
+        rw.Controls.Add(W.Wrap(cbWeekDay));
+        p.Controls.Add(rw);
+        p.Controls.Add(tgMonthly);
+        p.Controls.Add(W.Note("الملخص فيه الإيراد والربح والمقارنة بالفترة السابقة، وأكثر الأعطال، وأداء الفنيين، والزبائن الجدد.", 780));
 
         p.Controls.Add(W.Head("تيليجرام (الأسهل والمجاني)", 780));
         p.Controls.Add(W.Note("1) في تيليجرام افتح ‎@BotFather‎ واكتب ‎/newbot‎ وانسخ الرمز الذي يعطيك.  2) افتح البوت الجديد وأرسل له أي رسالة.  3) الصق الرمز هنا واضغط «جلب رقم المحادثة».", 780, 44));
@@ -357,6 +366,8 @@ public partial class SettingsDialog
         p.Controls.Add(notifyStatus);
 
         tgDaily.Checked = Notify.DailyOn;
+        tgWeekly.Checked = Periodic.WeeklyOn; tgMonthly.Checked = Periodic.MonthlyOn;
+        cbWeekDay.SelectedIndex = Periodic.WeekDay;
         dDaily.Value = DateTime.Today.Add(TimeSpan.Parse(Notify.DailyTime));
         tTgChat.Text = Notify.TgChat;
         tMailHost.Text = Store.Get("notify_mail_host"); tMailPort.Text = Store.Get("notify_mail_port", "587");
@@ -425,6 +436,9 @@ public partial class SettingsDialog
     void SaveNotify()
     {
         Store.SetFlag("notify_daily", tgDaily.Checked);
+        Store.SetFlag("notify_weekly", tgWeekly.Checked);
+        Store.SetFlag("notify_monthly", tgMonthly.Checked);
+        Store.Set("notify_weekly_day", Math.Max(0, cbWeekDay.SelectedIndex).ToString());
         Store.Set("notify_daily_time", dDaily.Value.ToString("HH:mm"));
         if (tTgToken.Text.Trim() != "") Store.Set("notify_tg_token", Secret.Protect(tTgToken.Text.Trim()));
         Store.Set("notify_tg_chat", tTgChat.Text.Trim());
@@ -444,6 +458,7 @@ public partial class SettingsDialog
     readonly Toggle tgQc = new() { Text = "إلزام فحص الجودة قبل أن يصبح الجهاز «جاهز للاستلام»", Width = 760 };
     readonly NumericUpDown nStale = new() { Width = 120, Minimum = 1, Maximum = 90, TextAlign = HorizontalAlignment.Center, Font = Theme.F(10) };
     readonly TextBox tBranch = new() { Width = 300, PlaceholderText = "مثل: فرع المنصور" };
+    readonly Toggle tgDeduct = new() { Text = "خصم أيام الغياب من الراتب (الراتب ÷ 30 لكل يوم)", Width = 760 };
     readonly ComboBox cbTermsType = W.Combo(260, Array.Empty<string>());
     readonly TextBox tIssueTerms = new() { Width = 760, Height = 90, Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Dictionary<string, string> termsEdits = new();
@@ -457,6 +472,8 @@ public partial class SettingsDialog
         p.Controls.Add(W.Note("بنود الفحص تُعدَّل من «القوائم ← فحص الجودة قبل التسليم».", 780));
         p.Controls.Add(W.Head("الطلبات المعلّقة", 780));
         p.Controls.Add(W.Labeled("اقترح إلغاء الطلب «بانتظار الموافقة» بعد (يوم)", nStale, "clock"));
+        p.Controls.Add(W.Head("الموظفون", 780));
+        p.Controls.Add(tgDeduct);
         p.Controls.Add(W.Head("الفرع", 780));
         p.Controls.Add(W.Labeled("اسم هذا الفرع (يُكتب على كل طلب جديد، ويظهر في التقرير المجمّع)", tBranch, "store"));
         p.Controls.Add(W.Head("شروط خاصة لكل نوع عطل", 780));
@@ -464,6 +481,7 @@ public partial class SettingsDialog
         p.Controls.Add(W.Labeled("نوع العطل", cbTermsType));
         p.Controls.Add(W.Wrap(tIssueTerms));
         tgQc.Checked = QC.Required;
+        tgDeduct.Checked = Staff.DeductAbsence;
         nStale.Value = Stale.Days;
         tBranch.Text = Branches.Current;
         cbTermsType.Items.AddRange(K.IssueTypes.Cast<object>().ToArray());
@@ -482,6 +500,7 @@ public partial class SettingsDialog
     void SaveWorkflow()
     {
         Store.SetFlag("qc_required", tgQc.Checked);
+        Store.SetFlag("hr_deduct_absence", tgDeduct.Checked);
         Store.Set("stale_days", ((int)nStale.Value).ToString());
         Store.Set("branch_name", tBranch.Text.Trim());
         foreach (var (k, v) in termsEdits) IssueTerms.Set(k, v);

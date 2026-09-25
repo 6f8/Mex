@@ -192,6 +192,11 @@ public class DashboardPage : StackPage
         if (stale.Count > 0)
             list.Add(new(1, "clock", $"{stale.Count} طلب بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر", stale.Take(6).Select(o => Item(o, $"  ({Calc.StatusDays(o)} يوم)")).ToList(),
                 "اقتراح: إلغاؤه مع رسالة للزبون، أو الاتصال به.", "مراجعة وإلغاء", () => StaleDialog.Open()));
+        var supDue = SupplierDues.Alerts();
+        if (supDue.Count > 0)
+            list.Add(new(supDue.Any(d => d.Overdue) ? 2 : 1, "store", $"مستحقات موردين {(supDue.Any(d => d.Overdue) ? "متأخرة أو " : "")}خلال 3 أيام: {Txt.Money(supDue.Sum(d => d.Left))}",
+                supDue.Take(6).Select(d => new AlertsPanel.Item($"{d.Supplier} — {Txt.Money(d.Left)} ({(d.Overdue ? "متأخر منذ " + Txt.FmtShortDate(d.DueDate) : Txt.FmtShortDate(d.DueDate))})",
+                    () => MainForm.Instance?.Go("suppliers"))).ToList()));
         double accDue = Store.Accounts.Sum(Accounts.Due);
         if (accDue > 0)
             list.Add(new(0, "store", $"مستحق على حسابات التجار والشركات {Txt.Money(accDue)}", new(), null, "الحسابات", () => MainForm.Instance?.Go("accounts")));
@@ -419,13 +424,15 @@ public class DebtsPage : StackPage
         var pending = Store.Orders.Where(o => Calc.IsOpen(o) && Calc.RemainingOf(o) > 0)
             .OrderByDescending(o => o.Status == K.Ready).ThenBy(o => o.DateReceived, StringComparer.Ordinal).ToList();
         double exp = pending.Sum(Calc.RemainingOf);
+        var aging = DebtAging.Totals();
         ledger.Set(new[]
         {
             new Ledger.Cell("إجمالي الديون", Txt.Money(total), "على أجهزة مُسلّمة", Pal.Bad, total > 0 ? -1 : 1),
             new Ledger.Cell("عدد الزبائن", rows.Count.ToString(), $"{count} طلب غير مسدد"),
             new Ledger.Cell("أقدم دين", rows.Count > 0 ? $"{oldest} يوم" : "—", rows.Count > 0 ? rows[0].Name : ""),
             new Ledger.Cell("متوقع عند التسليم", Txt.Money(exp), $"{pending.Count} جهاز في الورشة", Pal.Wait),
-        });
+        }.Concat(DebtAging.Buckets.Select((b, i) => new Ledger.Cell("ديون " + b.Title, Txt.Money(aging[i]), total > 0 ? $"{Math.Round(aging[i] * 100 / total)}% من الديون" : null,
+            i == 0 ? Pal.Amber : Pal.Bad, i == 2 && aging[i] > 0 ? -1 : 0))));
         debts.Rows.Clear();
         foreach (var c in rows)
             debts.Rows.Add(c.Name, c.Phone == "" ? "—" : c.Phone, $"{c.Unpaid.Count}   {string.Join("، ", c.Unpaid.Select(o => o.Device).Take(2))}", Txt.Money(c.Debt), $"{Txt.DaysBetween(c.Oldest, Txt.Today)} يوم");

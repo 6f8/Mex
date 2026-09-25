@@ -25,6 +25,28 @@ public static class Store
     public static List<Reminder> Reminders { get; private set; } = new();
     public static List<Account> Accounts { get; private set; } = new();
 
+    // ---------- سجلات إضافية عامة (الموظفون، الحضور، السُّلف، الرواتب) ----------
+    public static readonly string[] ExtraKinds = { "employees", "attendance", "advances", "salaries" };
+    static Dictionary<string, List<JsonObject>> extraDocs = new();
+    public static List<JsonObject> Docs(string kind) => extraDocs.TryGetValue(kind, out var l) ? l : extraDocs[kind] = new();
+
+    public static void PutDoc(string kind, string id, JsonObject data)
+    {
+        data["id"] = id;
+        Put(kind, id, data);
+        var l = Docs(kind);
+        int k = l.FindIndex(x => x["id"]?.ToString() == id);
+        if (k >= 0) l[k] = data; else l.Add(data);
+        Touch();
+    }
+
+    public static void DelDoc(string kind, string id)
+    {
+        Del(kind, id);
+        Docs(kind).RemoveAll(x => x["id"]?.ToString() == id);
+        Touch();
+    }
+
     /// <summary>بعد أي تعديل: الشاشة الحالية تُحدَّث والعدادات في القائمة الجانبية</summary>
     public static event Action Changed;
     public static void NotifyChanged() => Changed?.Invoke();
@@ -88,6 +110,7 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
         Drivers = Load(c, KDrv, Json.Driver);
         Reminders = Load(c, KRem, Json.Reminder).OrderBy(r => r.Date, StringComparer.Ordinal).ToList();
         Accounts = Load(c, KAcc, Json.Account).OrderBy(a => a.Name, StringComparer.CurrentCulture).ToList();
+        extraDocs = ExtraKinds.ToDictionary(k => k, k => Load(c, k, n => n as JsonObject));
         Defects = Load(c, KDef, Json.Defect).OrderByDescending(d => d.Date, StringComparer.Ordinal).ThenByDescending(d => d.Id, StringComparer.Ordinal).ToList();
         // الأرقام المرجعية الناقصة تُكمَّل مرة واحدة
         var used = new HashSet<string>(Orders.Concat(Trash).Select(o => o.RefNo));
@@ -254,8 +277,9 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
 
     /// <summary>استبدال كل البيانات (استعادة نسخة أو مسح) في معاملة واحدة. defects = null: تبقى القطع المعيبة الحالية</summary>
     public static void ReplaceAll(List<Order> orders, List<Order> trash, List<InvItem> inv, List<Expense> exps, List<SupplierTx> stx, List<Driver> drv, List<Defect> defects = null,
-                                  List<Reminder> reminders = null, List<Account> accounts = null)
+                                  List<Reminder> reminders = null, List<Account> accounts = null, Dictionary<string, List<JsonObject>> docs = null)
     {
+        docs ??= ExtraKinds.ToDictionary(k => k, k => Docs(k).Select(x => (JsonObject)x.DeepClone()).ToList());
         defects ??= Defects.ToList();
         reminders ??= Reminders.ToList();
         accounts ??= Accounts.ToList();
@@ -272,6 +296,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
             foreach (var d in defects) Put(KDef, d.Id, Json.ToJson(d), c, t);
             foreach (var r in reminders) Put(KRem, r.Id, Json.ToJson(r), c, t);
             foreach (var a in accounts) Put(KAcc, a.Id, Json.ToJson(a), c, t);
+            foreach (var (kind, list) in docs)
+                foreach (var d in list) if (d["id"]?.ToString() is string did && did != "") Put(kind, did, d, c, t);
             // صور لم يعد يستعملها أي طلب
             var refs = orders.Concat(trash).Select(o => o.PhotoRef).Where(r => r != null).ToHashSet();
             using (var cmd = c.CreateCommand())

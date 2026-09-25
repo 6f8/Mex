@@ -82,7 +82,7 @@ public static class Backup
     public static void ResetAll()
     {
         CopyTo(SnapshotFile);
-        Store.ReplaceAll(new(), new(), new(), new(), new(), new(), new(), new(), new());
+        Store.ReplaceAll(new(), new(), new(), new(), new(), new(), new(), new(), new(), Store.ExtraKinds.ToDictionary(k => k, _ => new List<JsonObject>()));
     }
 
     public static void RestoreSnapshot()
@@ -159,6 +159,7 @@ public static class WebBackup
         public List<Defect> Defects = new();
         public List<Reminder> Reminders = new();
         public List<Account> Accounts = new();
+        public Dictionary<string, List<JsonObject>> Docs;
         public Dictionary<string, string> Photos = new();
         public JsonObject Settings;
         public bool LegacyArray;
@@ -195,6 +196,7 @@ public static class WebBackup
             SupplierTx = ReadList(raw["supplierTx"], Json.Stx), Drivers = ReadList(raw["drivers"], Json.Driver),
             Defects = ReadList(raw["defects"], Json.Defect),
             Reminders = ReadList(raw["reminders"], Json.Reminder), Accounts = ReadList(raw["accounts"], Json.Account),
+            Docs = raw["docs"] is JsonObject dd ? Store.ExtraKinds.ToDictionary(k => k, k => (dd[k] as JsonArray)?.OfType<JsonObject>().Select(x => (JsonObject)x.DeepClone()).ToList() ?? new List<JsonObject>()) : null,
             Settings = raw["settings"] as JsonObject, LegacyArray = node is JsonArray,
         };
         if (raw["photos"] is JsonObject ph)
@@ -233,7 +235,7 @@ public static class WebBackup
             Store.ReplaceAll(p.Orders, p.Trash,
                 p.LegacyArray ? Store.Inventory : p.Inventory, p.LegacyArray ? Store.Expenses : p.Expenses,
                 p.LegacyArray ? Store.SupplierTx : p.SupplierTx, p.LegacyArray ? Store.Drivers : p.Drivers,
-                p.LegacyArray ? null : p.Defects, p.LegacyArray ? null : p.Reminders, p.LegacyArray ? null : p.Accounts);
+                p.LegacyArray ? null : p.Defects, p.LegacyArray ? null : p.Reminders, p.LegacyArray ? null : p.Accounts, p.Docs);
             added = p.Orders.Count;
             if (p.Settings?["shop"] is JsonObject shop)
             {
@@ -270,7 +272,16 @@ public static class WebBackup
             var defs = Merge(Store.Defects, p.Defects, d => d.Id, ref dummy);
             var rems = Merge(Store.Reminders, p.Reminders, r => r.Id, ref dummy);
             var accs = Merge(Store.Accounts, p.Accounts, a => a.Id, ref dummy);
-            Store.ReplaceAll(orders, trash, inv, exps, stx, drv, defs, rems, accs);
+            Dictionary<string, List<JsonObject>> docs = null;
+            if (p.Docs != null)
+                docs = Store.ExtraKinds.ToDictionary(k => k, k =>
+                {
+                    var cur = Store.Docs(k).Select(x => (JsonObject)x.DeepClone()).ToList();
+                    var ids = cur.Select(x => x["id"]?.ToString()).ToHashSet();
+                    cur.AddRange(p.Docs[k].Where(x => ids.Add(x["id"]?.ToString())));
+                    return cur;
+                });
+            Store.ReplaceAll(orders, trash, inv, exps, stx, drv, defs, rems, accs, docs);
         }
         return added;
     }
@@ -292,6 +303,7 @@ public static class WebBackup
             ["defects"] = new JsonArray(Store.Defects.Select(d => (JsonNode)Json.ToJson(d)).ToArray()),
             ["reminders"] = new JsonArray(Store.Reminders.Select(r => (JsonNode)Json.ToJson(r)).ToArray()),
             ["accounts"] = new JsonArray(Store.Accounts.Select(a => (JsonNode)Json.ToJson(a)).ToArray()),
+            ["docs"] = new JsonObject(Store.ExtraKinds.Select(k => KeyValuePair.Create(k, (JsonNode)new JsonArray(Store.Docs(k).Select(x => (JsonNode)x.DeepClone()).ToArray())))),
             ["settings"] = new JsonObject
             {
                 ["shop"] = new JsonObject { ["name"] = Store.ShopName, ["phone"] = Store.ShopPhone, ["address"] = Store.ShopAddress, ["terms"] = Store.Terms },

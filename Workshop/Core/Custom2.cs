@@ -396,6 +396,8 @@ public static class Notify
         if (visits.Count > 0) { L.Add($"🚗 زيارات الغد: {visits.Count}"); L.AddRange(visits.Take(5).Select(o => $"   - {Txt.ParseTime(o.X.VisitAt):HH:mm} {o.CustomerName} — {o.X.Address}")); }
         var overdue = Installments.Overdue();
         if (overdue.Count > 0) L.Add($"📅 طلبات عليها أقساط متأخرة: {overdue.Count}");
+        var sd = SupplierDues.Alerts();
+        if (sd.Count > 0) L.Add($"🏪 مستحقات موردين متأخرة أو خلال 3 أيام: {Txt.Money(sd.Sum(d => d.Left))}");
         if (Stale.List().Count is int st && st > 0) L.Add($"⏳ بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر: {st}");
         double debts = Calc.GetDebts().Sum(x => x.Debt), acc = Store.Accounts.Sum(Accounts.Due);
         if (debts > 0 || acc > 0) L.Add($"📒 ديون الزبائن: {Txt.Money(debts)}{(acc > 0 ? $" — حسابات التجار: {Txt.Money(acc)}" : "")}");
@@ -407,18 +409,26 @@ public static class Notify
     /// <summary>يُستدعى كل دقيقة تقريباً: يرسل تقرير اليوم عند وقته، وتقرير أمس إذا كان البرنامج مغلقاً وقتها</summary>
     public static async void Tick()
     {
-        if (busy || !DailyOn || !Configured) return;
-        var last = Store.Get("notify_daily_last");
-        string today = Txt.Today, yesterday = Txt.Iso(DateTime.Today.AddDays(-1));
-        string day = null;
-        if (last != today && DateTime.Now.TimeOfDay >= TimeSpan.Parse(DailyTime)) day = today;
-        else if (last != "" && string.CompareOrdinal(last, yesterday) < 0) day = yesterday;
-        if (day == null) return;
+        if (busy || !Configured) return;
         busy = true;
         try
         {
-            var err = await Send("تقرير يوم " + day + " — " + Store.ShopName, DailyText(day) + (day != today ? "\n\n(لم يُرسل في وقته لأن البرنامج كان مغلقاً)" : ""));
-            if (err == "") Store.Set("notify_daily_last", day);
+            if (DailyOn)
+            {
+                var last = Store.Get("notify_daily_last");
+                string today = Txt.Today, yesterday = Txt.Iso(DateTime.Today.AddDays(-1));
+                string day = null;
+                if (last != today && DateTime.Now.TimeOfDay >= TimeSpan.Parse(DailyTime)) day = today;
+                else if (last != "" && string.CompareOrdinal(last, yesterday) < 0) day = yesterday;
+                if (day != null)
+                {
+                    var err = await Send("تقرير يوم " + day + " — " + Store.ShopName, DailyText(day) + (day != today ? "\n\n(لم يُرسل في وقته لأن البرنامج كان مغلقاً)" : ""));
+                    if (err == "") Store.Set("notify_daily_last", day);
+                }
+            }
+            // الملخص الأسبوعي والشهري
+            foreach (var (key, value, subject, text) in Periodic.Due())
+                if (await Send(subject, text) == "") Store.Set(key, value);
         }
         catch (Exception ex) { LastError = ex.Message; }   // لا تظهر رسالة خطأ كل دقيقة
         finally { busy = false; }
