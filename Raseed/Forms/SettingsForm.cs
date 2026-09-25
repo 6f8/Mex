@@ -326,8 +326,7 @@ public class SettingsForm : BaseForm
         try { Backup.Restore(ofd.FileName); }
         catch (Exception ex) { Ui.Warn("تعذرت الاستعادة: " + ex.Message); return; }
         Dialogs.Info("تمت الاستعادة بنجاح. سيُعاد تشغيل البرنامج الآن.", "استعادة نسخة");
-        Application.Restart();
-        Environment.Exit(0);
+        Program.Restart();
     }
 
     static async void TestWhatsApp()
@@ -347,7 +346,7 @@ public class SettingsForm : BaseForm
         var urls = MobileApi.Urls();
         if (urls.Count == 0) { Ui.Warn("ربط الهاتف غير مفعّل. فعّله من هذا القسم، احفظ الإعدادات، ثم أعد تشغيل البرنامج."); return; }
         var text = string.Join("\r\n", urls);
-        Clipboard.SetText(text);
+        try { Clipboard.SetText(text); } catch { /* الحافظة مشغولة ببرنامج آخر */ }
         Dialogs.Info("افتح أحد الروابط التالية من متصفح الهاتف (على نفس شبكة الواي فاي)، ثم اختر «إضافة إلى الشاشة الرئيسية»:\n\n" + text + "\n\n(تم نسخ الروابط)", "ربط الهاتف");
     }
 }

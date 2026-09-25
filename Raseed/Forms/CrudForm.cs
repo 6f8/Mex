@@ -91,7 +91,7 @@ public class CrudForm : BaseForm
         // بطاقة الحقول نحو 40% من العرض (بين حدين)، والجدول الباقي
         Resize += (s, e) => listCard.Width = Math.Max(Dpi.S(300), ClientSize.Width - Math.Clamp(ClientSize.Width * 2 / 5, Dpi.S(340), Dpi.S(540)) - Dpi.S(14));
 
-        search.TextChanged += (s, e) => LoadList();
+        Ui.OnTextIdle(search, LoadList);
         bNew.Click += (s, e) => NewRecord();
         bSave.Click += (s, e) => Save();
         bDel.Click += (s, e) => Delete();
@@ -192,7 +192,7 @@ public class CrudForm : BaseForm
         bool isNull = v == null || v is DBNull;
         switch (f.Type)
         {
-            case FType.Number: ((NumericUpDown)c).Value = isNull ? 0 : (decimal)Db.D(v); break;
+            case FType.Number: Ui.SetNum((NumericUpDown)c, isNull ? 0 : Db.D(v)); break;
             case FType.Bool: ((CheckBox)c).Checked = !isNull && Db.L(v) == 1; break;
             case FType.Lookup: Ui.SelectId((ComboBox)c, isNull ? 0 : Db.L(v)); break;
             case FType.Choice:

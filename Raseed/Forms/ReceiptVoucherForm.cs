@@ -21,6 +21,7 @@ public class ReceiptVoucherForm : BaseForm
     readonly ModernButton bDel;
     long id, loadedParty;
     double oldEffect;   // أثر السند المفتوح للتعديل على رصيد حسابه
+    long balParty = -1; double balValue;   // رصيد الحساب المختار (يُقرأ مرة لكل حساب بدل كل ضغطة مفتاح في المبلغ)
     bool noteTouched, loading;
 
     bool Receipt => kind == "قبض";
@@ -93,7 +94,9 @@ public class ReceiptVoucherForm : BaseForm
         }
         var bStatement = new ModernButton { Text = "كشف الحساب", IconName = "scroll-text", Height = 42 }; bStatement.FitWidth(150);
         var bReport = new ModernButton { Text = "تقرير السندات", IconName = "list", Height = 42 }; bReport.FitWidth(150);
-        var info = new FormRow(null, new Control[] { lblLastPay, lblLastMove, bStatement, bReport }) { Margin = new Padding(144, 10, 0, 0) };
+        // سطر للتواريخ وسطر للزرين: لا يلتف زر واحد وحده إلى سطر جديد ويتداخل مع أزرار الحفظ
+        var info = new FormRow(null, new Control[] { lblLastPay, lblLastMove }) { Margin = new Padding(144, 10, 0, 0) };
+        var tools = new FormRow(null, new Control[] { bStatement, bReport }) { Margin = new Padding(144, 6, 0, 0), Gap = 10 };
 
         // ---------- الأزرار ----------
         var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 48, Width = 160 };
@@ -106,12 +109,23 @@ public class ReceiptVoucherForm : BaseForm
         body.Controls.Add(cols);
         body.Controls.Add(notesRow);
         body.Controls.Add(info);
+        body.Controls.Add(tools);
         body.Controls.Add(actions);
 
         var card = new CardPanel { Dock = DockStyle.Top, Padding = new Padding(8) };
         card.Controls.Add(body);
         card.Controls.Add(head);
-        body.SizeChanged += (s, e) => card.Height = body.Height + head.Height + card.Padding.Vertical + Dpi.S(4);
+        // ارتفاع البطاقة = العنوان + المحتوى + الهوامش وظل البطاقة. يُعاد حسابه عند تغيّر أي منها
+        // (كان يُحسب مرة عند تغيّر المحتوى فقط، فبعد تكبير الشاشة 125%/150% تُقص أزرار الحفظ في الأسفل)
+        void FitCard()
+        {
+            int h = body.Height + head.Height + card.Padding.Vertical + Dpi.S(6);
+            if (card.Height != h) card.Height = h;
+        }
+        body.SizeChanged += (s, e) => FitCard();
+        head.SizeChanged += (s, e) => FitCard();
+        card.PaddingChanged += (s, e) => FitCard();
+        card.Layout += (s, e) => FitCard();
         Controls.Add(card);
 
         // ---------- الأحداث ----------
@@ -145,6 +159,9 @@ public class ReceiptVoucherForm : BaseForm
         Shown += (s, e) => cbParty.Focus();
     }
 
+    // الرجوع إلى التبويب: الرصيد قد تغيّر من شاشة أخرى (فاتورة أو سند)
+    public override void OnPageActivated() { balParty = -1; Recalc(); }
+
     Vouchers.Data Current() => new(kind, dDate.Value, Ui.GetId(cbParty), Ui.GetId(cbBox), Ui.GetId(cbBoxUsd),
         (double)nIqd.Value, (double)nUsd.Value, (double)nDiscIqd.Value, (double)nDiscUsd.Value, tNote.Text.Trim());
 
@@ -154,7 +171,8 @@ public class ReceiptVoucherForm : BaseForm
         tWordsUsd.Text = Tafqeet.Money((double)nUsd.Value, usd: true);
         long p = Ui.GetId(cbParty);
         double rate = Ui.Rate("USD");
-        double prev = p > 0 ? Ui.PartyBalance(p) - (p == loadedParty ? oldEffect : 0) : 0;
+        if (p != balParty) { balValue = p > 0 ? Ui.PartyBalance(p) : 0; balParty = p; }
+        double prev = p > 0 ? balValue - (p == loadedParty ? oldEffect : 0) : 0;
         double now = prev + Vouchers.Effect(Current(), rate);
         balance.Set(prev, now, rate);
         if (!noteTouched && !loading && p > 0)
@@ -176,14 +194,14 @@ public class ReceiptVoucherForm : BaseForm
         var last = Db.Query(@"SELECT d, t FROM (
                 SELECT date AS d, " + string.Format(Ui.TypeCaseSql, "type") + @" AS t FROM invoices WHERE party_id=@p0 AND type<>'Quote'
                 UNION ALL SELECT date, kind FROM cash_moves WHERE party_id=@p0) ORDER BY d DESC LIMIT 1", p);
-        lblLastPay.Text = "تأريخ آخر تسديد:  " + (lastPay == "" ? "—" : lastPay[..10]);
-        lblLastMove.Text = last.Rows.Count == 0 ? "تأريخ آخر حركة:  —" : $"تأريخ آخر حركة:  {Db.S(last.Rows[0]["d"])[..10]}   ({Db.S(last.Rows[0]["t"])})";
+        lblLastPay.Text = "تأريخ آخر تسديد:  " + (lastPay == "" ? "—" : Ui.Cut(lastPay, 10));
+        lblLastMove.Text = last.Rows.Count == 0 ? "تأريخ آخر حركة:  —" : $"تأريخ آخر حركة:  {Ui.Cut(Db.S(last.Rows[0]["d"]), 10)}   ({Db.S(last.Rows[0]["t"])})";
     }
 
     void New()
     {
         loading = true;
-        id = 0; oldEffect = 0; loadedParty = 0; noteTouched = false;
+        id = 0; oldEffect = 0; loadedParty = 0; noteTouched = false; balParty = -1;
         tNo.Text = Vouchers.NextId().ToString();
         dDate.Value = DateTime.Today;
         foreach (var n in new[] { nIqd, nDiscIqd, nUsd, nDiscUsd }) n.Value = 0;
@@ -208,13 +226,14 @@ public class ReceiptVoucherForm : BaseForm
         Ui.SelectId(cbParty, Db.L(r["party_id"]));
         if (Db.L(r["box_id"]) > 0) Ui.SelectId(cbBox, Db.L(r["box_id"]));
         Ui.SelectId(cbBoxUsd, Db.L(r["box_usd_id"]));
-        nIqd.Value = (decimal)Db.D(r["iqd"]); nDiscIqd.Value = (decimal)Db.D(r["disc_iqd"]);
-        nUsd.Value = (decimal)Db.D(r["usd"]); nDiscUsd.Value = (decimal)Db.D(r["disc_usd"]);
+        Ui.SetNum(nIqd, Db.D(r["iqd"])); Ui.SetNum(nDiscIqd, Db.D(r["disc_iqd"]));
+        Ui.SetNum(nUsd, Db.D(r["usd"])); Ui.SetNum(nDiscUsd, Db.D(r["disc_usd"]));
         tNote.Text = Db.S(r["note"]);
         noteTouched = true;
         // أثر السند نفسه (بسعر صرفه المحفوظ) يُطرح لعرض الرصيد قبله
         oldEffect = Vouchers.Effect(Current(), Db.D(r["rate"]));
         loadedParty = Db.L(r["party_id"]);
+        balParty = -1;
         bDel.Enabled = true;
         loading = false;
         Recalc();
@@ -231,6 +250,7 @@ public class ReceiptVoucherForm : BaseForm
         if (d.Usd > 0 && d.BoxUsd == 0) { Ui.Warn("اختر صندوق الدولار (عرّف صندوقًا أو خزينة بعملة الدولار من الحسابات)."); return; }
         bool editing = id > 0;
         id = Vouchers.Save(id, d);
+        balParty = -1;
         if (editing) Db.Audit("تعديل سند", $"{Title} رقم {id}");
         if (tgPrint.Checked) Print(id, tgCopy.Checked);
         Toast.Show($"تم حفظ {Title} رقم {id} — الرصيد الآن {Ui.M(Ui.PartyBalance(d.Party))}");
@@ -248,6 +268,7 @@ public class ReceiptVoucherForm : BaseForm
         if (id == 0 || !Session.Guard("vouchers") || !Session.Guard("delete")) return;
         if (!Ui.Confirm($"حذف {Title} رقم {id}؟")) return;
         Vouchers.Delete(id);
+        balParty = -1;
         Toast.Show($"تم حذف {Title} رقم {id}");
         New();
     }
@@ -264,7 +285,7 @@ public class ReceiptVoucherForm : BaseForm
         foreach (var copy in customerCopy ? new[] { "", "نسخة العميل" } : new[] { "" })
         {
             var d = PrintDoc.Header((receipt ? "سند قبض" : "سند دفع") + (copy != "" ? " — " + copy : ""));
-            d.Pair("رقم السند", vid.ToString(), "التاريخ", Db.S(r["date"])[..10]);
+            d.Pair("رقم السند", vid.ToString(), "التاريخ", Ui.Cut(Db.S(r["date"]), 10));
             d.Pair(receipt ? "استلمنا من" : "دفعنا إلى", Db.S(r["pname"]));
             double iqd = Db.D(r["iqd"]), usd = Db.D(r["usd"]), di = Db.D(r["disc_iqd"]), du = Db.D(r["disc_usd"]);
             if (iqd > 0) { d.Pair("المبلغ", Ui.M(iqd) + " دينار", "الصندوق", Db.S(r["box"])); d.Text(Tafqeet.Money(iqd), 10, true); }

@@ -35,7 +35,7 @@ public class LabelsForm : BaseForm
         Controls.Add(bar);
         Controls.Add(Theme.Title("ملصقات الباركود"));
 
-        search.TextChanged += (s, e) => Reload();
+        Ui.OnTextIdle(search, Reload);
         grid.SelectionChanged += (s, e) =>
         {
             if (grid.CurrentRow == null) return;
@@ -65,7 +65,7 @@ public class LabelsForm : BaseForm
     void Generate()
     {
         if (!Session.Guard("items")) return;
-        var rows = Db.Query("SELECT id FROM items WHERE IFNULL(barcode,'')=''");
+        var rows = Db.Query("SELECT id FROM items WHERE IFNULL(barcode,'')='' AND NOT EXISTS(SELECT 1 FROM item_barcodes b WHERE b.item_id=items.id)");
         if (rows.Rows.Count == 0) { Ui.Info("جميع المواد لديها باركود."); return; }
         if (!Ui.Confirm($"سيتم توليد باركود داخلي لـ {rows.Rows.Count} مادة. متابعة؟")) return;
         using (var tx = new Tx())
@@ -73,8 +73,12 @@ public class LabelsForm : BaseForm
             foreach (DataRow r in rows.Rows)
             {
                 long id = Db.L(r["id"]);
-                // 2 + رقم المادة بعشرة أرقام (بادئة 2 مخصصة للاستخدام الداخلي)
-                tx.Exec("UPDATE items SET barcode=@p0 WHERE id=@p1", "2" + id.ToString("D10"), id);
+                // 2 + رقم المادة بعشرة أرقام (بادئة 2 مخصصة للاستخدام الداخلي)؛ يُسجَّل أيضًا في جدول الباركودات
+                // حتى يُعرف عند المسح ولا يُعطى لمادة أخرى لاحقًا. الرمز المحجوز لمادة أخرى يُتجاوز
+                string code = "2" + id.ToString("D10");
+                if (Db.L(tx.Scalar("SELECT COUNT(*) FROM item_barcodes WHERE barcode=@p0", code)) > 0) continue;
+                tx.Exec("UPDATE items SET barcode=@p0 WHERE id=@p1", code, id);
+                tx.Exec("INSERT OR IGNORE INTO item_barcodes(item_id, barcode) VALUES(@p0,@p1)", id, code);
             }
             tx.Commit();
         }
@@ -127,15 +131,20 @@ public class StockCountForm : BaseForm
         Controls.Add(Theme.Title("جرد المخزون وتسوية الفروقات"));
 
         bLoad.Click += (s, e) => Reload();
-        search.TextChanged += (s, e) =>
-        {
-            foreach (DataGridViewRow r in grid.Rows)
-                r.Visible = search.Text == "" || Convert.ToString(r.Cells["المادة"].Value).Contains(search.Text, StringComparison.OrdinalIgnoreCase)
-                            || Convert.ToString(r.Cells["الباركود"].Value) == search.Text;
-        };
+        // التصفية عبر عرض الجدول (DataView): إخفاء الصف الحالي يدويًا كان يوقف البرنامج، وهي أسرع بكثير مع آلاف المواد
+        Ui.OnTextIdle(search, ApplyFilter, 200);
         grid.CellEndEdit += (s, e) => Diff();
         bPost.Click += (s, e) => Post();
         lbl.Text = "   اختر المخزن واضغط «تحميل المواد»، ثم أدخل الكمية الفعلية لكل مادة.";
+    }
+
+    void ApplyFilter()
+    {
+        if (grid.DataSource is not DataTable dt) return;
+        var t = search.Text.Trim();
+        static string esc(string x) => string.Concat(x.Select(ch => ch switch { '\'' => "''", '[' => "[[]", ']' => "[]]", '*' => "[*]", '%' => "[%]", _ => ch.ToString() }));
+        try { dt.DefaultView.RowFilter = t == "" ? "" : $"[المادة] LIKE '%{esc(t)}%' OR [الباركود] = '{t.Replace("'", "''")}'"; }
+        catch { dt.DefaultView.RowFilter = ""; }
     }
 
     void Reload()
@@ -149,6 +158,7 @@ public class StockCountForm : BaseForm
         grid.DataSource = dt;
         foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name != "الكمية الفعلية";
         grid.Columns["الكمية الفعلية"].DefaultCellStyle.BackColor = Color.FromArgb(255, 251, 235);
+        ApplyFilter();
         Diff();
     }
 
@@ -236,7 +246,9 @@ public class PasswordDialog : DialogShell
         AcceptButton = ok;
         ok.Click += (s, e) =>
         {
-            var u = Db.Query("SELECT username, pass_hash FROM users WHERE id=@p0", Session.UserId).Rows[0];
+            var ud = Db.Query("SELECT username, pass_hash FROM users WHERE id=@p0", Session.UserId);
+            if (ud.Rows.Count == 0) { Ui.Warn("المستخدم الحالي غير موجود."); return; }
+            var u = ud.Rows[0];
             if (!Session.Verify(Db.S(u["username"]), old.Text, Db.S(u["pass_hash"]), out _)) { Ui.Warn("كلمة المرور الحالية غير صحيحة."); return; }
             if (p1.Text.Length < 4) { Ui.Warn("كلمة المرور قصيرة جدًا (4 أحرف على الأقل)."); return; }
             if (p1.Text != p2.Text) { Ui.Warn("التأكيد غير مطابق."); return; }

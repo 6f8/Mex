@@ -12,14 +12,31 @@ public static class Db
 
     public static string FilePath => Path.Combine(DataDir, "raseed.db");
 
+    // الاتصالات تُعاد من مجمّع الاتصالات (Pooling) فلا يُفتح الملف من جديد مع كل استعلام
+    static readonly string connStr = new SqliteConnectionStringBuilder
+    {
+        DataSource = FilePath, Pooling = true, ForeignKeys = true
+    }.ToString();
+
     public static SqliteConnection Open()
     {
-        var c = new SqliteConnection($"Data Source={FilePath}");
+        var c = new SqliteConnection(connStr);
         c.Open();
-        using var cmd = c.CreateCommand();
-        cmd.CommandText = "PRAGMA foreign_keys=ON;";
-        cmd.ExecuteNonQuery();
         return c;
+    }
+
+    /// <summary>
+    /// رقم يزيد مع كل عملية كتابة محفوظة: الشاشات تعرف به هل تغيّرت البيانات منذ آخر تحميل (بدل إعادة التحميل في كل مرة)
+    /// </summary>
+    static long version;
+    public static long Version => Interlocked.Read(ref version);
+    /// <summary>مثل Version لكن لجداول المواد فقط (المواد والباركودات)</summary>
+    static long itemsVersion;
+    public static long ItemsVersion => Interlocked.Read(ref itemsVersion);
+    internal static void Changed(bool items)
+    {
+        Interlocked.Increment(ref version);
+        if (items) Interlocked.Increment(ref itemsVersion);
     }
 
     internal static void Bind(SqliteCommand cmd, object[] p)
@@ -36,15 +53,53 @@ public static class Db
     public static object Scalar(string sql, params object[] p) { using var t = new Tx(write: false); return t.Scalar(sql, p); }
     public static DataTable Query(string sql, params object[] p) { using var t = new Tx(write: false); return t.Query(sql, p); }
 
-    // تحويلات آمنة
-    public static double D(object o) => o == null || o is DBNull ? 0 : Convert.ToDouble(o, CultureInfo.InvariantCulture);
-    public static long L(object o) => o == null || o is DBNull ? 0 : Convert.ToInt64(o, CultureInfo.InvariantCulture);
+    // تحويلات آمنة: لا ترمي استثناءً مهما كانت القيمة (نص فارغ، نص غير رقمي، رقم عشري في حقل صحيح...)
+    public static double D(object o)
+    {
+        switch (o)
+        {
+            case null or DBNull: return 0;
+            case double d: return double.IsFinite(d) ? d : 0;
+            case long l: return l;
+            case int i: return i;
+            case decimal m: return (double)m;
+            case float f: return double.IsFinite(f) ? f : 0;
+            case bool b: return b ? 1 : 0;
+            case string s:
+                s = s.Replace(",", "").Replace("\u200E", "").Trim();
+                return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : 0;
+            default:
+                try { var v2 = Convert.ToDouble(o, CultureInfo.InvariantCulture); return double.IsFinite(v2) ? v2 : 0; }
+                catch { return 0; }
+        }
+    }
+
+    public static long L(object o)
+    {
+        switch (o)
+        {
+            case null or DBNull: return 0;
+            case long l: return l;
+            case int i: return i;
+            case string s when long.TryParse(s.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v): return v;
+            default:
+                double d = D(o);
+                return d >= long.MaxValue ? long.MaxValue : d <= long.MinValue ? long.MinValue : (long)Math.Round(d);
+        }
+    }
     public static string S(object o) => o == null || o is DBNull ? "" : Convert.ToString(o, CultureInfo.InvariantCulture);
     public static object N(long id) => id > 0 ? (object)id : DBNull.Value;
 
     public static void Init()
     {
         Directory.CreateDirectory(DataDir);
+        // WAL: القراءة لا تنتظر الكتابة، وحفظ الفاتورة أسرع بكثير (لا مزامنة كاملة للقرص مع كل عملية)
+        using (var c = Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA journal_mode=WAL;";
+            try { cmd.ExecuteNonQuery(); } catch { /* قرص أو مجلد لا يدعم WAL: يبقى الوضع الافتراضي */ }
+        }
         using (var t = new Tx())
         {
             t.Exec(Schema);
@@ -53,6 +108,7 @@ public static class Db
             Migrate(t);
             t.Exec("CREATE INDEX IF NOT EXISTS ix_cash_repair ON cash_moves(repair_id)");
             t.Exec("CREATE INDEX IF NOT EXISTS ix_cash_voucher ON cash_moves(voucher_id)");
+            t.Exec(ExtraIndexes);
             t.Exec(BalanceView);
             if (L(t.Scalar("SELECT COUNT(*) FROM users")) == 0) Seed(t);
             t.Commit();
@@ -118,6 +174,24 @@ public static class Db
     {
         try { Exec("INSERT INTO audit_log(date,user_id,action,details) VALUES(@p0,@p1,@p2,@p3)", Ui.Now, Session.UserId, action, details); } catch { }
     }
+
+    // فهارس أُضيفت لاحقًا لتسريع التقارير والتنبيهات وحفظ الفواتير (تُنشأ مرة واحدة)
+    const string ExtraIndexes = @"
+CREATE INDEX IF NOT EXISTS ix_cash_date ON cash_moves(date);
+CREATE INDEX IF NOT EXISTS ix_cash_installment ON cash_moves(installment_id);
+CREATE INDEX IF NOT EXISTS ix_cash_expense ON cash_moves(expense_type_id);
+CREATE INDEX IF NOT EXISTS ix_invoices_type_date ON invoices(type, date);
+CREATE INDEX IF NOT EXISTS ix_invoices_guarantor ON invoices(guarantor_id);
+CREATE INDEX IF NOT EXISTS ix_serials_invoice ON item_serials(invoice_id);
+CREATE INDEX IF NOT EXISTS ix_serials_item ON item_serials(item_id);
+CREATE INDEX IF NOT EXISTS ix_repair_parts_item ON repair_parts(item_id);
+CREATE INDEX IF NOT EXISTS ix_inst_due ON installments(due_date);
+CREATE INDEX IF NOT EXISTS ix_items_name ON items(name);
+CREATE INDEX IF NOT EXISTS ix_items_code ON items(code);
+CREATE INDEX IF NOT EXISTS ix_parties_kind ON parties(kind);
+CREATE INDEX IF NOT EXISTS ix_vouchers_kind ON vouchers(kind);
+CREATE INDEX IF NOT EXISTS ix_tlines_item ON transfer_lines(item_id);
+CREATE INDEX IF NOT EXISTS ix_audit_date ON audit_log(date);";
 
     // رصيد الجهة: موجب = مدين (عليه لنا)، سالب = دائن (له علينا)
     const string BalanceView = @"
@@ -249,9 +323,16 @@ public sealed class Tx : IDisposable
 {
     readonly SqliteConnection c;
     readonly SqliteTransaction t;
+    bool wrote, wroteItems;
 
     /// <param name="write">false = اتصال للقراءة فقط بلا معاملة (لا يحجز قفل الكتابة)</param>
-    public Tx(bool write = true) { c = Db.Open(); if (write) t = c.BeginTransaction(); }
+    public Tx(bool write = true)
+    {
+        c = Db.Open();
+        if (!write) return;
+        try { t = c.BeginTransaction(); }   // IMMEDIATE: يحجز الكتابة من البداية فلا تفشل المعاملة في منتصفها
+        catch { c.Dispose(); throw; }
+    }
 
     SqliteCommand Cmd(string sql, object[] p)
     {
@@ -262,7 +343,14 @@ public sealed class Tx : IDisposable
         return cmd;
     }
 
-    public int Exec(string sql, params object[] p) { using var cmd = Cmd(sql, p); return cmd.ExecuteNonQuery(); }
+    public int Exec(string sql, params object[] p)
+    {
+        using var cmd = Cmd(sql, p);
+        int n = cmd.ExecuteNonQuery();
+        wrote = true;
+        if (!wroteItems && (sql.Contains("items", StringComparison.OrdinalIgnoreCase) || sql.Contains("item_barcodes", StringComparison.OrdinalIgnoreCase))) wroteItems = true;
+        return n;
+    }
     public object Scalar(string sql, params object[] p) { using var cmd = Cmd(sql, p); return cmd.ExecuteScalar(); }
     public long Insert(string sql, params object[] p) { Exec(sql, p); return Db.L(Scalar("SELECT last_insert_rowid()")); }
 
@@ -310,6 +398,11 @@ public sealed class Tx : IDisposable
         return dt;
     }
 
-    public void Commit() => t?.Commit();
+    public void Commit()
+    {
+        if (t == null) return;
+        t.Commit();
+        if (wrote) Db.Changed(wroteItems);
+    }
     public void Dispose() { t?.Dispose(); c.Dispose(); }
 }

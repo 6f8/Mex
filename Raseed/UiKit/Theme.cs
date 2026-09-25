@@ -201,6 +201,16 @@ public static class Theme
         g.Font = F(10);
         typeof(DataGridView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(g, true);
 
+        // قيمة غير صالحة في خلية (نص في عمود رقمي مثلًا): رسالة واضحة بدل نافذة خطأ ويندوز الطويلة
+        g.DataError += (s, e) =>
+        {
+            e.ThrowException = false;
+            // الخلية تبقى في وضع التحرير حتى تُصحَّح القيمة (أو Esc للتراجع)
+            e.Cancel = true;
+            if (e.Context.HasFlag(DataGridViewDataErrorContexts.Commit) || e.Context.HasFlag(DataGridViewDataErrorContexts.Parsing))
+                Toast.Show("القيمة المدخلة غير صحيحة — أدخل رقمًا أو اضغط Esc للتراجع.", Tone.Warning);
+        };
+
         g.DataBindingComplete += (s, e) =>
         {
             // نسخة من القائمة: تغيير العرض قد يعيد ربط جدول آخر أثناء المرور على الأعمدة

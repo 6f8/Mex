@@ -43,8 +43,11 @@ public class InvoiceForm : BaseForm
     bool IsQuote => type == "Quote";
     // أثر الباقي على رصيد الحساب: البيع وإرجاع الشراء يزيدان ما عليه لنا
     double Sign => type is "Sale" or "PurchaseReturn" ? 1 : -1;
-    DataTable serials;   // الأرقام التسلسلية (IMEI) للبحث بالمسح
     Dictionary<string, long> barcodeMap = new();   // كل باركودات المواد (الباركودات المتعددة)
+    // فهارس في الذاكرة للبحث الفوري بالمسح (كان البحث يمر على كل المواد سطرًا سطرًا مع كل مسح وكل تحديد)
+    Dictionary<long, DataRow> byId = new();
+    Dictionary<string, DataRow> byBarcode = new(), byCode = new();
+    long itemsVersion = -1;
 
     record Line(long ItemId, string Name, double Len, double Wid, double Qty, double Price, string Expiry, string Serials, string Note);
 
@@ -98,7 +101,7 @@ public class InvoiceForm : BaseForm
             Ui.FillCombo(cbDel, "SELECT id,name,fee FROM delivery_companies ORDER BY name", true, "— بدون توصيل —");
             head.Controls.Add(More(Ui.Labeled("شركة التوصيل", cbDel)));
             head.Controls.Add(More(Ui.Labeled("أجور التوصيل", nFee)));
-            cbDel.SelectedIndexChanged += (s, e) => { var r = Ui.GetRow(cbDel); nFee.Value = r == null ? 0 : (decimal)Db.D(r["fee"]); };
+            cbDel.SelectedIndexChanged += (s, e) => { var r = Ui.GetRow(cbDel); Ui.SetNum(nFee, r == null ? 0 : Db.D(r["fee"])); };
         }
         head.Controls.Add(More(Ui.Labeled("ملاحظات", txtNotes)));
         dtDate.Value = DateTime.Now;
@@ -155,14 +158,15 @@ public class InvoiceForm : BaseForm
         grid.CellContentClick += (s, e) =>
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0 || grid.Columns[e.ColumnIndex].Name != "del") return;
-            grid.Rows.RemoveAt(e.RowIndex);
-            Totals();
+            // الحذف بعد انتهاء حدث النقر: حذف السطر من داخل حدث الخلية نفسها قد يوقف البرنامج
+            var row = grid.Rows[e.RowIndex];
+            BeginInvoke(() => RemoveLine(row));
         };
         grid.RowsAdded += (s, e) => Renumber();
         grid.RowsRemoved += (s, e) => Renumber();
         grid.CellEndEdit += (s, e) => { RecalcRow(e.RowIndex); Totals(); };
         grid.SelectionChanged += (s, e) => { if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false); };
-        grid.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete && grid.CurrentRow != null && !grid.IsCurrentCellInEditMode) { grid.Rows.Remove(grid.CurrentRow); Totals(); e.Handled = true; } };
+        grid.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete && grid.CurrentRow != null && !grid.IsCurrentCellInEditMode) { var row = grid.CurrentRow; e.Handled = true; BeginInvoke(() => RemoveLine(row)); } };
 
         // ---------- لوحة معلومات المادة ----------
         var info = new CardPanel { Dock = DockStyle.Right, Width = 270, Title = "معلومات المادة", IconName = "info" };
@@ -293,6 +297,18 @@ public class InvoiceForm : BaseForm
         });
     }
 
+    void RemoveLine(DataGridViewRow row)
+    {
+        if (IsDisposed || row.DataGridView != grid || row.Index < 0) return;
+        try
+        {
+            if (grid.IsCurrentCellInEditMode) grid.CancelEdit();
+            grid.Rows.Remove(row);
+        }
+        catch (InvalidOperationException) { return; }
+        Totals();
+    }
+
     void Renumber()
     {
         foreach (DataGridViewRow r in grid.Rows) r.Cells["no"].Value = r.Index + 1;
@@ -300,21 +316,28 @@ public class InvoiceForm : BaseForm
 
     void ShowNumber() => tNo.Text = (editId > 0 ? editId : Db.L(Db.Scalar("SELECT IFNULL(MAX(id),0)+1 FROM invoices"))).ToString();
 
-    // مواد جديدة قد تُعرَّف في تبويب آخر أثناء بقاء القائمة مفتوحة
-    public override void OnPageActivated() => LoadItems();
+    // مواد جديدة قد تُعرَّف في تبويب آخر أثناء بقاء القائمة مفتوحة (يُعاد التحميل فقط إذا تغيّرت المواد فعلًا)
+    public override void OnPageActivated() { if (itemsVersion != Db.ItemsVersion) LoadItems(); }
 
     public override bool ConfirmClose() =>
         grid.Rows.Count == 0 || Ui.Confirm($"{Text}: فيها {grid.Rows.Count} مادة لم تُحفظ.\nإغلاقها بدون حفظ؟");
 
     void LoadItems()
     {
+        itemsVersion = Db.ItemsVersion;
         items = Db.Query(@"SELECT id,code,barcode,name,unit,price_retail,price_wholesale,price_special,price_installment,price_buy,
             IFNULL(buy_currency,'IQD') AS buy_currency, IFNULL(sell_currency,'IQD') AS sell_currency, IFNULL(item_type,'اعتيادية') AS item_type,
             IFNULL(cost_method,'كلفة الوجبة') AS cost_method, by_measure,medical_info,alert_note,IFNULL(use_scale,0) AS use_scale FROM items
             WHERE active=1 OR id IN (SELECT item_id FROM invoice_lines WHERE invoice_id=@p0)", editId);
-        serials = Db.Query("SELECT serial, item_id, invoice_id FROM item_serials");
         barcodeMap = Db.Query("SELECT barcode, item_id FROM item_barcodes").Rows.Cast<DataRow>()
             .GroupBy(x => Db.S(x["barcode"])).ToDictionary(g => g.Key, g => Db.L(g.First()["item_id"]));
+        byId = new(); byBarcode = new(); byCode = new();
+        foreach (DataRow r in items.Rows)
+        {
+            byId[Db.L(r["id"])] = r;
+            var bc = Db.S(r["barcode"]); if (bc != "") byBarcode.TryAdd(bc, r);
+            var cd = Db.S(r["code"]); if (cd != "") byCode.TryAdd(cd, r);
+        }
         // عمودا الطول والعرض يظهران فقط إن وُجدت مواد تُباع بالقياس
         bool anyMeasure = items.Rows.Cast<DataRow>().Any(r => Db.L(r["by_measure"]) == 1);
         grid.Columns["len"].Visible = grid.Columns["wid"].Visible = anyMeasure;
@@ -329,7 +352,14 @@ public class InvoiceForm : BaseForm
         txtFind.AutoCompleteSource = AutoCompleteSource.CustomSource;
     }
 
-    DataRow ItemRow(long id) => items.Rows.Cast<DataRow>().FirstOrDefault(r => Db.L(r["id"]) == id);
+    DataRow ItemRow(long id) => byId.TryGetValue(id, out var r) ? r : null;
+
+    /// <summary>الرقم التسلسلي الممسوح (من قاعدة البيانات مباشرة: لا تحميل لكل الأرقام في الذاكرة)</summary>
+    static DataRow FindSerial(string t)
+    {
+        var dt = Db.Query("SELECT serial, item_id, invoice_id FROM item_serials WHERE serial=@p0 COLLATE NOCASE LIMIT 1", t);
+        return dt.Rows.Count > 0 ? dt.Rows[0] : null;
+    }
 
     double EntryQty => nQtyIn.Value > 0 ? (double)nQtyIn.Value : 1;
 
@@ -358,8 +388,8 @@ public class InvoiceForm : BaseForm
         if (pending != null && t == Db.S(pending["name"])) { nQtyIn.Focus(); nQtyIn.Select(0, nQtyIn.Text.Length); return; }
         var rows = items.Rows.Cast<DataRow>();
         // مسح رقم تسلسلي (IMEI): يضيف الجهاز نفسه. البيع يتطلب رقمًا متوفرًا، وإرجاع البيع رقمًا مُباعًا
-        var sr = serials?.Rows.Cast<DataRow>().FirstOrDefault(x => string.Equals(Db.S(x["serial"]), t, StringComparison.OrdinalIgnoreCase));
-        if (sr != null && (IsOut || type == "SaleReturn"))
+        var sr = IsOut || type == "SaleReturn" ? FindSerial(t) : null;
+        if (sr != null)
         {
             bool sold = Db.L(sr["invoice_id"]) > 0;
             if (IsOut && sold) { Ui.Warn($"الرقم التسلسلي {t} مُباع مسبقًا."); return; }
@@ -369,9 +399,9 @@ public class InvoiceForm : BaseForm
             var ir = ItemRow(Db.L(sr["item_id"]));
             if (ir != null) { AddItem(ir, Db.S(sr["serial"]), 1); ClearEntry(); return; }
         }
-        var exact = rows.FirstOrDefault(x => Db.S(x["barcode"]) == t)
+        var exact = (byBarcode.TryGetValue(t, out var byBc) ? byBc : null)
              ?? (barcodeMap.TryGetValue(t, out var bid) ? ItemRow(bid) : null)
-             ?? rows.FirstOrDefault(x => Db.S(x["code"]) == t);
+             ?? (byCode.TryGetValue(t, out var byCd) ? byCd : null);
         if (exact != null) { AddItem(exact, null, EntryQty); ClearEntry(); return; }
         // باركود الميزان: رمز المادة + الوزن
         if (ScaleCode.TryParse(t, out long plu, out double weight))
@@ -396,7 +426,7 @@ public class InvoiceForm : BaseForm
         txtFind.Text = Db.S(r["name"]);
         settingFind = false;
         if (nQtyIn.Value <= 0) nQtyIn.Value = 1;
-        nPriceIn.Value = (decimal)Math.Max(0, PriceFor(r));
+        Ui.SetNum(nPriceIn, Math.Max(0, PriceFor(r)));
         UpdateSumIn();
         ShowInfo(r, true);
         nQtyIn.Focus();
@@ -476,15 +506,15 @@ public class InvoiceForm : BaseForm
         chkInst.Checked = Db.S(v["pay_type"]) == "أقساط";
         if (HasPayment && Db.L(v["cashbox_id"]) > 0) Ui.SelectId(cbBox, Db.L(v["cashbox_id"]));
         Ui.SelectId(cbCC, Db.L(v["cost_center_id"]));
-        if (type == "Sale") { Ui.SelectId(cbDel, Db.L(v["delivery_id"])); nFee.Value = (decimal)Db.D(v["delivery_fee"]); }
+        if (type == "Sale") { Ui.SelectId(cbDel, Db.L(v["delivery_id"])); Ui.SetNum(nFee, Db.D(v["delivery_fee"])); }
         if (DateTime.TryParse(Db.S(v["date"]), out var d)) dtDate.Value = d;
         txtNotes.Text = Db.S(v["notes"]);
         busy = false;
         AddLinesFrom(id, keepPrices: true);
-        nDisc.Value = (decimal)Db.D(v["discount"]);
+        Ui.SetNum(nDisc, Db.D(v["discount"]));
         oldEffect = HasPayment ? Sign * (Db.D(v["net"]) - Db.D(v["paid"])) : 0;
         paidTouched = true;
-        busy = true; nPaid.Value = (decimal)Db.D(v["paid"]); busy = false;
+        busy = true; Ui.SetNum(nPaid, Db.D(v["paid"])); busy = false;
         ShowNumber();
         PartyChanged(keepLevel: true);   // لا نغيّر مستوى السعر المحفوظ حتى لا يُعاد تسعير الأسطر
     }
@@ -523,7 +553,7 @@ public class InvoiceForm : BaseForm
         int li = f.cbLevel.Items.IndexOf(Db.S(v.Rows[0]["price_level"])); if (li >= 0) f.cbLevel.SelectedIndex = li;
         f.busy = false;
         f.AddLinesFrom(quoteId, keepPrices: true);
-        f.nDisc.Value = (decimal)Db.D(v.Rows[0]["discount"]);
+        Ui.SetNum(f.nDisc, Db.D(v.Rows[0]["discount"]));
         f.txtNotes.Text = $"من عرض السعر رقم {quoteId}";
         f.PartyChanged(keepLevel: true);
         f.Totals();
@@ -604,7 +634,7 @@ public class InvoiceForm : BaseForm
         if (HasPayment)
         {
             // الواصل = كامل المبلغ ما لم يغيّره المستخدم (والمقدّم صفر عند التقسيط)
-            if (!paidTouched) nPaid.Value = chkInst.Checked ? 0 : (decimal)Math.Max(0, Net);
+            if (!paidTouched) Ui.SetNum(nPaid, chkInst.Checked ? 0 : Math.Max(0, Net));
             double remain = Net - (double)nPaid.Value;
             lblRemain.Value = Ui.M(remain);
             lblRemain.ValueColor = remain > 0.005 ? Theme.Danger : remain < -0.005 ? Theme.Warning : Theme.Success;
@@ -860,7 +890,8 @@ public class InvoiceForm : BaseForm
         if (cbDel.Items.Count > 0) cbDel.SelectedIndex = 0;
         txtNotes.Clear();
         dtDate.Value = DateTime.Now;
-        LoadItems();
+        // المواد لا تتغير بحفظ القائمة: إعادة تحميلها (مع قائمة الإكمال التلقائي) بعد كل حفظ كانت تبطئ البيع
+        if (itemsVersion != Db.ItemsVersion) LoadItems();
         ShowNumber();
         PartyChanged();
         lblInfo.Text = "";

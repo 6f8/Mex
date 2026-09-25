@@ -485,7 +485,7 @@ public class InvoicesListForm : BaseForm
         Controls.Add(Theme.Title("سجل القوائم"));
 
         cbType.SelectedIndexChanged += (s, e) => LoadGrid();
-        search.TextChanged += (s, e) => LoadGrid();
+        Ui.OnTextIdle(search, LoadGrid);
         grid.SelectionChanged += (s, e) => LoadLines();
         cbType.SelectedIndex = 0;
     }
@@ -534,10 +534,12 @@ public class InvoicesListForm : BaseForm
     {
         long id = Sel;
         if (id == 0) return;
-        var r = Db.Query("SELECT v.net, v.paid, v.date, v.party_id, p.phone FROM invoices v LEFT JOIN parties p ON p.id=v.party_id WHERE v.id=@p0", id).Rows[0];
+        var found = Db.Query("SELECT v.net, v.paid, v.date, v.party_id, p.phone FROM invoices v LEFT JOIN parties p ON p.id=v.party_id WHERE v.id=@p0", id);
+        if (found.Rows.Count == 0) { LoadGrid(); return; }
+        var r = found.Rows[0];
         if (Db.S(r["phone"]) == "") { Ui.Warn("لا يوجد رقم هاتف لجهة هذه الفاتورة."); return; }
         var items = Db.Query("SELECT i.name, SUM(l.qty) q, l.price FROM invoice_lines l JOIN items i ON i.id=l.item_id WHERE l.invoice_id=@p0 GROUP BY l.item_id, l.price", id);
-        var msg = $"{Settings.Get("shop_name")}\nفاتورة رقم {id} — {Db.S(r["date"])[..10]}\n" +
+        var msg = $"{Settings.Get("shop_name")}\nفاتورة رقم {id} — {Ui.Cut(Db.S(r["date"]), 10)}\n" +
                   string.Join("\n", items.Rows.Cast<DataRow>().Select(x => $"• {Db.S(x["name"])} × {Ui.M(Db.D(x["q"]))} = {Ui.M(Db.D(x["q"]) * Db.D(x["price"]))}")) +
                   $"\nالصافي: {Ui.M(Db.D(r["net"]))}\nالمدفوع: {Ui.M(Db.D(r["paid"]))}\nرصيدكم الحالي: {Ui.M(Ui.PartyBalance(Db.L(r["party_id"])))}";
         _ = WhatsApp.Send(Db.S(r["phone"]), msg);
@@ -623,14 +625,8 @@ public class DashboardForm : BaseForm
             int w = Math.Min(Dpi.S(260), avail / perRow - gap - 1);
             foreach (Control c in chips.Controls) if (c.Width != w) c.Width = w;
         };
-        chips.Controls.Add(Chip("تنبيهات المواد", ItemAlerts.Count(expDays) - Stats.Expiring(expDays), Theme.Purple, "package-minus", "أرصدة المخازن"));
-        chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "أرصدة المخازن"));
-        chips.Controls.Add(Chip("أقساط مستحقة", Stats.DueInstallments(remDays), Theme.Warning, "calendar-clock", "الأقساط"));
-        chips.Controls.Add(Chip("أجهزة في الصيانة", Stats.RepairsOpen(), Theme.Info, "wrench", "الصيانة"));
-        chips.Controls.Add(Chip("جاهزة للتسليم", Stats.RepairsReady(), Theme.Success, "package-check", "الصيانة"));
-
-        var grid = Ui.NewGrid();
-        grid.DataSource = Db.Query(ItemAlerts.Sql + @"
+        // جدول التنبيهات يُقرأ مرة واحدة وتُحسب منه أعداد الشارات (كانت نفس الاستعلامات الثقيلة تُنفَّذ مرتين)
+        var alerts = Db.Query(ItemAlerts.Sql + @"
             UNION ALL
             SELECT 'قسط مستحق', p.name, 'الاستحقاق: '||t.due_date||'  —  المتبقي: '||(t.amount-t.paid)
             FROM installments t JOIN parties p ON p.id=t.party_id
@@ -638,6 +634,15 @@ public class DashboardForm : BaseForm
             UNION ALL
             SELECT 'جهاز جاهز للتسليم', r.customer, r.device||'  —  وصل رقم '||r.id||'  —  '||IFNULL(r.phone,'') FROM repairs r WHERE r.status='جاهز'"
             + (Credit.Enabled ? " UNION ALL " + Credit.AlertsSql.Replace("@p9", Ui.Rate("USD").ToString(System.Globalization.CultureInfo.InvariantCulture)) : ""), expDays, remDays);
+        long CountOf(params string[] kinds) => alerts.Rows.Cast<DataRow>().LongCount(r => kinds.Contains(Db.S(r[0])));
+        chips.Controls.Add(Chip("تنبيهات المواد", CountOf("مخزون منخفض", "وصل حد الأمان", "تجاوز الحد الأعلى", "مادة راكدة", "هدف البيع"), Theme.Purple, "package-minus", "أرصدة المخازن"));
+        chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", CountOf("منتهية الصلاحية", "قاربت على الانتهاء"), Theme.Danger, "clock", "أرصدة المخازن"));
+        chips.Controls.Add(Chip("أقساط مستحقة", CountOf("قسط مستحق"), Theme.Warning, "calendar-clock", "الأقساط"));
+        chips.Controls.Add(Chip("أجهزة في الصيانة", Stats.RepairsOpen(), Theme.Info, "wrench", "الصيانة"));
+        chips.Controls.Add(Chip("جاهزة للتسليم", CountOf("جهاز جاهز للتسليم"), Theme.Success, "package-check", "الصيانة"));
+
+        var grid = Ui.NewGrid();
+        grid.DataSource = alerts;
         alertsCard.Controls.Add(grid);
         alertsCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
         alertsCard.Controls.Add(chips);

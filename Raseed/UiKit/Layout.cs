@@ -42,7 +42,7 @@ public class FormStack : Panel
             int avail = Math.Max(S(40), content - Padding.Right - Padding.Left - start - m.Right);
             int right = width - Padding.Right - start;
             y += m.Top;
-            int w = c is ModernButton ? Math.Min(c.Width, avail) : avail;
+            int w = c is ModernButton mb0 ? Math.Min(mb0.NaturalWidth, avail) : avail;
             // العناصر المُزاحة تحت الحقول لا تتجاوز عرض الحقول المعتاد
             if (start > S(60) && c is not (FormRow or ModernButton)) w = Math.Min(w, S(560));
             int h = c switch
@@ -53,7 +53,8 @@ public class FormStack : Panel
                 Label { AutoSize: false } l when !string.IsNullOrEmpty(l.Text) => Math.Max(l.MinimumSize.Height > 0 ? l.MinimumSize.Height : l.Height, WrapHeight(l, w)),
                 _ => c.Height
             };
-            c.SetBounds(right - w, y, w, h);
+            if (c is ModernButton mb) mb.SetLayoutBounds(right - w, y, w, h);
+            else c.SetBounds(right - w, y, w, h);
             y += h + m.Bottom;
         }
         return y + Padding.Bottom;
@@ -117,8 +118,14 @@ public class FormRow : Panel
         var visItems = items.Where(i => i.C.Visible).ToList();
         var vis = visItems.Select(i => i.C).ToList();
         // العرض الطبيعي (المنطقي عند البناء) يُكبَّر مع الشاشة؛ الأزرار تحسب عرضها بنفسها
-        int Natural((Control C, int Natural) i) => i.C is ModernButton ? i.C.Width : S(i.Natural);
-        foreach (var i in visItems) if (i.C != stretch && i.C.Width != Natural(i)) i.C.Width = Natural(i);
+        int Natural((Control C, int Natural) i) => i.C is ModernButton b ? b.NaturalWidth : S(i.Natural);
+        foreach (var i in visItems)
+        {
+            if (i.C == stretch) continue;
+            int nw = Natural(i);
+            if (i.C is ModernButton b) { if (b.Width != nw) b.SetLayoutWidth(nw); }
+            else if (i.C.Width != nw) i.C.Width = nw;
+        }
         int capW = caption != null ? S(captionNatural) : 0;
         int fixedW = vis.Where(c => c != stretch).Sum(c => c.Width + c.Margin.Horizontal) + gap * Math.Max(0, vis.Count - 1);
         // الحد الأدنى للحقل المتمدد: 60% من عرضه الطبيعي (بالبكسل الفعلي)
@@ -165,7 +172,11 @@ public class FormRow : Panel
         foreach (var c in vis)
         {
             int w = Math.Min(c.Width, Math.Max(S(40), right - c.Margin.Horizontal));
-            if (w != c.Width) c.Width = w;
+            if (w != c.Width)
+            {
+                if (c is ModernButton b) b.SetLayoutWidth(w);
+                else c.Width = w;
+            }
             int need = c.Width + c.Margin.Horizontal;
             if (line.Count > 0 && x - need < 0) { Flush(); x = right; }
             c.Left = x - c.Margin.Right - c.Width;

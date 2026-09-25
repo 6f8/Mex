@@ -94,7 +94,7 @@ public class RepairsForm : BaseForm
             tPhone.Text = Db.S(r["phone"]);
         };
         cbFilter.SelectedIndexChanged += (s, e) => LoadGrid();
-        search.TextChanged += (s, e) => LoadGrid();
+        Ui.OnTextIdle(search, LoadGrid);
         grid.CellClick += (s, e) => LoadSelected();
         grid.CellFormatting += (s, e) =>
         {
@@ -179,8 +179,8 @@ public class RepairsForm : BaseForm
         tLock.Text = Db.S(r["lock_code"]); tReport.Text = Db.S(r["report"]); tNotes.Text = Db.S(r["notes"]);
         Ui.SelectId(cbTech, Db.L(r["technician_id"]));
         if (Db.L(r["warehouse_id"]) > 0) Ui.SelectId(cbWh, Db.L(r["warehouse_id"]));
-        nEst.Value = (decimal)Db.D(r["estimate"]);
-        nWarranty.Value = Db.L(r["warranty_days"]);
+        Ui.SetNum(nEst, Db.D(r["estimate"]));
+        Ui.SetNum(nWarranty, Db.L(r["warranty_days"]));
         nAdv.Value = 0;
         pAdv.Enabled = pBox.Enabled = false;
         int si = Array.IndexOf(Statuses, Db.S(r["status"]));
@@ -311,7 +311,9 @@ public class RepairsForm : BaseForm
         if (!Ui.Confirm("إرجاع القطعة المحددة إلى المخزن؟")) return;
         using (var tx = new Tx())
         {
-            var r = tx.Query("SELECT batch_id, qty FROM repair_parts WHERE id=@p0", pid).Rows[0];
+            var pr = tx.Query("SELECT batch_id, qty FROM repair_parts WHERE id=@p0", pid);
+            if (pr.Rows.Count == 0) { LoadParts(); return; }
+            var r = pr.Rows[0];
             tx.Exec("UPDATE batches SET qty=qty+@p0 WHERE id=@p1", Db.D(r["qty"]), Db.L(r["batch_id"]));
             tx.Exec("DELETE FROM repair_parts WHERE id=@p0", pid);
             tx.Commit();
@@ -334,7 +336,7 @@ public class RepairsForm : BaseForm
         var lbl = new Label { Width = 364, Height = 34, ForeColor = Theme.BrandDark, Font = Theme.FS(10), TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(6, 2, 6, 2) };
         void Upd()
         {
-            nPay.Value = (decimal)((double)nPrice.Value - paidBefore);
+            Ui.SetNum(nPay, (double)nPrice.Value - paidBefore);
             lbl.Text = $"المدفوع سابقًا (عربون): {Ui.M(paidBefore)}";
         }
         nPrice.ValueChanged += (s, e) => Upd();
@@ -393,7 +395,9 @@ public class RepairsForm : BaseForm
     /// <summary>وصل الاستلام / التسليم للطباعة</summary>
     public static PrintDoc BuildTicket(long rid)
     {
-        var r = Db.Query("SELECT r.*, e.name AS tech FROM repairs r LEFT JOIN employees e ON e.id=r.technician_id WHERE r.id=@p0", rid).Rows[0];
+        var rt = Db.Query("SELECT r.*, e.name AS tech FROM repairs r LEFT JOIN employees e ON e.id=r.technician_id WHERE r.id=@p0", rid);
+        if (rt.Rows.Count == 0) return PrintDoc.Header("وصل صيانة").Text($"الوصل رقم {rid} غير موجود.");
+        var r = rt.Rows[0];
         bool delivered = Db.S(r["status"]) == "تم التسليم";
         double paid = Db.D(Db.Scalar("SELECT IFNULL(SUM(amount*rate),0) FROM cash_moves WHERE repair_id=@p0", rid));
         var d = PrintDoc.Header(delivered ? "وصل تسليم جهاز" : "وصل استلام جهاز للصيانة");
