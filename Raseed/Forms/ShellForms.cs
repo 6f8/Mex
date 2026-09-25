@@ -15,7 +15,7 @@ public static class Brand
             g.FillPath(b, p);
         using (var p = Gfx.Round(RectangleF.Inflate(r, -1, -1), r.Width * 0.27f))
         using (var pen = new Pen(Color.FromArgb(60, 255, 255, 255), 1)) g.DrawPath(pen, p);
-        TextRenderer.DrawText(g, "ر", FontKit.Get(r.Height * 0.40f, FontStyle.Bold), Rectangle.Round(new RectangleF(r.X, r.Y - r.Height * 0.06f, r.Width, r.Height)), Color.White, Gfx.Center);
+        TextRenderer.DrawText(g, "ر", FontKit.GetPx(r.Height * 0.53f, FontStyle.Bold), Rectangle.Round(new RectangleF(r.X, r.Y - r.Height * 0.06f, r.Width, r.Height)), Color.White, Gfx.Center);
     }
 }
 
@@ -144,20 +144,21 @@ public class LoginForm : BaseForm
             var g = e.Graphics;
             Gfx.Hq(g);
             var rect = ClientRectangle;
+            int S(int v) => Dpi.S(v);
             using (var bg = new LinearGradientBrush(rect, ColorTranslator.FromHtml("#E8531F"), ColorTranslator.FromHtml("#F6A928"), 70f))
                 g.FillRectangle(bg, rect);
             // دوائر زخرفية ناعمة
-            using (var b1 = new SolidBrush(Color.FromArgb(34, 255, 255, 255))) g.FillEllipse(b1, -120, Height - 260, 380, 380);
-            using (var b2 = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillEllipse(b2, Width - 170, -110, 300, 300);
-            using (var pen = new Pen(Color.FromArgb(50, 255, 255, 255), 1)) g.DrawEllipse(pen, Width - 230, -170, 420, 420);
+            using (var b1 = new SolidBrush(Color.FromArgb(34, 255, 255, 255))) g.FillEllipse(b1, -S(120), Height - S(260), S(380), S(380));
+            using (var b2 = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillEllipse(b2, Width - S(170), -S(110), S(300), S(300));
+            using (var pen = new Pen(Color.FromArgb(50, 255, 255, 255), 1)) g.DrawEllipse(pen, Width - S(230), -S(170), S(420), S(420));
 
-            int right = Width - 48;
+            int right = Width - S(48);
             // الشعار بخلفية بيضاء ليتميز عن التدرج
-            var mark = new RectangleF(right - 58, 70, 58, 58);
-            Gfx.FillRound(g, mark, 16, Color.White);
-            TextRenderer.DrawText(g, "ر", FontKit.Get(23, FontStyle.Bold), Rectangle.Round(new RectangleF(mark.X, mark.Y - 3, mark.Width, mark.Height)), Theme.Orange, Gfx.Center);
-            TextRenderer.DrawText(g, "رصيد", Theme.FS(30), new Rectangle(40, 142, right - 40, 60), Color.White, Gfx.RtlStart);
-            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(40, 202, right - 40, 32), ColorTranslator.FromHtml("#FFF1E6"), Gfx.RtlStart);
+            var mark = new RectangleF(right - S(58), S(70), S(58), S(58));
+            Gfx.FillRound(g, mark, S(16), Color.White);
+            TextRenderer.DrawText(g, "ر", FontKit.GetPx(mark.Height * 0.52f, FontStyle.Bold), Rectangle.Round(new RectangleF(mark.X, mark.Y - S(3), mark.Width, mark.Height)), Theme.Orange, Gfx.Center);
+            TextRenderer.DrawText(g, "رصيد", Theme.FS(30), new Rectangle(S(40), S(142), right - S(40), S(60)), Color.White, Gfx.RtlStart);
+            TextRenderer.DrawText(g, "نظام المبيعات والمخازن والحسابات", Theme.F(12), new Rectangle(S(40), S(202), right - S(40), S(32)), ColorTranslator.FromHtml("#FFF1E6"), Gfx.RtlStart);
 
             var features = new[]
             {
@@ -166,16 +167,16 @@ public class LoginForm : BaseForm
                 ("users", "حسابات العملاء والأقساط"),
                 ("chart-column", "تقارير الأرباح لحظة بلحظة"),
             };
-            int y = 272;
+            int y = S(272), box = S(34);
             foreach (var (icon, text) in features)
             {
-                var ir = new RectangleF(right - 34, y, 34, 34);
-                Gfx.FillRound(g, ir, 10, Color.FromArgb(56, 255, 255, 255));
+                var ir = new RectangleF(right - box, y, box, box);
+                Gfx.FillRound(g, ir, S(10), Color.FromArgb(56, 255, 255, 255));
                 Icons.Draw(g, icon, ir, Color.White, 17);
-                TextRenderer.DrawText(g, text, Theme.F(10.5f), new Rectangle(40, y, right - 34 - 14 - 40, 34), Color.White, Gfx.RtlStart);
-                y += 50;
+                TextRenderer.DrawText(g, text, Theme.F(10.5f), new Rectangle(S(40), y, right - box - S(14) - S(40), box), Color.White, Gfx.RtlStart);
+                y += S(50);
             }
-            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(40, Height - 50, right - 40, 24), ColorTranslator.FromHtml("#FFE3CC"), Gfx.RtlStart);
+            TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(9), new Rectangle(S(40), Height - S(50), right - S(40), S(24)), ColorTranslator.FromHtml("#FFE3CC"), Gfx.RtlStart);
         }
     }
 }
@@ -237,32 +238,35 @@ public class SetupDialog : DialogShell
 public class MainForm : BaseForm
 {
     public record Page(string Text, string Perm, string Icon, string Group, string Desc, Func<Form> Make);
-    /// <summary>قسم في القائمة: أيقونته ولونه، ولون أشرطة عناصره (تدرّج من ItemFrom إلى ItemTo)</summary>
-    record Section(string Name, string Icon, Color Tint, Color ItemFrom, Color ItemTo);
+    /// <summary>قسم في القائمة: أيقونته ولونه، والمجموعة التي يظهر تحتها</summary>
+    record Section(string Name, string Icon, Color Tint, string Group);
 
     const string HomeKey = "الرئيسية";
     const int MaxTabs = 8;
+    /// <summary>عرض القائمة الجانبية: كاملة، أو شريط أيقونات مصغّر</summary>
+    const int SideWide = 264, SideRail = 76;
 
-    static readonly Color Teal = ColorTranslator.FromHtml("#0F8B8D"), Report = ColorTranslator.FromHtml("#E0474C");
+    static readonly Color Teal = ColorTranslator.FromHtml("#0F8B8D"), Report = ColorTranslator.FromHtml("#D9485F");
+    const string GOps = "العمليات اليومية", GAcc = "الحسابات والتقارير", GAdmin = "الإدارة";
 
     static readonly Section[] Sections =
     {
-        new("المخزن", "warehouse", Theme.Orange, Theme.Orange, Theme.Amber),
-        new("بيع", "shopping-cart", Theme.Success, ColorTranslator.FromHtml("#0F8B6E"), ColorTranslator.FromHtml("#16A383")),
-        new("شراء", "truck", Theme.Info, ColorTranslator.FromHtml("#1D4ED8"), ColorTranslator.FromHtml("#3B82F6")),
-        new("الأقساط", "calendar-clock", ColorTranslator.FromHtml("#4F46E5"), ColorTranslator.FromHtml("#4338CA"), ColorTranslator.FromHtml("#6366F1")),
-        new("السندات", "receipt-text", Theme.Purple, ColorTranslator.FromHtml("#6D28D9"), ColorTranslator.FromHtml("#8B5CF6")),
-        new("الحسابات", "landmark", Teal, Teal, Teal),
-        new("تقارير الحسابات", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
-        new("تقارير القوائم", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
-        new("تقارير الأرباح", "file-text", Report, Report, Report),
-        new("تقارير المواد", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
-        new("تقارير المخازن", "file-text", Report, Report, Report),
-        new("تقارير المتابعة", "file-text", Report, Report, ColorTranslator.FromHtml("#EF6B5B")),
-        new("تحليل البيانات", "chart-pie", Report, Report, Report),
-        new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0E7490"), ColorTranslator.FromHtml("#0891B2")),
-        new("المستخدمين", "users-round", ColorTranslator.FromHtml("#DB2777"), ColorTranslator.FromHtml("#DB2777"), ColorTranslator.FromHtml("#DB2777")),
-        new("الأدوات", "settings", Theme.Gray, ColorTranslator.FromHtml("#4B5563"), ColorTranslator.FromHtml("#6B7280")),
+        new("المخزن", "warehouse", Theme.Orange, GOps),
+        new("بيع", "shopping-cart", Theme.Success, GOps),
+        new("شراء", "truck", Theme.Info, GOps),
+        new("الأقساط", "calendar-clock", ColorTranslator.FromHtml("#4F46E5"), GOps),
+        new("السندات", "receipt-text", Theme.Purple, GOps),
+        new("الحسابات", "landmark", Teal, GAcc),
+        new("تقارير الحسابات", "scroll-text", Report, GAcc),
+        new("تقارير القوائم", "clipboard-list", Report, GAcc),
+        new("تقارير الأرباح", "trending-up", Report, GAcc),
+        new("تقارير المواد", "package-search", Report, GAcc),
+        new("تقارير المخازن", "boxes", Report, GAcc),
+        new("تقارير المتابعة", "activity", Report, GAcc),
+        new("تحليل البيانات", "chart-pie", Report, GAcc),
+        new("الصيانة والموظفون", "wrench", ColorTranslator.FromHtml("#0E7490"), GAdmin),
+        new("المستخدمين", "users-round", ColorTranslator.FromHtml("#DB2777"), GAdmin),
+        new("الأدوات", "settings", Theme.Gray, GAdmin),
     };
 
     /// <summary>لون القسم (لبطاقات الوصول السريع)</summary>
@@ -271,8 +275,13 @@ public class MainForm : BaseForm
     readonly Panel content = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), BackColor = Theme.Bg };
     readonly TopBar top;
     readonly DocTabs tabs = new() { Dock = DockStyle.Fill };
-    readonly Panel side = new() { Dock = DockStyle.Left, Width = 286, BackColor = Theme.Sidebar };
+    readonly Panel side = new() { Dock = DockStyle.Left, Width = SideWide, BackColor = Theme.Sidebar };
     readonly ScrollHost nav = new() { Dock = DockStyle.Fill, BackColor = Theme.Sidebar };
+    readonly List<NavLabel> navLabels = new();
+    readonly ToolTip navTip = new();
+    Panel logo, userBox;
+    Control[] userButtons;
+    bool rail;
     readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "رصيد" };
     readonly System.Windows.Forms.Timer timer = new() { Interval = 30_000 };
     readonly Dictionary<string, (Form Form, Page Page)> open = new();
@@ -382,56 +391,79 @@ public class MainForm : BaseForm
         Instance = this;
         Text = $"رصيد — {Settings.Get("shop_name")}";
         WindowState = FormWindowState.Maximized;
-        MinimumSize = new Size(1180, 720);
+        MinimumSize = new Size(960, 600);
         KeyPreview = true;
         // الشاشات حسب الصلاحيات، وحسب أنظمة البرنامج المفعّلة في الإعدادات
         Pages = BuildPages().Where(p => Session.Can(p.Perm) && (!PageFeature.TryGetValue(p.Text, out var f) || Features.On(f))).ToList();
 
         // ---------- الشعار ----------
-        var logo = new Panel { Dock = DockStyle.Top, Height = 96, BackColor = Theme.Sidebar };
+        logo = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = Theme.Sidebar };
         logo.Paint += (s, e) =>
         {
             var g = e.Graphics;
-            Brand.DrawMark(g, new RectangleF(logo.Width - 22 - 50, 22, 50, 50));
-            TextRenderer.DrawText(g, "رصيد", Theme.FS(19), new Rectangle(12, 18, logo.Width - 22 - 50 - 26, 34), Theme.Brand, Gfx.RtlStart);
-            TextRenderer.DrawText(g, "للمبيعات والمخازن", Theme.FS(9.5f), new Rectangle(12, 50, logo.Width - 22 - 50 - 26, 22), Theme.Orange, Gfx.RtlStart);
-            using var pen = new Pen(Theme.BorderStrong);
-            g.DrawLine(pen, 0, logo.Height - 1, logo.Width, logo.Height - 1);
+            int m = Dpi.S(rail ? 0 : 20), box = Dpi.S(40);
+            var mark = rail ? new RectangleF((logo.Width - box) / 2f, (logo.Height - box) / 2f, box, box) : new RectangleF(logo.Width - m - box, (logo.Height - box) / 2f, box, box);
+            Brand.DrawMark(g, mark);
+            if (!rail)
+            {
+                int tx = (int)mark.X - Dpi.S(12);
+                TextRenderer.DrawText(g, "رصيد", Theme.FS(15), new Rectangle(Dpi.S(12), (int)mark.Y - Dpi.S(4), tx - Dpi.S(12), Dpi.S(28)), Theme.Ink, Gfx.RtlStart);
+                TextRenderer.DrawText(g, "المبيعات • المخازن • الحسابات", Theme.F(8.5f), new Rectangle(Dpi.S(12), (int)mark.Y + Dpi.S(22), tx - Dpi.S(12), Dpi.S(20)), Theme.SidebarMuted, Gfx.RtlStart);
+            }
+            using var pen = new Pen(Theme.SidebarBorder);
+            g.DrawLine(pen, Dpi.S(14), logo.Height - 1, logo.Width - Dpi.S(14), logo.Height - 1);
         };
 
         // ---------- المستخدم ----------
-        var userBox = new Panel { Dock = DockStyle.Bottom, Height = 74, BackColor = Theme.Sidebar };
+        userBox = new Panel { Dock = DockStyle.Bottom, Height = 68, BackColor = Theme.Sidebar };
         userBox.Paint += (s, e) =>
         {
             var g = e.Graphics;
-            using (var pen = new Pen(Theme.BorderStrong)) g.DrawLine(pen, 0, 0, userBox.Width, 0);
-            Avatar.Draw(g, new RectangleF(userBox.Width - 20 - 40, 17, 40, 40), Session.UserName, Theme.Brand);
-            TextRenderer.DrawText(g, Session.UserName, Theme.FS(10), new Rectangle(104, 15, userBox.Width - 176, 24), Theme.SidebarText, Gfx.RtlStart);
-            TextRenderer.DrawText(g, Session.IsAdmin ? "مدير النظام" : "مستخدم", Theme.F(8.5f), new Rectangle(104, 39, userBox.Width - 176, 20), Theme.SidebarMuted, Gfx.RtlStart);
+            using (var pen = new Pen(Theme.SidebarBorder)) g.DrawLine(pen, Dpi.S(14), 0, userBox.Width - Dpi.S(14), 0);
+            int a = Dpi.S(36);
+            var av = rail ? new RectangleF((userBox.Width - a) / 2f, (userBox.Height - a) / 2f, a, a) : new RectangleF(userBox.Width - Dpi.S(20) - a, (userBox.Height - a) / 2f, a, a);
+            Avatar.Draw(g, av, Session.UserName, Theme.Brand);
+            if (rail) return;
+            int left = Dpi.S(96), right = (int)av.X - Dpi.S(10);
+            TextRenderer.DrawText(g, Session.UserName, Theme.FS(10), new Rectangle(left, (int)av.Y - Dpi.S(3), right - left, Dpi.S(22)), Theme.SidebarText, Gfx.RtlStart);
+            TextRenderer.DrawText(g, Session.IsAdmin ? "مدير النظام" : "مستخدم", Theme.F(8.5f), new Rectangle(left, (int)av.Y + Dpi.S(18), right - left, Dpi.S(20)), Theme.SidebarMuted, Gfx.RtlStart);
         };
-        var bLogout = new ModernButton { Kind = BtnKind.Ghost, IconName = "log-out", Size = new Size(38, 38), Location = new Point(14, 18), TabStop = false };
-        new ToolTip().SetToolTip(bLogout, "تسجيل الخروج");
+        var bLogout = new ModernButton { Kind = BtnKind.Ghost, IconName = "log-out", Size = new Size(36, 36), Location = new Point(12, 16), TabStop = false };
+        navTip.SetToolTip(bLogout, "تسجيل الخروج");
         bLogout.Click += (s, e) => { if (Ui.Confirm("تسجيل الخروج من البرنامج؟") && CloseAllTabs()) { LoggedOut = true; Close(); } };
-        var bPwd = new ModernButton { Kind = BtnKind.Ghost, IconName = "key-round", Size = new Size(38, 38), Location = new Point(56, 18), TabStop = false };
-        new ToolTip().SetToolTip(bPwd, "تغيير كلمة المرور");
+        var bPwd = new ModernButton { Kind = BtnKind.Ghost, IconName = "key-round", Size = new Size(36, 36), Location = new Point(52, 16), TabStop = false };
+        navTip.SetToolTip(bPwd, "تغيير كلمة المرور");
         bPwd.Click += (s, e) => { using var d = new PasswordDialog(); d.ShowModal(); };
         userBox.Controls.Add(bLogout);
         userBox.Controls.Add(bPwd);
+        userButtons = new Control[] { bLogout, bPwd };
+        navTip.SetToolTip(userBox, Session.UserName);
 
-        // ---------- الأقسام (تُفتح وتُطوى) ----------
+        // ---------- الأقسام (تُفتح وتُطوى)، مجمّعة تحت عناوين صغيرة ----------
+        nav.Add(new Panel { Height = 8, BackColor = Theme.Sidebar });
         var home = Pages.FirstOrDefault(p => p.Text == HomeKey);
         if (home != null)
         {
-            homeHead = new NavSection { Text = HomeKey, IconName = home.Icon, Tint = Theme.Brand, HasChildren = false };
+            homeHead = new NavSection { Text = HomeKey, IconName = home.Icon, Tint = Theme.Brand, Expandable = false };
             homeHead.Click += (s, e) => Navigate(home);
+            navTip.SetToolTip(homeHead, HomeKey);
             nav.Add(homeHead);
         }
+        string group = null;
         foreach (var sec in Sections)
         {
             var pages = Pages.Where(p => p.Group == sec.Name).ToList();
             if (pages.Count == 0) continue;
+            if (sec.Group != group)
+            {
+                group = sec.Group;
+                var label = new NavLabel { Text = group };
+                navLabels.Add(label);
+                nav.Add(label);
+            }
             // قسم بشاشة واحدة يفتحها مباشرة (مثل «الأقساط» و«تقارير الأرباح»)
-            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint, HasChildren = pages.Count > 1 };
+            var head = new NavSection { Text = sec.Name, IconName = sec.Icon, Tint = sec.Tint, Expandable = pages.Count > 1 };
+            navTip.SetToolTip(head, sec.Name);
             var items = new List<NavItem>();
             nav.Add(head);
             if (pages.Count == 1)
@@ -444,19 +476,25 @@ public class MainForm : BaseForm
             for (int i = 0; i < pages.Count; i++)
             {
                 var p = pages[i];
-                // لون القسم بتدرّج على طول عناصره (المخزن: من البرتقالي إلى الكهرماني)
-                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = Gfx.Mix(sec.ItemFrom, sec.ItemTo, pages.Count == 1 ? 0 : (float)i / (pages.Count - 1)), Visible = false };
+                var item = new NavItem { Text = p.Text, IconName = p.Icon, Fill = sec.Tint, Visible = false, Last = i == pages.Count - 1 };
                 item.Click += (s, e) => Navigate(p);
                 items.Add(item);
                 navItems.Add((item, p));
                 nav.Add(item);
             }
-            head.Click += (s, e) => Expand(head.Expanded ? null : sec.Name);
+            head.Click += (s, e) =>
+            {
+                if (rail) ShowFlyout(head, sec, pages);
+                else Expand(head.Expanded ? null : sec.Name);
+            };
             sections.Add((head, items));
         }
+        nav.Add(new Panel { Height = 12, BackColor = Theme.Sidebar });
         side.Controls.Add(nav);
         side.Controls.Add(userBox);
         side.Controls.Add(logo);
+        // خط فاصل رفيع بين القائمة والمحتوى
+        side.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 1, BackColor = Theme.SidebarBorder });
 
         // ---------- الشريط العلوي والتبويبات ----------
         top = new TopBar();
@@ -467,9 +505,9 @@ public class MainForm : BaseForm
         top.WhatsApp.Click += (s, e) => Shell("https://web.whatsapp.com/");
         top.Calc.Click += (s, e) => Shell("calc.exe");
         top.Help.Click += (s, e) => ShowHelp();
-        top.Refresh.Click += (s, e) => ReloadCurrent();
+        top.Reload.Click += (s, e) => ReloadCurrent();
 
-        var tabStrip = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = DocTabs.Strip, Padding = new Padding(12, 0, 12, 0) };
+        var tabStrip = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = DocTabs.Strip, Padding = new Padding(12, 0, 12, 0) };
         tabStrip.Controls.Add(tabs);
         tabs.Selected += Activate;
         tabs.Closed += key => CloseTab(key);
@@ -488,6 +526,7 @@ public class MainForm : BaseForm
         timer.Tick += (s, e) => { Scheduler.Tick(); RefreshAlerts(); };
         Shown += (s, e) =>
         {
+            if (Settings.Get("ui_sidebar_rail") == "1") SetRail(true, false);
             Navigate(Pages[0]);
             MobileApi.Start();
             timer.Start();
@@ -549,14 +588,39 @@ public class MainForm : BaseForm
     }
 
     // ---------- القائمة الجانبية ----------
-    /// <summary>إخفاء القائمة لمساحة عمل أكبر (مثل شاشة البيع) أو إظهارها</summary>
-    public void ToggleSidebar()
+    /// <summary>تصغير القائمة إلى شريط أيقونات (مساحة عمل أكبر مثل شاشة البيع) أو إعادتها كاملة؛ يُحفظ الاختيار</summary>
+    public void ToggleSidebar() => SetRail(!rail, true);
+
+    void SetRail(bool on, bool save)
     {
+        rail = on;
         SuspendLayout();
-        side.Visible = !side.Visible;
+        nav.SuspendContent();
+        side.Width = Dpi.S(on ? SideRail : SideWide);
+        foreach (var l in navLabels) { l.Rail = on; l.Height = Dpi.S(on ? 14 : 34); }
+        if (homeHead != null) homeHead.Rail = on;
+        foreach (var (head, items) in sections)
+        {
+            head.Rail = on;
+            foreach (var it in items) it.Visible = !on && head.Expanded;
+        }
+        foreach (var b in userButtons) b.Visible = !on;
+        nav.ResumeContent();
+        nav.ScrollToTop();
         ResumeLayout(true);
+        // إعادة رسم كاملة فورية حتى لا تبقى آثار من الترتيب السابق
         Invalidate(true);
         Update();
+        if (save) try { Settings.Set("ui_sidebar_rail", on ? "1" : "0"); } catch { }
+    }
+
+    /// <summary>في الوضع المصغّر: قائمة منبثقة بشاشات القسم بجانب أيقونته</summary>
+    void ShowFlyout(NavSection head, Section sec, List<Page> pages)
+    {
+        var menu = new NavFlyout(sec.Name, sec.Tint);
+        foreach (var p in pages) menu.AddPage(p.Text, p.Icon, activeKey == p.Text, () => Navigate(p));
+        menu.FormClosed += (s, e) => BeginInvoke(() => menu.Dispose());
+        menu.ShowNear(head, this);
     }
 
     void Expand(string section)
@@ -566,11 +630,11 @@ public class MainForm : BaseForm
         {
             bool exp = head.Text == section;
             head.Expanded = exp;
-            foreach (var it in items) it.Visible = exp;
+            foreach (var it in items) it.Visible = exp && !rail;
         }
         nav.ResumeContent();
         var target = sections.FirstOrDefault(x => x.Head.Text == section);
-        if (target.Head != null) nav.EnsureVisible(target.Items.LastOrDefault() ?? (Control)target.Head, target.Head);
+        if (target.Head != null && !rail) nav.EnsureVisible(target.Items.LastOrDefault() ?? (Control)target.Head, target.Head);
     }
 
     void Highlight(Page page)
@@ -630,17 +694,24 @@ public class MainForm : BaseForm
             var old = tabs.Items.Select(t => t.Key).FirstOrDefault(k => k != HomeKey && k != activeKey && !(open[k].Form is InvoiceForm or TransferForm));
             if (old != null) { Detach(open[old].Form); open.Remove(old); tabs.Remove(old); }
         }
-        f.TopLevel = false;
-        f.FormBorderStyle = FormBorderStyle.None;
-        f.Dock = DockStyle.Fill;
-        f.BackColor = Theme.Bg;
-        f.Visible = false;
-        content.Controls.Add(f);
+        Host(f);
         open[key] = (f, page);
         tabs.Set(key, key, page?.Icon ?? "square-pen", key != HomeKey);
         // عنوان التبويب يتبع عنوان الشاشة (مثل «تعديل فاتورة» ← «فاتورة بيع» بعد الحفظ)
         if (page == null) f.TextChanged += (s, e) => { if (open.ContainsKey(key) && f.Text != "") tabs.Set(key, f.Text, "square-pen", true); };
         Activate(key, fresh: true);
+    }
+
+    /// <summary>تجهيز الشاشة لتعمل داخل تبويب: بلا إطار، بملء المساحة، ومكبَّرة حسب دقة العرض</summary>
+    void Host(Form f)
+    {
+        f.TopLevel = false;
+        f.FormBorderStyle = FormBorderStyle.None;
+        f.BackColor = Theme.Bg;
+        f.Visible = false;
+        Dpi.ScaleTree(f);
+        f.Dock = DockStyle.Fill;
+        content.Controls.Add(f);
     }
 
     void Activate(string key) => Activate(key, false);
@@ -652,8 +723,7 @@ public class MainForm : BaseForm
         if (!fresh && key == HomeKey && activeKey != HomeKey && entry.Page != null)
         {
             var f = entry.Page.Make();
-            f.TopLevel = false; f.FormBorderStyle = FormBorderStyle.None; f.Dock = DockStyle.Fill; f.BackColor = Theme.Bg; f.Visible = false;
-            content.Controls.Add(f);
+            Host(f);
             Detach(entry.Form);
             entry = (f, entry.Page);
             open[key] = entry;
@@ -663,6 +733,7 @@ public class MainForm : BaseForm
         entry.Form.BringToFront();
         foreach (var o in open.Values) if (o.Form != entry.Form && o.Form.Visible) o.Form.Hide();
         content.ResumeLayout();
+        content.Invalidate(true);   // مسح أي بقايا رسم من الشاشة السابقة
 
         bool changed = activeKey != key;
         activeKey = key;
@@ -679,8 +750,7 @@ public class MainForm : BaseForm
         if (activeKey == null || !open.TryGetValue(activeKey, out var entry) || entry.Page == null) return;
         if (entry.Form is BaseForm bf && !bf.ConfirmClose()) return;
         var f = entry.Page.Make();
-        f.TopLevel = false; f.FormBorderStyle = FormBorderStyle.None; f.Dock = DockStyle.Fill; f.BackColor = Theme.Bg; f.Visible = false;
-        content.Controls.Add(f);
+        Host(f);
         Detach(entry.Form);
         open[activeKey] = (f, entry.Page);
         Activate(activeKey, fresh: true);
@@ -768,36 +838,39 @@ public class MainForm : BaseForm
         public ModernButton Calc { get; }
         public ModernButton Bell { get; }
         public ModernButton Help { get; }
-        public ModernButton Refresh { get; }
+        public ModernButton Reload { get; }
         readonly ModernButton[] tools;
+        readonly string searchText = "بحث سريع   Ctrl+K", helpText = "الدعم والمساعدة";
 
         public TopBar()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             Dock = DockStyle.Top;
-            Height = 68;
+            Height = 64;
             BackColor = Theme.Surface;
             var tip = new ToolTip();
             ModernButton Tool(string iconName, string hint, BtnKind kind = BtnKind.Secondary)
             {
-                var b = new ModernButton { Kind = kind, IconName = iconName, Size = new Size(42, 40), TabStop = false, Radius = 10 };
+                var b = new ModernButton { Kind = kind, IconName = iconName, Size = new Size(40, 38), TabStop = false, Radius = 10 };
                 tip.SetToolTip(b, hint);
                 Controls.Add(b);
                 return b;
             }
-            Menu = Tool("menu", "إظهار / إخفاء القائمة", BtnKind.Ghost);
-            Help = new ModernButton { Kind = BtnKind.Dark, IconName = "headset", Text = "الدعم والمساعدة", Font = Theme.FS(9.5f), Height = 40, TabStop = false, Radius = 10 };
-            Help.FitWidth(150);
+            Menu = Tool("panel-right", "تصغير / توسيع القائمة الجانبية", BtnKind.Ghost);
+            Help = new ModernButton { Kind = BtnKind.Dark, IconName = "headset", Text = helpText, Font = Theme.FS(9.5f), Height = 38, TabStop = false, Radius = 10 };
+            Help.FitWidth(140);
+            tip.SetToolTip(Help, helpText);
             Controls.Add(Help);
             Bell = Tool("bell", "التنبيهات", BtnKind.Amber);
-            Refresh = Tool("refresh-cw", "تحديث الشاشة الحالية (F5)");
+            Reload = Tool("refresh-cw", "تحديث الشاشة الحالية (F5)");
             Calc = Tool("calculator", "الحاسبة");
             WhatsApp = Tool("message-circle", "واتساب ويب");
             Backup = Tool("cloud-upload", "نسخة احتياطية الآن");
-            Search = new ModernButton { Kind = BtnKind.Secondary, IconName = "search", Text = "بحث سريع   Ctrl+K", Font = Theme.F(9.5f), Height = 40, TabStop = false, Radius = 10 };
-            Search.FitWidth(190);
+            Search = new ModernButton { Kind = BtnKind.Secondary, IconName = "search", Text = searchText, Font = Theme.F(9.5f), Height = 38, TabStop = false, Radius = 10 };
+            Search.FitWidth(180);
+            tip.SetToolTip(Search, "البحث عن أي شاشة (Ctrl+K)");
             Controls.Add(Search);
-            tools = new[] { Help, Bell, Refresh, Calc, WhatsApp, Backup, Search };
+            tools = new[] { Help, Bell, Reload, Calc, WhatsApp, Backup, Search };
         }
 
         public void SetTitle(string t, string d, string i) { title = t; desc = d; icon = i; Invalidate(); }
@@ -806,14 +879,21 @@ public class MainForm : BaseForm
         {
             base.OnResize(e);
             if (tools == null) return;   // يُستدعى من المُنشئ قبل إنشاء الأزرار
-            Menu.Location = new Point(Width - 18 - Menu.Width, (Height - Menu.Height) / 2);
+            Menu.Location = new Point(Width - Dpi.S(16) - Menu.Width, (Height - Menu.Height) / 2);
+            // شاشة ضيقة: أزرار الدعم والبحث تصبح أيقونات فقط حتى يبقى للعنوان مكان
+            bool narrow = Width < Dpi.S(1060);
+            Help.Text = narrow ? "" : helpText;
+            Search.Text = narrow ? "" : searchText;
+            Help.FitWidth(narrow ? 40 : 140);
+            Search.FitWidth(narrow ? 40 : 180);
             // الأدوات في الجهة اليسرى (نهاية السطر العربي)
-            int x = 20;
+            int x = Dpi.S(16);
             foreach (var b in tools)
             {
                 b.Location = new Point(x, (Height - b.Height) / 2);
-                x = b.Right + (b == Help || b == Backup ? 16 : 8);
+                x = b.Right + Dpi.S(b == Help || b == Backup ? 14 : 6);
             }
+            Invalidate(true);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -821,19 +901,99 @@ public class MainForm : BaseForm
             var g = e.Graphics;
             g.Clear(BackColor);
             Gfx.Hq(g);
-            int right = Menu.Left - 14;
-            if (icon != null && FontKit.HasIcons)
+            int right = Menu.Left - Dpi.S(12);
+            if (Icons.Has(icon))
             {
-                var ir = new RectangleF(right - 40, (Height - 40) / 2f, 40, 40);
-                Gfx.FillRound(g, ir, 11, Theme.OrangeSoft);
-                Icons.Draw(g, icon, ir, Theme.Orange, 20);
-                right -= 52;
+                int box = Dpi.S(38);
+                var ir = new RectangleF(right - box, (Height - box) / 2f, box, box);
+                Gfx.FillRound(g, ir, Dpi.S(10f), Theme.OrangeSoft);
+                Icons.Draw(g, icon, ir, Theme.Orange, 19);
+                right -= box + Dpi.S(12);
             }
-            int left = Search.Right + 20;
-            TextRenderer.DrawText(g, title, Theme.FS(14), new Rectangle(left, 10, right - left, 28), Theme.Ink, Gfx.RtlStart);
-            TextRenderer.DrawText(g, desc, Theme.F(9.5f), new Rectangle(left, 38, right - left, 22), Theme.Muted, Gfx.RtlStart);
+            int left = Search.Right + Dpi.S(16);
+            if (right - left < Dpi.S(60)) return;
+            TextRenderer.DrawText(g, title, Theme.FS(13), new Rectangle(left, Dpi.S(9), right - left, Dpi.S(26)), Theme.Ink, Gfx.RtlStart);
+            TextRenderer.DrawText(g, desc, Theme.F(9), new Rectangle(left, Dpi.S(35), right - left, Dpi.S(20)), Theme.Muted, Gfx.RtlStart);
             using var pen = new Pen(Theme.Border);
             g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
+        }
+    }
+}
+
+/// <summary>قائمة منبثقة لشاشات القسم عند تصغير القائمة الجانبية (نافذة مرسومة بالكامل، تُغلق عند النقر خارجها)</summary>
+public class NavFlyout : Form
+{
+    readonly string title;
+    readonly Color tint;
+    readonly List<(string Text, string Icon, bool Active, Action Run)> items = new();
+    int hover = -1;
+    int HeadH => Dpi.S(44);
+    int ItemH => Dpi.S(40);
+
+    public NavFlyout(string title, Color tint)
+    {
+        this.title = title;
+        this.tint = tint;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        RightToLeft = RightToLeft.Yes;
+        BackColor = Theme.Surface;
+        DoubleBuffered = true;
+        KeyPreview = true;
+        Cursor = Cursors.Hand;
+        KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+        Deactivate += (s, e) => Close();
+    }
+
+    public void AddPage(string text, string icon, bool active, Action run) => items.Add((text, icon, active, run));
+
+    /// <summary>إظهار القائمة بجانب رأس القسم (يسار الشريط المصغّر)</summary>
+    public void ShowNear(Control anchor, Form owner)
+    {
+        var font = Theme.FS(10);
+        int w = Math.Max(Dpi.S(200), items.Select(i => TextRenderer.MeasureText(i.Text, font).Width).DefaultIfEmpty(0).Max() + Dpi.S(80));
+        int h = HeadH + items.Count * ItemH + Dpi.S(10);
+        var p = anchor.PointToScreen(Point.Empty);
+        var area = Screen.FromControl(anchor).WorkingArea;
+        int x = p.X - w - Dpi.S(6), y = Math.Min(p.Y, area.Bottom - h - Dpi.S(4));
+        Bounds = new Rectangle(Math.Max(area.X, x), Math.Max(area.Y, y), w, h);
+        Show(owner);
+    }
+
+    protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ClassStyle |= 0x20000; return cp; } }   // ظل
+
+    int HitTest(Point pt) { int i = (pt.Y - HeadH) / ItemH; return pt.Y >= HeadH && i >= 0 && i < items.Count ? i : -1; }
+    protected override void OnMouseMove(MouseEventArgs e) { int h = HitTest(e.Location); if (h != hover) { hover = h; Invalidate(); } }
+    protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        int i = HitTest(e.Location);
+        if (i < 0) return;
+        var run = items[i].Run;
+        Close();
+        run();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Theme.Surface);
+        Gfx.Hq(g);
+        using (var pen = new Pen(Theme.BorderStrong)) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        TextRenderer.DrawText(g, title, Theme.FS(10.5f), new Rectangle(Dpi.S(12), 0, Width - Dpi.S(28), HeadH), Gfx.Mix(tint, Theme.Ink, 0.4f), Gfx.RtlStart);
+        using (var pen = new Pen(Theme.Border)) g.DrawLine(pen, Dpi.S(10), HeadH - 1, Width - Dpi.S(10), HeadH - 1);
+        for (int i = 0; i < items.Count; i++)
+        {
+            var (text, icon, active, _) = items[i];
+            var r = new RectangleF(Dpi.S(6), HeadH + i * ItemH + Dpi.S(3), Width - Dpi.S(12), ItemH - Dpi.S(6));
+            if (active) Gfx.FillRound(g, r, Dpi.S(8f), Gfx.Mix(tint, Color.White, 0.86f));
+            else if (i == hover) Gfx.FillRound(g, r, Dpi.S(8f), Theme.SidebarHover);
+            int ic = Dpi.S(17);
+            var ir = new RectangleF(r.Right - Dpi.S(12) - ic, r.Y + (r.Height - ic) / 2f, ic, ic);
+            Icons.Draw(g, icon, ir, active ? tint : Theme.Muted, 16);
+            TextRenderer.DrawText(g, text, active ? Theme.FS(10) : Theme.F(10), new Rectangle((int)r.X + Dpi.S(8), (int)r.Y, (int)(ir.X - r.X) - Dpi.S(18), (int)r.Height),
+                active ? Gfx.Mix(tint, Theme.Ink, 0.4f) : Theme.Ink, Gfx.RtlStart);
         }
     }
 }
@@ -861,6 +1021,7 @@ public class ScrollHost : Panel
     }
 
     public void SuspendContent() => inner.SuspendLayout();
+    public void ScrollToTop() { inner.Top = 0; Scroll(0); }
     public void ResumeContent() => inner.ResumeLayout(true);
 
     /// <summary>تمرير يُظهر العنصر الأخير من القسم المفتوح مع بقاء رأسه ظاهرًا</summary>
@@ -893,7 +1054,7 @@ public class ScrollHost : Panel
 public class CommandPalette : BaseForm
 {
     readonly TextBox q = new() { Width = 520, PlaceholderText = "اكتب ما تبحث عنه... مثل: فاتورة، أقساط، مواد" };
-    readonly ListBox list = new() { DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 50, BorderStyle = BorderStyle.None, IntegralHeight = false };
+    readonly ResultList list = new();
     readonly List<MainForm.Page> all;
     public MainForm.Page Selected { get; private set; }
 
@@ -911,10 +1072,7 @@ public class CommandPalette : BaseForm
         var box = new InputBox(q, 566, "search") { Dock = DockStyle.Top, Height = 48 };
         var hint = new Label { Dock = DockStyle.Bottom, Height = 30, Text = "↑ ↓ للتنقل   •   Enter للفتح   •   Esc للإغلاق", ForeColor = Theme.Subtle, Font = Theme.F(8.5f), TextAlign = ContentAlignment.MiddleCenter };
         list.Dock = DockStyle.Fill;
-        list.BackColor = Theme.Surface;
-        list.DrawItem += DrawItem;
-        list.DoubleClick += (s, e) => Accept();
-        list.MouseClick += (s, e) => Accept();
+        list.Activated += Accept;
         Controls.Add(list);
         Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10, BackColor = Theme.Surface });
         Controls.Add(box);
@@ -925,8 +1083,10 @@ public class CommandPalette : BaseForm
         {
             if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); }
             else if (e.KeyCode == Keys.Enter) { Accept(); e.SuppressKeyPress = true; }
-            else if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.SelectedIndex = Math.Min(list.Items.Count - 1, list.SelectedIndex + 1); e.Handled = true; }
-            else if (e.KeyCode == Keys.Up && list.Items.Count > 0) { list.SelectedIndex = Math.Max(0, list.SelectedIndex - 1); e.Handled = true; }
+            else if (e.KeyCode == Keys.Down) { list.Step(1); e.Handled = true; }
+            else if (e.KeyCode == Keys.Up) { list.Step(-1); e.Handled = true; }
+            else if (e.KeyCode == Keys.PageDown) { list.Step(list.PageSize); e.Handled = true; }
+            else if (e.KeyCode == Keys.PageUp) { list.Step(-list.PageSize); e.Handled = true; }
         };
         Deactivate += (s, e) => { if (DialogResult == DialogResult.None) Close(); };
         Filter();
@@ -945,12 +1105,7 @@ public class CommandPalette : BaseForm
     void Filter()
     {
         var t = q.Text.Trim();
-        list.BeginUpdate();
-        list.Items.Clear();
-        foreach (var p in all.Where(p => t == "" || p.Text.Contains(t) || p.Desc.Contains(t) || p.Group.Contains(t)))
-            list.Items.Add(p);
-        list.EndUpdate();
-        if (list.Items.Count > 0) list.SelectedIndex = 0;
+        list.SetItems(all.Where(p => t == "" || p.Text.Contains(t) || p.Desc.Contains(t) || p.Group.Contains(t)).ToList());
     }
 
     void Accept()
@@ -961,28 +1116,90 @@ public class CommandPalette : BaseForm
         Close();
     }
 
-    void DrawItem(object s, DrawItemEventArgs e)
+    /// <summary>قائمة النتائج مرسومة بالكامل (بلا شريط تمرير النظام): العجلة والأسهم للتمرير، والنقر للفتح</summary>
+    sealed class ResultList : Control
     {
-        if (e.Index < 0) return;
-        var p = (MainForm.Page)list.Items[e.Index];
-        var g = e.Graphics;
-        Gfx.Hq(g);
-        g.FillRectangle(new SolidBrush(Theme.Surface), e.Bounds);
-        bool sel = (e.State & DrawItemState.Selected) != 0;
-        var r = new RectangleF(e.Bounds.X + 2, e.Bounds.Y + 2, e.Bounds.Width - 4, e.Bounds.Height - 4);
-        if (sel) Gfx.FillRound(g, r, 10, Theme.BrandSoft);
-        var ir = new RectangleF(r.Right - 44, r.Y + 5, 36, 36);
-        Gfx.FillRound(g, ir, 9, sel ? Theme.Surface : Theme.SurfaceAlt);
-        Icons.Draw(g, p.Icon, ir, sel ? Theme.Brand : Theme.Muted, 18);
-        int tw = (int)r.Width - 64;
-        TextRenderer.DrawText(g, p.Text, Theme.FS(10.5f), new Rectangle((int)r.X + 8, (int)r.Y + 3, tw, 24), Theme.Ink, Gfx.RtlStart);
-        TextRenderer.DrawText(g, p.Desc, Theme.F(8.5f), new Rectangle((int)r.X + 8, (int)r.Y + 25, tw, 20), Theme.Muted, Gfx.RtlStart);
-        if (p.Group != "")
+        List<MainForm.Page> items = new();
+        int selected = -1, top, hover = -1;
+        public event Action Activated;
+        int ItemH => Dpi.S(54);
+        public int PageSize => Math.Max(1, Height / ItemH);
+        public MainForm.Page SelectedItem => selected >= 0 && selected < items.Count ? items[selected] : null;
+
+        public ResultList()
         {
-            var gs = TextRenderer.MeasureText(p.Group, Theme.F(8.5f));
-            var gr = new Rectangle((int)r.X + 10, (int)r.Y + 12, gs.Width + 14, 22);
-            Gfx.FillRound(g, gr, 11, sel ? Theme.Surface : Theme.GraySoft);
-            TextRenderer.DrawText(g, p.Group, Theme.F(8.5f), gr, Theme.Muted, Gfx.Center);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            BackColor = Theme.Surface;
+            Cursor = Cursors.Hand;
+        }
+
+        public void SetItems(List<MainForm.Page> list) { items = list; top = 0; selected = list.Count > 0 ? 0 : -1; Invalidate(); }
+
+        public void Step(int d)
+        {
+            if (items.Count == 0) return;
+            selected = Math.Clamp(selected + d, 0, items.Count - 1);
+            if (selected < top) top = selected;
+            if (selected >= top + PageSize) top = selected - PageSize + 1;
+            Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            top = Math.Clamp(top + (e.Delta > 0 ? -1 : 1), 0, Math.Max(0, items.Count - PageSize));
+            Invalidate();
+        }
+        protected override void OnMouseMove(MouseEventArgs e) { int h = top + e.Y / ItemH; if (h >= items.Count) h = -1; if (h != hover) { hover = h; Invalidate(); } }
+        protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); }
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            int i = top + e.Y / ItemH;
+            if (i < 0 || i >= items.Count) return;
+            selected = i;
+            Invalidate();
+            Activated?.Invoke();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            Gfx.Hq(g);
+            int h = ItemH;
+            for (int i = top; i < items.Count && (i - top) * h < Height; i++)
+            {
+                var p = items[i];
+                bool sel = i == selected;
+                int sb = items.Count > PageSize ? Dpi.S(8) : 0;   // مكان مؤشر التمرير
+                var r = new RectangleF(Dpi.S(2) + sb, (i - top) * h + Dpi.S(2), Width - Dpi.S(4) - sb, h - Dpi.S(4));
+                if (sel) Gfx.FillRound(g, r, Dpi.S(10f), Theme.BrandSoft);
+                else if (i == hover) Gfx.FillRound(g, r, Dpi.S(10f), Theme.SurfaceAlt);
+                int box = Dpi.S(36);
+                var ir = new RectangleF(r.Right - box - Dpi.S(8), r.Y + (r.Height - box) / 2f, box, box);
+                Gfx.FillRound(g, ir, Dpi.S(9f), sel ? Theme.Surface : Theme.SurfaceAlt);
+                Icons.Draw(g, p.Icon, ir, sel ? Theme.Brand : Theme.Muted, 18);
+                int gw = 0;
+                if (p.Group != "")
+                {
+                    var gs = TextRenderer.MeasureText(p.Group, Theme.F(8.5f));
+                    var gr = new Rectangle((int)r.X + Dpi.S(10), (int)(r.Y + (r.Height - Dpi.S(22)) / 2), gs.Width + Dpi.S(14), Dpi.S(22));
+                    Gfx.FillRound(g, gr, Dpi.S(11f), sel ? Theme.Surface : Theme.GraySoft);
+                    TextRenderer.DrawText(g, p.Group, Theme.F(8.5f), gr, Theme.Muted, Gfx.Center);
+                    gw = gr.Width + Dpi.S(10);
+                }
+                int tx = (int)r.X + Dpi.S(10) + gw, tw = (int)ir.X - Dpi.S(10) - tx;
+                TextRenderer.DrawText(g, p.Text, Theme.FS(10.5f), new Rectangle(tx, (int)r.Y + Dpi.S(3), tw, Dpi.S(24)), Theme.Ink, Gfx.RtlStart);
+                TextRenderer.DrawText(g, p.Desc, Theme.F(8.5f), new Rectangle(tx, (int)r.Y + Dpi.S(26), tw, Dpi.S(20)), Theme.Muted, Gfx.RtlStart);
+            }
+            // مؤشر تمرير رفيع على الحافة اليسرى
+            if (items.Count > PageSize)
+            {
+                float track = Height - Dpi.S(8), thumb = Math.Max(Dpi.S(24f), track * PageSize / items.Count);
+                float y = Dpi.S(4) + (track - thumb) * top / Math.Max(1, items.Count - PageSize);
+                Gfx.FillRound(g, new RectangleF(Dpi.S(1), y, Dpi.S(4), thumb), Dpi.S(2f), Theme.BorderStrong);
+            }
+            if (items.Count == 0)
+                TextRenderer.DrawText(g, "لا توجد شاشة بهذا الاسم", Theme.F(10), new Rectangle(0, Dpi.S(20), Width, Dpi.S(30)), Theme.Muted, Gfx.Center);
         }
     }
 }
@@ -1031,7 +1248,7 @@ public class UsersForm : BaseForm
         flow.Controls.Add(cAdmin);
         flow.Controls.Add(cActive);
         var permBox = new Panel { Width = 294, Height = 340, Padding = new Padding(4), BackColor = Theme.Surface, Margin = new Padding(6, 4, 6, 8) };
-        permBox.Paint += (s, e) => { Gfx.Hq(e.Graphics); Gfx.DrawRound(e.Graphics, new RectangleF(0.5f, 0.5f, permBox.Width - 2, permBox.Height - 2), 8, Theme.BorderStrong); };
+        permBox.Paint += (s, e) => { Gfx.Hq(e.Graphics); Gfx.DrawRound(e.Graphics, new RectangleF(0.5f, 0.5f, permBox.Width - 2, permBox.Height - 2), Dpi.S(8f), Theme.BorderStrong); };
         perms.Dock = DockStyle.Fill;
         permBox.Controls.Add(perms);
         flow.Controls.Add(new Label { Text = "الصلاحيات", AutoSize = false, Width = 290, Height = 26, Font = Theme.F(9), ForeColor = Theme.Text2, TextAlign = ContentAlignment.BottomLeft });

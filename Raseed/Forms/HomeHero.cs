@@ -11,11 +11,13 @@ public class HomeHero : Panel
     public const string DefaultQuick = "المواد|قائمة بيع|قائمة شراء|سند قبض|الأقساط|حساب الزبائن";
     static readonly Color Navy = ColorTranslator.FromHtml("#2B3A8F"), NavyDark = ColorTranslator.FromHtml("#1E2A6E");
     readonly MainForm main;
-    readonly FlowLayoutPanel tiles = new() { WrapContents = true, BackColor = ColorTranslator.FromHtml("#2B3A8F") };
-    readonly ModernButton gear = new() { Kind = BtnKind.Glass, IconName = "settings", Size = new Size(36, 36), TabStop = false };
+    readonly List<QuickTile> tiles = new();
+    readonly ModernButton gear = new() { Kind = BtnKind.Glass, IconName = "settings", Size = new Size(34, 34), TabStop = false };
     readonly System.Windows.Forms.Timer clock = new() { Interval = 1000 };
     readonly System.Globalization.CultureInfo ar = new("ar-IQ");
-    const int GreetW = 380;
+
+    /// <summary>عرض عمود الترحيب بالبكسل الفعلي (أضيق في الشاشات الصغيرة)</summary>
+    int GreetW => Width < Dpi.S(900) ? Dpi.S(250) : Dpi.S(330);
 
     public HomeHero(MainForm owner)
     {
@@ -24,14 +26,13 @@ public class HomeHero : Panel
         BackColor = Navy;
         ar.DateTimeFormat.Calendar = new System.Globalization.GregorianCalendar();
         new ToolTip().SetToolTip(gear, "اختيار شاشات الوصول السريع");
-        Controls.Add(tiles);
         Controls.Add(gear);
         gear.Click += (s, e) =>
         {
             using var d = new QuickAccessDialog(main);
             if (d.ShowModal() == DialogResult.OK) BuildTiles();
         };
-        clock.Tick += (s, e) => Invalidate(new Rectangle(0, 0, GreetW + 40, Height));
+        clock.Tick += (s, e) => Invalidate(new Rectangle(Width - GreetW - Dpi.S(20), 0, GreetW + Dpi.S(20), Height));
         clock.Start();
         Disposed += (s, e) => clock.Dispose();
         BuildTiles();
@@ -41,26 +42,56 @@ public class HomeHero : Panel
 
     void BuildTiles()
     {
-        tiles.SuspendLayout();
-        foreach (Control c in tiles.Controls.Cast<Control>().ToList()) c.Dispose();
-        tiles.Controls.Clear();
+        SuspendLayout();
+        foreach (var t in tiles) { Controls.Remove(t); t.Dispose(); }
+        tiles.Clear();
         foreach (var name in Chosen())
         {
             var p = main?.Pages.FirstOrDefault(x => x.Text == name);
             if (p == null) continue;
-            var t = new QuickTile { Title = p.Text, Group = p.Group == "" ? "الرئيسية" : p.Group, IconName = p.Icon, Tint = MainForm.TintOf(p.Group), Margin = new Padding(0, 0, 12, 12) };
+            var t = new QuickTile { Title = p.Text, Group = p.Group == "" ? "الرئيسية" : p.Group, IconName = p.Icon, Tint = MainForm.TintOf(p.Group) };
             t.Click += (s, e) => main.Navigate(p);
-            tiles.Controls.Add(t);
+            tiles.Add(t);
+            Controls.Add(t);
         }
-        tiles.ResumeLayout();
+        ResumeLayout();
+        Arrange();
     }
+
+    /// <summary>البطاقات ارتفاعها المناسب لعددها: أعمدة حسب العرض، وسطر أو سطران</summary>
+    public int PreferredHeight(int width)
+    {
+        int qw = width - GreetWFor(width) - Dpi.S(48);
+        int cols = Cols(qw);
+        int rows = Math.Max(1, (tiles.Count + cols - 1) / cols);
+        return Dpi.S(66) + rows * Dpi.S(72) + (rows - 1) * Dpi.S(10) + Dpi.S(18);
+    }
+
+    int GreetWFor(int width) => width < Dpi.S(900) ? Dpi.S(250) : Dpi.S(330);
+    int Cols(int qw) => Math.Max(1, Math.Min(Math.Max(1, tiles.Count), (qw + Dpi.S(10)) / (Dpi.S(190) + Dpi.S(10))));
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        // البطاقات يسار الترحيب، والإعدادات بجانب عنوان «الوصول السريع»
-        tiles.SetBounds(24, 62, Math.Max(200, Width - GreetW - 48), Height - 74);
-        gear.Location = new Point(24, 16);
+        Arrange();
+    }
+
+    void Arrange()
+    {
+        if (tiles.Count == 0 && gear == null) return;
+        int qw = Width - GreetW - Dpi.S(48), gap = Dpi.S(10);
+        int cols = Cols(qw);
+        int tw = (qw - gap * (cols - 1)) / cols, th = Dpi.S(72);
+        int left = Dpi.S(24), top = Dpi.S(66);
+        for (int i = 0; i < tiles.Count; i++)
+        {
+            int c = i % cols, r = i / cols;
+            // الترتيب من اليمين (بداية السطر العربي)
+            int x = left + qw - (c + 1) * tw - c * gap;
+            tiles[i].SetBounds(x, top + r * (th + gap), tw, th);
+        }
+        gear.Location = new Point(Dpi.S(24), Dpi.S(16));
+        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -68,28 +99,34 @@ public class HomeHero : Panel
         var g = e.Graphics;
         using (var bg = new LinearGradientBrush(ClientRectangle, Navy, NavyDark, 0f)) g.FillRectangle(bg, ClientRectangle);
         Gfx.Hq(g);
-        using (var b1 = new SolidBrush(Color.FromArgb(18, 255, 255, 255))) g.FillEllipse(b1, Width - 220, -120, 300, 300);
-        using (var b2 = new SolidBrush(Color.FromArgb(14, 247, 181, 44))) g.FillEllipse(b2, Width - GreetW - 90, Height - 110, 200, 200);
+        using (var b1 = new SolidBrush(Color.FromArgb(18, 255, 255, 255))) g.FillEllipse(b1, Width - Dpi.S(220), -Dpi.S(120), Dpi.S(300), Dpi.S(300));
+        using (var b2 = new SolidBrush(Color.FromArgb(14, 247, 181, 44))) g.FillEllipse(b2, Width - GreetW - Dpi.S(90), Height - Dpi.S(110), Dpi.S(200), Dpi.S(200));
 
         // الوصول السريع
-        int qw = Width - GreetW - 48;
-        TextRenderer.DrawText(g, "الوصول السريع", Theme.FS(12), new Rectangle(70, 18, qw - 46, 30), Color.White, Gfx.RtlStart);
-        using (var pen = new Pen(Color.FromArgb(90, 255, 255, 255))) g.DrawLine(pen, 24, 56, 24 + qw, 56);
+        int qw = Width - GreetW - Dpi.S(48);
+        TextRenderer.DrawText(g, "الوصول السريع", Theme.FS(12), new Rectangle(Dpi.S(70), Dpi.S(16), qw - Dpi.S(46), Dpi.S(30)), Color.White, Gfx.RtlStart);
+        using (var pen = new Pen(Color.FromArgb(90, 255, 255, 255))) g.DrawLine(pen, Dpi.S(24), Dpi.S(56), Dpi.S(24) + qw, Dpi.S(56));
 
         // الترحيب والساعة
         var now = DateTime.Now;
-        int x = Width - GreetW - 10, w = GreetW - 20;
+        int x = Width - GreetW - Dpi.S(10), w = GreetW - Dpi.S(20);
         string greet = now.Hour < 12 ? "صباح الخير" : "مساء الخير";
-        TextRenderer.DrawText(g, Settings.Get("shop_name"), Theme.F(11), new Rectangle(x, 22, w, 26), ColorTranslator.FromHtml("#C7CEF0"), Gfx.RtlStart);
-        TextRenderer.DrawText(g, greet, Theme.FS(26), new Rectangle(x, 50, w, 52), Theme.Amber, Gfx.RtlStart);
-        TextRenderer.DrawText(g, now.ToString("dddd، d MMMM yyyy", ar), Theme.F(11), new Rectangle(x, 108, w, 26), Color.White, Gfx.RtlStart);
-        TextRenderer.DrawText(g, now.ToString("hh:mm:ss tt", ar), Theme.FS(20), new Rectangle(x, 136, w, 40), Color.White, Gfx.RtlStart);
-        TextRenderer.DrawText(g, $"مرحبًا {Session.UserName}", Theme.F(10), new Rectangle(x, 186, w, 24), Theme.Amber, Gfx.RtlStart);
-        TextRenderer.DrawText(g, "الإصدار " + Application.ProductVersion.Split('+')[0], Theme.F(8.5f), new Rectangle(x, 212, w, 20), ColorTranslator.FromHtml("#8E98CF"), Gfx.RtlStart);
+        bool small = Height < Dpi.S(220);
+        int y = Dpi.S(small ? 12 : 20);
+        TextRenderer.DrawText(g, Settings.Get("shop_name"), Theme.F(10.5f), new Rectangle(x, y, w, Dpi.S(24)), ColorTranslator.FromHtml("#C7CEF0"), Gfx.RtlStart);
+        y += Dpi.S(24);
+        TextRenderer.DrawText(g, greet, Theme.FS(small ? 20 : 24), new Rectangle(x, y, w, Dpi.S(small ? 40 : 48)), Theme.Amber, Gfx.RtlStart);
+        y += Dpi.S(small ? 42 : 52);
+        TextRenderer.DrawText(g, now.ToString("dddd، d MMMM yyyy", ar), Theme.F(10.5f), new Rectangle(x, y, w, Dpi.S(24)), Color.White, Gfx.RtlStart);
+        y += Dpi.S(26);
+        TextRenderer.DrawText(g, now.ToString("hh:mm:ss tt", ar), Theme.FS(small ? 16 : 19), new Rectangle(x, y, w, Dpi.S(36)), Color.White, Gfx.RtlStart);
+        y += Dpi.S(40);
+        if (y + Dpi.S(22) < Height)
+            TextRenderer.DrawText(g, $"مرحبًا {Session.UserName}  •  الإصدار {Application.ProductVersion.Split('+')[0]}", Theme.F(8.5f), new Rectangle(x, y, w, Dpi.S(22)), ColorTranslator.FromHtml("#AEB6E4"), Gfx.RtlStart);
     }
 }
 
-/// <summary>بطاقة وصول سريع: اسم القسم، اسم الشاشة، وأيقونة بلون القسم</summary>
+/// <summary>بطاقة وصول سريع أفقية: أيقونة بلون القسم، واسم الشاشة واسم القسم</summary>
 public class QuickTile : Control
 {
     bool hover;
@@ -101,7 +138,7 @@ public class QuickTile : Control
     public QuickTile()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Size = new Size(150, 150);
+        Size = new Size(190, 72);
         Cursor = Cursors.Hand;
     }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -112,15 +149,16 @@ public class QuickTile : Control
         var g = e.Graphics;
         g.Clear(Gfx.OpaqueBack(this));
         Gfx.Hq(g);
-        var r = new RectangleF(1, hover ? 1 : 4, Width - 3, Height - 6);
-        Gfx.FillRound(g, r, 10, Color.White);
-        if (hover) Gfx.DrawRound(g, r, 10, Theme.Amber, 2);
-        TextRenderer.DrawText(g, Group, Theme.F(8.5f), new Rectangle(12, (int)r.Y + 12, Width - 26, 20), Theme.Subtle, Gfx.RtlStart);
-        TextRenderer.DrawText(g, Title, Theme.FS(11), new Rectangle(8, (int)r.Y + 32, Width - 22, 50), Theme.Ink,
-            TextFormatFlags.Right | TextFormatFlags.RightToLeft | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
-        var ir = new RectangleF(14, r.Bottom - 54, 42, 42);
-        Gfx.FillRound(g, ir, 10, Gfx.Mix(Tint, Color.White, 0.84f));
+        var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        Gfx.FillRound(g, r, Dpi.S(12f), hover ? Color.White : Color.FromArgb(250, 255, 255, 255));
+        if (hover) Gfx.DrawRound(g, RectangleF.Inflate(r, -1, -1), Dpi.S(11f), Theme.Amber, Dpi.S(2f));
+        int box = Math.Min(Dpi.S(44), Height - Dpi.S(20));
+        var ir = new RectangleF(Width - Dpi.S(14) - box, (Height - box) / 2f, box, box);
+        Gfx.FillRound(g, ir, Dpi.S(11f), Gfx.Mix(Tint, Color.White, 0.84f));
         Icons.Draw(g, IconName, ir, Tint, 22);
+        int tx = Dpi.S(10), tw = (int)ir.X - Dpi.S(10) - tx;
+        TextRenderer.DrawText(g, Title, Theme.FS(10.5f), new Rectangle(tx, Height / 2 - Dpi.S(24), tw, Dpi.S(26)), Theme.Ink, Gfx.RtlStart);
+        TextRenderer.DrawText(g, Group, Theme.F(8.5f), new Rectangle(tx, Height / 2 + Dpi.S(1), tw, Dpi.S(22)), Theme.Subtle, Gfx.RtlStart);
     }
 }
 

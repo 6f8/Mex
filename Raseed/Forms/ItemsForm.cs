@@ -13,7 +13,7 @@ public class ItemsForm : BaseForm
 
     // المعلومات الأساسية
     readonly ComboBox cbCompany = Ui.Combo(FieldW - 48), cbWh = Ui.Combo(FieldW - 48), cbType = Ui.Combo(FieldW), cbCost = Ui.Combo(FieldW),
-                      cbBuyCur = Ui.Combo(128), cbSellCur = Ui.Combo(128);
+                      cbBuyCur = Ui.Combo(FieldW), cbSellCur = Ui.Combo(FieldW);
     readonly TextBox tName = new() { Width = FieldW };
     readonly NumericUpDown nQty = Ui.Num(FieldW, 2), nBuy = Ui.Num(FieldW, 2), nRetail = Ui.Num(FieldW, 2), nWholesale = Ui.Num(FieldW, 2),
                            nSpecial = Ui.Num(FieldW, 2), nInst = Ui.Num(FieldW, 2);
@@ -64,11 +64,11 @@ public class ItemsForm : BaseForm
         // ---------- بطاقة المادة ----------
         formCard = new CardPanel { Dock = DockStyle.Fill, Title = "إضافة المواد", Subtitle = "مادة جديدة", IconName = "package-plus" };
         var tabs = new ModernTabs { Dock = DockStyle.Fill };
-        tabs.Add("المعلومات الأساسية", Page(BasicPage()), "file-text");
-        tabs.Add("البيانات الإضافية", Page(ExtraPage()), "sliders-horizontal");
+        tabs.Add("المعلومات الأساسية", Page(BasicPage()), "file-text", "الأساسية");
+        tabs.Add("البيانات الإضافية", Page(ExtraPage()), "sliders-horizontal", "الإضافية");
         var serialPage = Page(SerialPage());   // يُبنى دائمًا (حقوله تُحفظ)، ويظهر تبويبه إن كان النظام مفعّلًا
-        if (Features.On("feat_serials")) tabs.Add("الرقم التسلسلي", serialPage, "hash");
-        tabs.Add("تأريخ الصلاحية", Page(ExpiryPage()), "calendar-clock");
+        if (Features.On("feat_serials")) tabs.Add("الرقم التسلسلي", serialPage, "hash", "التسلسلي");
+        tabs.Add("تأريخ الصلاحية", Page(ExpiryPage()), "calendar-clock", "الصلاحية");
         tabs.Add("التنبيهات", Page(AlertsPage()), "bell");
         formCard.Controls.Add(tabs);
 
@@ -78,7 +78,7 @@ public class ItemsForm : BaseForm
         searchRow.Controls.Add(new Label { Text = "البحث", AutoSize = false, Width = 64, Height = 42, Font = Theme.FS(10.5f), ForeColor = Theme.Brand, TextAlign = ContentAlignment.MiddleLeft });
         var sb = new InputBox(search, 380, "search") { Height = 42, Margin = new Padding(4, 0, 4, 0) };
         searchRow.Controls.Add(sb);
-        searchRow.Resize += (s, e) => sb.Width = Math.Max(200, searchRow.ClientSize.Width - 80);
+        searchRow.Resize += (s, e) => sb.Width = Math.Max(Dpi.S(120), searchRow.ClientSize.Width - Dpi.S(80));
         listCard.Controls.Add(list);
         listCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
         listCard.Controls.Add(searchRow);
@@ -90,17 +90,22 @@ public class ItemsForm : BaseForm
         actions.Controls.AddRange(new Control[] { bNew, bSave, bDel });
         actions.Resize += (s, e) =>
         {
-            int w = Math.Max(110, (actions.ClientSize.Width - 24) / 3);
+            int w = Math.Max(Dpi.S(80), (actions.ClientSize.Width - Dpi.S(24)) / 3);
             foreach (Control b in actions.Controls) b.Width = w;
         };
 
-        var left = new Panel { Dock = DockStyle.Right, Width = 560 };
+        var left = new Panel { Dock = DockStyle.Right, Width = 520 };
         left.Controls.Add(listCard);
         left.Controls.Add(actions);
 
         Controls.Add(formCard);
         Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
         Controls.Add(left);
+        // القائمة تأخذ نحو 40% من العرض، وبطاقة المادة الباقي (مهما كان حجم الشاشة)
+        Resize += (s, e) => left.Width = Math.Clamp(ClientSize.Width * 2 / 5, Dpi.S(300), Dpi.S(560));
+        // عمود المخزن يظهر فقط إذا اتسعت القائمة (بدل شريط تمرير أفقي)
+        list.Resize += (s, e) => { if (list.Columns.Contains("المخزن")) list.Columns["المخزن"].Visible = list.Width > Dpi.S(470); };
+        list.DataBindingComplete += (s, e) => { if (list.Columns.Contains("المخزن")) list.Columns["المخزن"].Visible = list.Width > Dpi.S(470); };
 
         bNew.Click += (s, e) => New();
         bSave.Click += (s, e) => Save();
@@ -132,7 +137,8 @@ public class ItemsForm : BaseForm
         return p;
     }
 
-    static FlowLayoutPanel Stack() => new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Surface };
+    /// <summary>عمود متجاوب: الحقول تتمدد مع عرض البطاقة وتنزل تحت عناوينها في الشاشات الضيقة</summary>
+    static FormStack Stack() => new() { Padding = new Padding(4, 0, 4, 8) };
 
     static Label Caption(string text, int width = 150) => new()
     {
@@ -149,15 +155,13 @@ public class ItemsForm : BaseForm
 
     static Control RowW(string caption, int captionWidth, params Control[] fields)
     {
-        var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 3, 0, 3) };
-        if (caption != null) row.Controls.Add(Caption(caption, captionWidth));
-        foreach (var f in fields)
+        var items = fields.Select(f =>
         {
-            var c = f is Label or Toggle or ModernButton ? f : Ui.Wrap(f);
-            if (c.Margin == new Padding(3)) c.Margin = new Padding(4, 0, 4, 0);
-            row.Controls.Add(c);
-        }
-        return row;
+            var c = f is Label or Toggle or ModernButton or InputBox ? f : Ui.Wrap(f);
+            if (c.Margin == new Padding(3)) c.Margin = new Padding(0);
+            return c;
+        }).ToList();
+        return new FormRow(caption != null ? Caption(caption, captionWidth) : null, items) { Margin = new Padding(0, 3, 0, 3) };
     }
 
     static Toggle Check(string text) => new() { Text = text, Width = 170, Height = 40, Margin = new Padding(8, 0, 4, 0) };
@@ -191,8 +195,8 @@ public class ItemsForm : BaseForm
         st.Controls.Add(Row("نوع المادة", cbType));
         st.Controls.Add(Row("اسم المادة", tName));
         st.Controls.Add(Row("احتساب الكلفة", cbCost));
-        var sellCap = new Label { Text = "عملة البيع", AutoSize = false, Width = 96, Height = 40, Font = Theme.FS(10), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft };
-        st.Controls.Add(Row("عملة الشراء", cbBuyCur, sellCap, cbSellCur));
+        st.Controls.Add(Row("عملة الشراء", cbBuyCur));
+        st.Controls.Add(Row("عملة البيع", cbSellCur));
         st.Controls.Add(Row("العدد", nQty));
         lblQtyHint.Margin = new Padding(8, 0, 4, 4);
         st.Controls.Add(lblQtyHint);
@@ -211,7 +215,7 @@ public class ItemsForm : BaseForm
     {
         // عمودان: البيانات الإضافية المعتادة، وبجانبها بيانات التصنيف والبيانات الطبية
         // يلتف العمود الثاني تحت الأول في الشاشات الضيقة
-        var cols = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Theme.Surface };
+        var cols = new FormColumns { MinColumn = 400 };
         var right = Stack();
         tgScale.Margin = new Padding(8, 4, 8, 10);
         right.Controls.Add(tgScale);
@@ -222,16 +226,16 @@ public class ItemsForm : BaseForm
         tBarcode.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; AddBarcode(tBarcode.Text); } };
         right.Controls.Add(Row("الباركود", tBarcode, add));
         var lstHost = Ui.Wrap(lstBarcodes);
-        lstHost.Margin = new Padding(162, 0, 4, 6);
+        lstHost.Margin = new Padding(158, 0, 4, 6);
         right.Controls.Add(lstHost);
         var gen = new ModernButton { Text = "توليد باركود", IconName = "barcode", Height = 42, Width = (FieldW - 8) / 2, Margin = new Padding(4, 0, 4, 0) };
         gen.Click += (s, e) => AddBarcode(Barcodes.Generate(id, lstBarcodes.Items.Cast<string>()));
         var delBc = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 42, Width = (FieldW - 8) / 2, Margin = new Padding(4, 0, 4, 0) };
         delBc.Click += (s, e) => { if (lstBarcodes.SelectedIndex >= 0) lstBarcodes.Items.RemoveAt(lstBarcodes.SelectedIndex); };
         var btns = RowW(null, 0, gen, delBc);
-        btns.Margin = new Padding(162, 0, 0, 6);
+        btns.Margin = new Padding(158, 0, 0, 6);
         right.Controls.Add(btns);
-        right.Controls.Add(new Label { Text = "الأول في القائمة هو الباركود الأساسي (يُطبع على الملصق).\nيمكن إضافة أكثر من باركود للمادة نفسها.", AutoSize = false, Width = FieldW, Height = 38, ForeColor = Theme.Muted, Font = Theme.F(8.5f), Margin = new Padding(166, 0, 4, 4) });
+        right.Controls.Add(new Label { Text = "الأول في القائمة هو الباركود الأساسي (يُطبع على الملصق).\nيمكن إضافة أكثر من باركود للمادة نفسها.", AutoSize = false, Width = FieldW, Height = 38, ForeColor = Theme.Muted, Font = Theme.F(8.5f), Margin = new Padding(158, 0, 4, 4) });
 
         right.Controls.Add(SectionLabel("الملاحظة عند البيع"));
         var alertHost = Ui.Wrap(tAlert); alertHost.Margin = new Padding(8, 0, 8, 4);
@@ -250,7 +254,6 @@ public class ItemsForm : BaseForm
         right.Controls.Add(move);
 
         var leftCol = Stack();
-        leftCol.Margin = new Padding(24, 0, 0, 0);
         leftCol.Controls.Add(SectionLabel("التصنيف", 370));
         leftCol.Controls.Add(RowW("الرمز", 110, tCode));
         leftCol.Controls.Add(RowW("الصنف", 110, cbCategory));
@@ -278,11 +281,11 @@ public class ItemsForm : BaseForm
         new ToolTip().SetToolTip(add, "إضافة الرقم");
         add.Click += (s, e) => AddSerial();
         st.Controls.Add(Row("الرقم التسلسلي", tSerial, add));
-        var host = new Panel { Width = 600, Height = 260, BackColor = Theme.Surface, Margin = new Padding(166, 4, 8, 8) };
+        var host = new Panel { Width = 600, Height = 260, BackColor = Theme.Surface, Margin = new Padding(158, 4, 8, 8) };
         gSerials.Dock = DockStyle.Fill;
         host.Controls.Add(gSerials);
         st.Controls.Add(host);
-        var del = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 42, Margin = new Padding(166, 0, 4, 8) };
+        var del = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 42, Margin = new Padding(158, 0, 4, 8) };
         del.FitWidth(170);
         del.Click += (s, e) => DeleteSerial();
         st.Controls.Add(del);

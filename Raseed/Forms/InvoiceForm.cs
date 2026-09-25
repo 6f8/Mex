@@ -74,7 +74,7 @@ public class InvoiceForm : BaseForm
                 true, SaleSide ? "زبون نقدي" : "— بدون مورد —", kind);
             Ui.MakeSearchable(cbParty);
             head.Controls.Add(Ui.Labeled("الحساب", cbParty));
-            head.Controls.Add(Ui.Labeled("العنوان", tAddress));
+            head.Controls.Add(More(Ui.Labeled("العنوان", tAddress)));
             head.Controls.Add(Ui.Labeled("الهاتف", tPhone));
         }
         Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id");
@@ -92,18 +92,23 @@ public class InvoiceForm : BaseForm
             head.Controls.Add(Ui.Labeled("الصندوق", cbBox));
         }
         Ui.FillCombo(cbCC, "SELECT id,name FROM cost_centers ORDER BY id", true);
-        if (!IsQuote) head.Controls.Add(Ui.Labeled("مركز الكلفة", cbCC));
+        if (!IsQuote) head.Controls.Add(More(Ui.Labeled("مركز الكلفة", cbCC)));
         if (type == "Sale")
         {
             Ui.FillCombo(cbDel, "SELECT id,name,fee FROM delivery_companies ORDER BY name", true, "— بدون توصيل —");
-            head.Controls.Add(Ui.Labeled("شركة التوصيل", cbDel));
-            head.Controls.Add(Ui.Labeled("أجور التوصيل", nFee));
+            head.Controls.Add(More(Ui.Labeled("شركة التوصيل", cbDel)));
+            head.Controls.Add(More(Ui.Labeled("أجور التوصيل", nFee)));
             cbDel.SelectedIndexChanged += (s, e) => { var r = Ui.GetRow(cbDel); nFee.Value = r == null ? 0 : (decimal)Db.D(r["fee"]); };
         }
-        head.Controls.Add(Ui.Labeled("ملاحظات", txtNotes));
+        head.Controls.Add(More(Ui.Labeled("ملاحظات", txtNotes)));
         dtDate.Value = DateTime.Now;
         head.Controls.Add(Ui.Labeled("التأريخ", dtDate));
         head.Controls.Add(Ui.Labeled(Ui.IsStockDoc(type) ? "رقم السند" : "رقم القائمة", tNo));
+        // زر «المزيد»: الحقول الثانوية تُطوى تلقائيًا في الشاشات القصيرة لتبقى مساحة كافية لأسطر القائمة
+        var bMore = new ModernButton { Kind = BtnKind.Ghost, IconName = "chevron-down", Size = new Size(42, 42), Margin = new Padding(6, 24, 4, 3), TabStop = false };
+        new ToolTip().SetToolTip(bMore, "إظهار / إخفاء الحقول الإضافية (العنوان، مركز الكلفة، التوصيل، الملاحظات)");
+        bMore.Click += (s, e) => { moreManual = !(moreManual ?? MoreVisible); ShowMore(moreManual.Value); bMore.IconName = moreManual.Value ? "chevron-up" : "chevron-down"; bMore.Invalidate(); };
+        if (moreFields.Count > 0) head.Controls.Add(bMore);
 
         // ---------- سطر إدخال المادة ----------
         var entry = Theme.Bar();
@@ -113,7 +118,7 @@ public class InvoiceForm : BaseForm
         entry.Controls.Add(Ui.Labeled("العدد", nQtyIn));
         entry.Controls.Add(Ui.Labeled(PriceCaption, nPriceIn));
         entry.Controls.Add(Ui.Labeled("المجموع", tSumIn));
-        var bAdd = new ModernButton { Text = "إضافة", IconName = "plus", Kind = BtnKind.Success, Height = 42, Margin = new Padding(6, 27, 4, 4) };
+        var bAdd = new ModernButton { Text = "إضافة", IconName = "plus", Kind = BtnKind.Success, Height = 42, Margin = new Padding(6, 24, 4, 3) };
         bAdd.FitWidth(100);
         entry.Controls.Add(bAdd);
         bAdd.Click += (s, e) => { if (pending != null) AddPending(); else FindAndAdd(); };
@@ -144,7 +149,7 @@ public class InvoiceForm : BaseForm
         grid.Columns["note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
         grid.Columns.Add(new DataGridViewButtonColumn
         {
-            Name = "del", HeaderText = "حذف", Text = "حذف", UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat, FillWeight = 40, MinimumWidth = 64,
+            Name = "del", HeaderText = "حذف", Text = "حذف", UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat, FillWeight = 40, MinimumWidth = Dpi.S(64),
             DefaultCellStyle = { BackColor = Theme.DangerSoft, ForeColor = Theme.Danger, SelectionBackColor = Theme.DangerSoft, SelectionForeColor = Theme.Danger }
         });
         grid.CellContentClick += (s, e) =>
@@ -161,11 +166,12 @@ public class InvoiceForm : BaseForm
 
         // ---------- لوحة معلومات المادة ----------
         var info = new CardPanel { Dock = DockStyle.Right, Width = 270, Title = "معلومات المادة", IconName = "info" };
+        infoCard = info;
         info.Controls.Add(lblInfo);
 
         // ---------- التذييل ----------
-        var footCard = new CardPanel { Dock = DockStyle.Bottom, Height = 164, Padding = new Padding(14, 10, 14, 10) };
-        var stats = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 78, WrapContents = false, BackColor = Theme.Surface };
+        var footCard = new CardPanel { Dock = DockStyle.Bottom, Height = 152, Padding = new Padding(14, 8, 14, 8) };
+        var stats = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
         stats.Controls.Add(Stat("مجموع القائمة", lblTotal, 140));
         if (HasParty)
         {
@@ -180,7 +186,7 @@ public class InvoiceForm : BaseForm
             stats.Controls.Add(Stat("الرصيد السابق", lblPrev, 140));
             stats.Controls.Add(Stat("الرصيد الحالي", lblAfter, 140));
         }
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 58, BackColor = Theme.Surface };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = Theme.Surface };
         var toggles = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(0, 12, 0, 0) };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Left, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, 6, 0, 0) };
         bottom.Controls.Add(toggles);
@@ -222,6 +228,8 @@ public class InvoiceForm : BaseForm
         Controls.Add(footCard);
         Controls.Add(entry);
         Controls.Add(head);
+        headBar = head; entryBar = entry; footBar = footCard;
+        Resize += (s, e) => FitHeight();
 
         // ---------- الأحداث ----------
         nDisc.ValueChanged += (s, e) => Totals();
@@ -247,12 +255,40 @@ public class InvoiceForm : BaseForm
         Shown += (s, e) => txtFind.Focus();
     }
 
+    // ---------- التكيف مع حجم الشاشة ----------
+    readonly List<Control> moreFields = new();
+    bool? moreManual;
+    Control headBar, entryBar, footBar, infoCard;
+    bool MoreVisible => moreFields.Count > 0 && moreFields[0].Visible;
+
+    Control More(Control c) { moreFields.Add(c); return c; }
+
+
+    void ShowMore(bool on)
+    {
+        if (moreFields.Count == 0 || MoreVisible == on) return;
+        headBar.SuspendLayout();
+        foreach (var c in moreFields) c.Visible = on;
+        headBar.ResumeLayout(true);
+    }
+
+    /// <summary>
+    /// الأولوية لأسطر القائمة مع بقاء المجاميع وأزرار الحفظ ظاهرة دائمًا: في الشاشات القصيرة تُطوى الحقول الإضافية،
+    /// وفي الضيقة تُخفى لوحة معلومات المادة (والجدول يمرَّر داخليًا).
+    /// </summary>
+    void FitHeight()
+    {
+        if (headBar == null) return;
+        if (moreManual == null) ShowMore(ClientSize.Height >= Dpi.S(760));
+        infoCard.Visible = ClientSize.Width >= Dpi.S(1080);
+    }
+
     void AddCol(string name, string header, bool readOnly, int weight, bool visible = true)
     {
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = name, HeaderText = header, ReadOnly = readOnly, Visible = visible, FillWeight = weight,
-            MinimumWidth = Math.Max(name == "no" ? 40 : 60, TextRenderer.MeasureText(header, Theme.FS(9.5f)).Width + 26),
+            MinimumWidth = Math.Max(Dpi.S(name == "no" ? 40 : 60), TextRenderer.MeasureText(header, Theme.FS(9.5f)).Width + Dpi.S(26)),
             DefaultCellStyle = { Format = "#,0.##", BackColor = readOnly ? Theme.SurfaceAlt : Theme.Surface, Alignment = name is "name" ? DataGridViewContentAlignment.MiddleLeft : DataGridViewContentAlignment.MiddleCenter }
         });
     }
@@ -844,7 +880,7 @@ public class InstallmentDialog : DialogShell
         void FillG() => Ui.FillCombo(cbG, "SELECT id,name,phone FROM guarantors ORDER BY name", true, "— بدون كفيل —");
         FillG();
         Ui.SelectId(cbG, guarantor);
-        var addG = new ModernButton { Kind = BtnKind.Success, IconName = "circle-plus", Size = new Size(40, 40), Margin = new Padding(4, 27, 4, 0) };
+        var addG = new ModernButton { Kind = BtnKind.Success, IconName = "circle-plus", Size = new Size(40, 40), Margin = new Padding(4, 24, 4, 0) };
         new ToolTip().SetToolTip(addG, "إضافة كفيل جديد");
         addG.Click += (s, e) => { long nid = QuickAdd.Ask("كفيل جديد", "اسم الكفيل", "guarantors"); if (nid > 0) { FillG(); Ui.SelectId(cbG, nid); } };
         var nCount = Ui.Num(190); nCount.Minimum = 1; nCount.Maximum = 120; nCount.Value = 6;

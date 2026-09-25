@@ -565,6 +565,8 @@ public class DashboardForm : BaseForm
 
         // ---------- الترحيب والوصول السريع (شريط كحلي) ----------
         var hello = new HomeHero(main) { Dock = DockStyle.Top, Height = 250 };
+        // ارتفاع الشريط الكحلي حسب عدد بطاقات الوصول السريع وعرض الشاشة
+        Resize += (s, e) => { int h = Math.Max(Dpi.S(200), hello.PreferredHeight(ClientSize.Width)); if (hello.Height != h) hello.Height = h; };
 
         // ---------- المؤشرات ----------
         double todaySales = Stats.TodaySales();
@@ -587,8 +589,8 @@ public class DashboardForm : BaseForm
         kpis.Controls.AddRange(cards);
         kpis.Resize += (s, e) =>
         {
-            int w = (kpis.ClientSize.Width - 4 - cards.Length * 16) / cards.Length;
-            foreach (var c in cards) { c.Width = Math.Max(150, w); c.Height = 122; }
+            int w = (kpis.ClientSize.Width - Dpi.S(4) - cards.Length * Dpi.S(16)) / cards.Length;
+            foreach (var c in cards) { c.Width = Math.Max(Dpi.S(150), w); c.Height = Dpi.S(122); }
         };
 
         // ---------- المخطط والإجراءات ----------
@@ -610,7 +612,17 @@ public class DashboardForm : BaseForm
 
         // ---------- التنبيهات ----------
         var alertsCard = new CardPanel { Dock = DockStyle.Fill, Title = "التنبيهات", Subtitle = "ما يحتاج انتباهك اليوم", IconName = "bell" };
-        var chips = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
+        // الشارات تتوزع على العرض، وتلتف لسطر ثانٍ في الشاشات الضيقة
+        var chips = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Theme.Surface };
+        chips.Resize += (s, e) =>
+        {
+            int n = chips.Controls.Count, avail = chips.ClientSize.Width - Dpi.S(4);
+            if (n == 0 || avail <= 0) return;
+            int gap = chips.Controls[0].Margin.Horizontal;
+            int perRow = Math.Max(1, Math.Min(n, avail / (Dpi.S(180) + gap)));
+            int w = Math.Min(Dpi.S(260), avail / perRow - gap - 1);
+            foreach (Control c in chips.Controls) if (c.Width != w) c.Width = w;
+        };
         chips.Controls.Add(Chip("تنبيهات المواد", ItemAlerts.Count(expDays) - Stats.Expiring(expDays), Theme.Purple, "package-minus", "أرصدة المخازن"));
         chips.Controls.Add(Chip($"صلاحية خلال {expDays} يوم", Stats.Expiring(expDays), Theme.Danger, "clock", "أرصدة المخازن"));
         chips.Controls.Add(Chip("أقساط مستحقة", Stats.DueInstallments(remDays), Theme.Warning, "calendar-clock", "الأقساط"));
@@ -638,7 +650,7 @@ public class DashboardForm : BaseForm
         Controls.Add(kpis);
         Controls.Add(hello);
         // التنبيهات تملأ باقي الشاشة، وبحد أدنى يسمح بعرض بضعة أسطر (مع تمرير في الشاشات القصيرة)
-        Resize += (s, e) => bottom.Height = Math.Max(320, ClientSize.Height - hello.Height - kpis.Height - mid.Height);
+        Resize += (s, e) => bottom.Height = Math.Max(Dpi.S(320), ClientSize.Height - hello.Height - kpis.Height - mid.Height);
     }
 
     // لا تقفز الصفحة للأسفل عند تركيز جدول التنبيهات

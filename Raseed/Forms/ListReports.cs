@@ -61,7 +61,7 @@ public class ListReportForm : BaseForm
         if (IsInvoiceList) { bar.Controls.Add(rGeneral); bar.Controls.Add(rDetail); }
         bar.Controls.Add(Ui.Labeled("من", dFrom));
         bar.Controls.Add(Ui.Labeled("إلى", dTo));
-        var bRefresh = new ModernButton { Text = "تحديث", IconName = "refresh-cw", Kind = BtnKind.Success, Height = 42, Margin = new Padding(6, 27, 6, 4) };
+        var bRefresh = new ModernButton { Text = "تحديث", IconName = "refresh-cw", Kind = BtnKind.Success, Height = 42, Margin = new Padding(6, 24, 6, 3) };
         bRefresh.FitWidth(110);
         bar.Controls.Add(bRefresh);
         Ui.GridTools(bar, grid, () => Text, () => $"من {dFrom.Value:yyyy-MM-dd HH:mm} إلى {dTo.Value:yyyy-MM-dd HH:mm}");
@@ -177,9 +177,9 @@ public class ListReportForm : BaseForm
         double Sum(string col) => dt.Columns.Contains(col) ? dt.Rows.Cast<DataRow>().Sum(r => Db.D(r[col])) : 0;
         void Add(string caption, double v, Color? color = null)
         {
-            totals.Controls.Add(new StatLabel { Caption = caption, Value = Ui.M(v), Size = new Size(170, 64), Margin = new Padding(8, 0, 8, 0), ValueColor = color ?? Theme.Ink });
+            totals.Controls.Add(Dpi.Fit(totals, new StatLabel { Caption = caption, Value = Ui.M(v), Size = new Size(170, 64), Margin = new Padding(8, 0, 8, 0), ValueColor = color ?? Theme.Ink }));
         }
-        totals.Controls.Add(new StatLabel { Caption = "عدد السطور", Value = dt.Rows.Count.ToString(), Size = new Size(110, 64), Margin = new Padding(8, 0, 8, 0) });
+        totals.Controls.Add(Dpi.Fit(totals, new StatLabel { Caption = "عدد السطور", Value = dt.Rows.Count.ToString(), Size = new Size(110, 64), Margin = new Padding(8, 0, 8, 0) }));
         switch (kind)
         {
             case Kind.Sales:

@@ -49,12 +49,11 @@ public class CrudForm : BaseForm
 
         // ---------- الحقول ----------
         card = new CardPanel { Dock = DockStyle.Fill, Title = d.Title, Subtitle = "سجل جديد", IconName = d.Icon };
-        var editor = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(0, 4, 0, 8)
-        };
-        foreach (var f in def.Fields) editor.Controls.Add(MakeInput(f));
+        // الحقول في عمود متجاوب داخل مساحة قابلة للتمرير (تتمدد مع البطاقة ولا تخرج عن حدودها)
+        var editor = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Theme.Surface };
+        var fields = new FormStack { Dock = DockStyle.Top, Padding = new Padding(0, 4, 4, 8) };
+        foreach (var f in def.Fields) fields.Controls.Add(MakeInput(f));
+        editor.Controls.Add(fields);
 
         // أزرار جديد / حفظ / حذف من اليمين، بعرض متساوٍ
         var actions = new Panel { Dock = DockStyle.Bottom, Height = 60, BackColor = Theme.Surface };
@@ -65,8 +64,8 @@ public class CrudForm : BaseForm
         actions.Controls.AddRange(order);
         actions.Resize += (s, e) =>
         {
-            int w = Math.Min(150, (actions.ClientSize.Width - 16) / 3), x = actions.ClientSize.Width;
-            foreach (var b in order) { x -= w; b.SetBounds(x, 12, w - 8, 44); }
+            int w = Math.Min(Dpi.S(150), (actions.ClientSize.Width - Dpi.S(16)) / 3), x = actions.ClientSize.Width;
+            foreach (var b in order) { x -= w; b.SetBounds(x, Dpi.S(12), w - Dpi.S(8), Dpi.S(44)); }
         };
         card.Controls.Add(editor);
         card.Controls.Add(actions);
@@ -74,17 +73,14 @@ public class CrudForm : BaseForm
         // ---------- الجدول والبحث ----------
         // الجدول بعرض ما يتبقى بعد بطاقة الحقول (البطاقة بعرض ثابت في الجهة اليمنى)
         var listCard = new CardPanel { Dock = DockStyle.Right, Title = "السجلات", IconName = "list" };
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Surface, WrapContents = false };
-        top.Controls.Add(new Label { Text = "البحث", AutoSize = false, Width = 60, Height = 42, Font = Theme.FS(10.5f), ForeColor = Theme.Brand, TextAlign = ContentAlignment.MiddleLeft });
-        var sb = new InputBox(search, 320, "search") { Height = 42, Margin = new Padding(4, 0, 12, 0) };
-        top.Controls.Add(sb);
-        Ui.GridTools(top, grid, () => def.Title);
-        foreach (Control c in top.Controls) if (c is ModernButton mb) { mb.Height = 42; mb.Margin = new Padding(4, 0, 4, 0); }
-        top.Resize += (s, e) =>
-        {
-            int tools = top.Controls.OfType<ModernButton>().Sum(b => b.Width + 8);
-            sb.Width = Math.Max(200, top.ClientSize.Width - 80 - tools - 16);
-        };
+        // سطر البحث: مربع البحث يتمدد، وأزرار الطباعة وExcel تنزل لسطر ثانٍ إذا ضاقت البطاقة
+        var sb = new InputBox(search, 320, "search") { Height = 42 };
+        var toolHost = new FlowLayoutPanel();
+        Ui.GridTools(toolHost, grid, () => def.Title);
+        var rowItems = new List<Control> { sb };
+        foreach (var mb in toolHost.Controls.OfType<ModernButton>().ToList()) { mb.Height = 42; mb.Margin = new Padding(0); rowItems.Add(mb); }
+        var searchCaption = new Label { Text = "البحث", AutoSize = false, Width = 60, Height = 42, Font = Theme.FS(10.5f), ForeColor = Theme.Brand, TextAlign = ContentAlignment.MiddleLeft };
+        var top = new FormRow(searchCaption, rowItems) { Dock = DockStyle.Top, Height = 46 };
         listCard.Controls.Add(grid);
         listCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Theme.Surface });
         listCard.Controls.Add(top);
@@ -92,7 +88,8 @@ public class CrudForm : BaseForm
         Controls.Add(card);
         Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
         Controls.Add(listCard);
-        Resize += (s, e) => listCard.Width = Math.Max(420, ClientSize.Width - (CaptionW + InputW + 80) - 14);
+        // بطاقة الحقول نحو 40% من العرض (بين حدين)، والجدول الباقي
+        Resize += (s, e) => listCard.Width = Math.Max(Dpi.S(300), ClientSize.Width - Math.Clamp(ClientSize.Width * 2 / 5, Dpi.S(340), Dpi.S(540)) - Dpi.S(14));
 
         search.TextChanged += (s, e) => LoadList();
         bNew.Click += (s, e) => NewRecord();
@@ -125,7 +122,7 @@ public class CrudForm : BaseForm
             grid.Columns.Add(new DataGridViewButtonColumn
             {
                 Name = "__action" + i, Tag = i, HeaderText = caption, Text = caption, UseColumnTextForButtonValue = true,
-                FlatStyle = FlatStyle.Flat, FillWeight = 60, MinimumWidth = 96,
+                FlatStyle = FlatStyle.Flat, FillWeight = 60, MinimumWidth = Dpi.S(96),
                 DefaultCellStyle = { BackColor = Theme.BrandSoft, ForeColor = Theme.BrandDark, SelectionBackColor = Theme.BrandSoft2, SelectionForeColor = Theme.BrandDark }
             });
         }
@@ -165,12 +162,9 @@ public class CrudForm : BaseForm
         c.Width = f.Type == FType.Bool ? CaptionW + InputW : InputW;
         inputs[f.Name] = c;
         if (f.Type == FType.Bool) { c.Margin = new Padding(8, 6, 6, 4); return c; }
-        var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 3, 0, 3) };
-        row.Controls.Add(Caption(f.Caption));
         var field = Ui.Wrap(c);
-        field.Margin = new Padding(4, 0, 4, 0);
-        row.Controls.Add(field);
-        return row;
+        field.Margin = new Padding(0);
+        return new FormRow(Caption(f.Caption), new[] { field }) { Margin = new Padding(0, 3, 0, 3) };
     }
 
     object GetValue(Field f)
