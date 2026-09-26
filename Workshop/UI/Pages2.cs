@@ -36,7 +36,11 @@ public class InventoryPage : Page
         var bNew = W.Btn("إضافة قطعة", "plus", BtnKind.Primary, 120); bNew.Margin = new Padding(4, 26, 4, 4);
         var bReorder = W.Btn("اقتراح الشراء", "package", BtnKind.Soft, 120); bReorder.Margin = new Padding(4, 26, 4, 4);
         bReorder.Click += (s, e) => ReorderDialog.Open();
-        bar.Controls.AddRange(new Control[] { bLow, bReorder, bImport, bExport, bNew });
+        var bPrices = W.Btn("أسعار المورد", "file-spreadsheet", BtnKind.Soft, 120); bPrices.Margin = new Padding(4, 26, 4, 4);
+        bPrices.Click += (s, e) => PriceImportDialog.Open();
+        var bScrap = W.Btn("أجهزة القطع", "boxes", BtnKind.Secondary, 110); bScrap.Margin = new Padding(4, 26, 4, 4);
+        bScrap.Click += (s, e) => ScrapDialog.Open();
+        bar.Controls.AddRange(new Control[] { bLow, bReorder, bPrices, bScrap, bImport, bExport, bNew });
         var catBar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Bg, Padding = new Padding(0, 6, 0, 0) };
         cat.Dock = DockStyle.Right;
         catBar.Controls.Add(cat);
@@ -191,7 +195,9 @@ public class InventoryPage : Page
         if (table) rows.AddRange(items.Select(i => new RowItem(false, null, null, i)));
         else
         {
-            var groups = Calc.GroupByName(items.Where(i => i.Compatible != ""), i => i.Compatible).Select(g => (g.Label, g.Items)).ToList();
+            // القطعة التي تناسب عدة موديلات («A10 / A10s / M10») تظهر تحت كل موديل منها
+            var groups = Calc.GroupByName(items.Where(i => i.Compatible != "").SelectMany(i => Compat.Of(i).DefaultIfEmpty(i.Compatible).Select(m => (M: m, I: i))), x => x.M)
+                .Select(g => (g.Label, g.Items.Select(x => x.I).Distinct().ToList())).ToList();
             var general = items.Where(i => i.Compatible == "").ToList();
             if (general.Count > 0) groups.Add(("قطع عامة بدون موديل", general));
             bool expandAll = q != "" || cat.Value != "" || lowOnly || groups.Count == 1;
@@ -334,16 +340,21 @@ public class InvItemDialog : DialogShell
                      tSupW = new() { Width = 200, PlaceholderText = "مثل 30" };
     readonly ComboBox cbCat = W.Combo(420, K.InvCats);
     readonly NumericUpDown nCost = W.Money(200), nSale = W.Money(200);
-    readonly Label lblProfit = W.Note("", 420, 28);
+    readonly Label lblProfit = W.Note("", 420, 28), lblCompat = W.Note("", 420, 22);
+    readonly Toggle tgCons = new() { Text = "مادة مستهلكة (معجون، لاصق، كحول...) — لا تُباع منفصلة", Width = 420 };
+    readonly Toggle tgUpsell = new() { Text = "اقترحها على الزبون عند التسليم (لاصقة، كفر، شاحن...)", Width = 420 };
+    readonly TextBox tUpFor = new() { Width = 420, PlaceholderText = "لأعطال معينة فقط، مثل: شاشة، بطارية (فارغ = الكل)" };
     public InvItem Saved { get; private set; }
 
-    public InvItemDialog(InvItem i, string model, string category) : base(i != null ? "تعديل قطعة" : model != "" ? $"إضافة قطعة لـ {model}" : "إضافة قطعة", 520, 790, "package-plus")
+    public InvItemDialog(InvItem i, string model, string category) : base(i != null ? "تعديل قطعة" : model != "" ? $"إضافة قطعة لـ {model}" : "إضافة قطعة", 520, 880, "package-plus")
     {
         item = i;
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Surface };
         flow.Controls.Add(W.Labeled("اسم القطعة *", tName));
         flow.Controls.Add(W.Labeled("التصنيف", cbCat));
-        flow.Controls.Add(W.Labeled("الموديل المتوافق", tModel, "smartphone"));
+        flow.Controls.Add(W.Labeled("الموديلات المتوافقة (افصل بينها بـ / )", tModel, "smartphone"));
+        lblCompat.ForeColor = Theme.BrandDark;
+        flow.Controls.Add(lblCompat);
         flow.Controls.Add(W.Labeled("المورد", tSup, "store"));
         var money = W.Flow();
         money.Controls.Add(W.Labeled("تكلفة الشراء *", nCost));
@@ -355,7 +366,12 @@ public class InvItemDialog : DialogShell
         qty.Controls.Add(W.Labeled("نبّهني عندما تصل إلى", tMin));
         flow.Controls.Add(qty);
         flow.Controls.Add(W.Labeled("ضمان المورد على القطعة (أيام)", tSupW, "shield-check"));
+        flow.Controls.Add(tgCons);
+        flow.Controls.Add(tgUpsell);
+        flow.Controls.Add(W.Labeled("اقتراحها مع", tUpFor));
         flow.Controls.Add(W.Labeled("ملاحظات", tNotes));
+        tgUpsell.CheckedChanged += (s, e) => tUpFor.Parent.Visible = tgUpsell.Checked;
+        tModel.TextChanged += (s, e) => CompatHint();
         Body.Controls.Add(flow);
         W.Suggest(tModel, Store.Inventory.Select(x => x.Compatible).Concat(Store.Orders.Select(o => o.Device)));
         W.Suggest(tSup, Store.Inventory.Select(x => x.Supplier).Concat(Store.SupplierTx.Select(t => t.Supplier)).Concat(Store.Orders.SelectMany(o => o.Parts.Select(p => p.Supplier))));
@@ -371,12 +387,28 @@ public class InvItemDialog : DialogShell
         tQty.Text = i?.Qty?.ToString() ?? "";
         tMin.Text = i?.MinQty?.ToString() ?? "";
         tSupW.Text = i?.SupWarranty?.ToString() ?? "";
+        tgCons.Checked = i?.Consumable ?? category == "مواد مستهلكة";
+        tgUpsell.Checked = i?.Upsell ?? false;
+        tUpFor.Text = i?.UpsellFor ?? "";
+        W.Suggest(tUpFor, K.IssueTypes);
+        Shown += (s, e) => { tUpFor.Parent.Visible = tgUpsell.Checked; CompatHint(); };
         if (i != null && i.Category != "" && !cbCat.Items.Contains(i.Category)) cbCat.Items.Add(i.Category);
         W.Pick(cbCat, i?.Category ?? (category != "" ? category : K.InvCats[0]));
         nCost.ValueChanged += (s, e) => Profit();
         nSale.ValueChanged += (s, e) => Profit();
         Profit();
         Shown += (s, e) => tName.Focus();
+    }
+
+    /// <summary>القطعة نفسها تناسب موديلات أخرى؟ نذكّر بما هو مسجّل لها في القائمة</summary>
+    void CompatHint()
+    {
+        var models = Compat.Of(new InvItem { Compatible = tModel.Text });
+        var name = Txt.Fold(tName.Text);
+        var same = name == "" ? new List<string>() : Store.Inventory.Where(x => x.Id != item?.Id && Txt.Fold(x.Name) == name && Compat.Of(x).Any(m => models.Any(n => Txt.Fold(n) == Txt.Fold(m))))
+            .Select(x => x.Compatible).Distinct().ToList();
+        lblCompat.Text = same.Count > 0 ? "⚠ موجودة أيضاً في: " + string.Join("، ", same) + " — يمكن دمجها في قطعة واحدة بموديلات متعددة"
+            : models.Count > 1 ? "تظهر هذه القطعة عند البحث بأي من: " + string.Join("، ", models) : "";
     }
 
     void Profit()
@@ -394,7 +426,8 @@ public class InvItemDialog : DialogShell
         {
             Id = item?.Id ?? Txt.Uid("inv"), Name = tName.Text.Trim(), Category = cbCat.Text, Compatible = tModel.Text.Trim(), Supplier = tSup.Text.Trim(),
             Cost = (double)nCost.Value, SalePrice = (double)nSale.Value, Qty = Txt.OptInt(tQty.Text), MinQty = Txt.OptInt(tMin.Text), Notes = tNotes.Text.Trim(), UpdatedAt = Txt.Now,
-            SupWarranty = Txt.OptInt(tSupW.Text) is int w && w > 0 ? w : null
+            SupWarranty = Txt.OptInt(tSupW.Text) is int w && w > 0 ? w : null,
+            Consumable = tgCons.Checked, Upsell = tgUpsell.Checked, UpsellFor = tgUpsell.Checked ? tUpFor.Text.Trim() : "",
         };
         Store.SaveInv(n);
         Saved = n;
@@ -518,7 +551,8 @@ public class SupplierTxDialog : DialogShell
     readonly NumericUpDown nAmount = W.Money(200);
     readonly DateTimePicker dDate = new() { Width = 200, Format = DateTimePickerFormat.Short };
     readonly DateTimePicker dDue = new() { Width = 200, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
-    readonly Control dueBox;
+    readonly ComboBox cbBox = W.Combo(200, Boxes.Names());
+    readonly Control dueBox, boxBox;
 
     SupplierTxDialog(string kind, string supplier) : base(kind == "payment" ? "دفعة للمورد" : "شراء بالدَّين", 520, 540, "store")
     {
@@ -533,13 +567,17 @@ public class SupplierTxDialog : DialogShell
         flow.Controls.Add(r);
         dueBox = W.Labeled("موعد السداد (اختياري)", dDue, "calendar");
         flow.Controls.Add(dueBox);
+        boxBox = W.Labeled("دُفعت من صندوق", cbBox, "wallet");
+        flow.Controls.Add(boxBox);
         flow.Controls.Add(W.Labeled("ملاحظة", tNote));
         Body.Controls.Add(flow);
         dDue.Value = DateTime.Today.AddDays(30);
         dueBox.Visible = kind == "purchase";
+        boxBox.Visible = kind == "payment";
+        W.Pick(cbBox, Lists.Cash);
         tSup.Text = supplier;
         W.Suggest(tSup, Calc.SupplierBalances().Select(x => x.Name).Concat(Store.Inventory.Select(i => i.Supplier)).Concat(Store.Orders.SelectMany(o => o.Parts.Select(p => p.Supplier))));
-        type.Changed += v => { Text = v == "payment" ? "دفعة للمورد" : "شراء بالدَّين"; dueBox.Visible = v == "purchase"; };
+        type.Changed += v => { Text = v == "payment" ? "دفعة للمورد" : "شراء بالدَّين"; dueBox.Visible = v == "purchase"; boxBox.Visible = v == "payment"; };
         var ok = AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save");
         AddButton("إلغاء", DialogResult.Cancel, BtnKind.Secondary);
         ok.Click += (s, e) => Save();
@@ -560,7 +598,7 @@ public class SupplierTxDialog : DialogShell
         // الكتابة المسجلة سابقًا لنفس المورد
         var known = Calc.SupplierBalances().FirstOrDefault(x => x.Key == Txt.Fold(sup));
         var t = new SupplierTx { Id = Txt.Uid("st"), Supplier = known?.Name ?? sup, Type = type.Value, Amount = amount, Date = Txt.Iso(dDate.Value), Note = tNote.Text.Trim(),
-            DueDate = type.Value == "purchase" && dDue.Checked ? Txt.Iso(dDue.Value) : "" };
+            DueDate = type.Value == "purchase" && dDue.Checked ? Txt.Iso(dDue.Value) : "", Box = type.Value == "payment" && cbBox.Text != "" ? cbBox.Text : Lists.Cash };
         Store.AddSupplierTx(t);
         DialogResult = DialogResult.OK;
         Close();

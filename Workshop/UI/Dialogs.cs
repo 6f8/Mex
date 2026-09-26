@@ -392,21 +392,30 @@ public class QuickPayDialog : DialogShell
 /// <summary>ملف الزبون: الأرقام، طلب جديد له، دفعة، تذكير، وكل طلباته</summary>
 public class CustomerDialog : DialogShell
 {
+    static IEnumerable<Ledger.Cell> Cells(Calc.Customer c, string key)
+    {
+        yield return new Ledger.Cell("عدد الطلبات", c.Orders.Count.ToString());
+        yield return new Ledger.Cell("مجموع التعامل", Txt.Money(c.Spent));
+        yield return new Ledger.Cell("الربح منه", Txt.Money(c.Profit), null, null, c.Profit >= 0 ? 1 : -1);
+        yield return new Ledger.Cell("دين عليه", Txt.Money(c.Debt), "أجهزة مُسلّمة", null, c.Debt > 0 ? -1 : 0);
+        yield return new Ledger.Cell("متوقع عند التسليم", Txt.Money(c.Expected), "أجهزة في الورشة");
+        yield return new Ledger.Cell("رصيده عندنا", Txt.Money(Credits.Balance(key)), "يُستعمل في طلبه القادم", Pal.Good);
+        if (Loyalty.On)
+        {
+            int pts = Loyalty.Balance(key);
+            yield return new Ledger.Cell("نقاط الولاء", pts.ToString(), pts >= Loyalty.MinRedeem ? "تساوي " + Txt.Money(Loyalty.Worth(pts)) : $"يستبدلها من {Loyalty.MinRedeem} نقطة", Pal.Amber);
+        }
+        var refs = Store.Orders.Where(o => o.X.ReferredBy != "" && Calc.CustomerKey(o.X.ReferredBy, o.X.ReferredPhone) == key).Select(Calc.CustomerKey).Distinct().Count();
+        if (refs > 0) yield return new Ledger.Cell("زبائن أحالهم", refs.ToString(), null, Pal.Good);
+    }
+
     public CustomerDialog(string key) : base("الزبون", 1080, 720, "user")
     {
         var c = Calc.GetCustomers().FirstOrDefault(x => x.Key == key);
         if (c == null) { Load += (s, e) => Close(); return; }
         Text = c.Name + (c.Phone != "" ? "   —   " + c.Phone : "");
         var ledger = new Ledger { Dock = DockStyle.Top, Height = 100, MinCell = 150 };
-        ledger.Set(new[]
-        {
-            new Ledger.Cell("عدد الطلبات", c.Orders.Count.ToString()),
-            new Ledger.Cell("مجموع التعامل", Txt.Money(c.Spent)),
-            new Ledger.Cell("الربح منه", Txt.Money(c.Profit), null, null, c.Profit >= 0 ? 1 : -1),
-            new Ledger.Cell("دين عليه", Txt.Money(c.Debt), "أجهزة مُسلّمة", null, c.Debt > 0 ? -1 : 0),
-            new Ledger.Cell("متوقع عند التسليم", Txt.Money(c.Expected), "أجهزة في الورشة"),
-            new Ledger.Cell("رصيده عندنا", Txt.Money(Credits.Balance(key)), "يُستعمل في طلبه القادم", Pal.Good),
-        });
+        ledger.Set(Cells(c, key));
         var grid = new OrdersGrid();
         grid.Fill(c.Orders.OrderByDescending(o => o.CreatedAt, StringComparer.Ordinal));
         grid.OpenOrder += Acts.View;
@@ -426,15 +435,7 @@ public class CustomerDialog : DialogShell
                 var c2 = Calc.GetCustomers().FirstOrDefault(x => x.Key == key);
                 if (c2 == null) return;
                 grid.Fill(c2.Orders.OrderByDescending(o => o.CreatedAt, StringComparer.Ordinal));
-                ledger.Set(new[]
-                {
-                    new Ledger.Cell("عدد الطلبات", c2.Orders.Count.ToString()),
-                    new Ledger.Cell("مجموع التعامل", Txt.Money(c2.Spent)),
-                    new Ledger.Cell("الربح منه", Txt.Money(c2.Profit), null, null, c2.Profit >= 0 ? 1 : -1),
-                    new Ledger.Cell("دين عليه", Txt.Money(c2.Debt), "أجهزة مُسلّمة", null, c2.Debt > 0 ? -1 : 0),
-                    new Ledger.Cell("متوقع عند التسليم", Txt.Money(c2.Expected), "أجهزة في الورشة"),
-                    new Ledger.Cell("رصيده عندنا", Txt.Money(Credits.Balance(key)), "يُستعمل في طلبه القادم", Pal.Good),
-                });
+                ledger.Set(Cells(c2, key));
             });
         }
         Store.Changed += Changed;

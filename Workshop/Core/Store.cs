@@ -26,7 +26,7 @@ public static class Store
     public static List<Account> Accounts { get; private set; } = new();
 
     // ---------- سجلات إضافية عامة (الموظفون، الحضور، السُّلف، الرواتب) ----------
-    public static readonly string[] ExtraKinds = { "employees", "attendance", "advances", "salaries" };
+    public static readonly string[] ExtraKinds = { "employees", "attendance", "advances", "salaries", "withdrawals", "transfers", "credit_grants", "scrap", "tools" };
     static Dictionary<string, List<JsonObject>> extraDocs = new();
     public static List<JsonObject> Docs(string kind) => extraDocs.TryGetValue(kind, out var l) ? l : extraDocs[kind] = new();
 
@@ -440,7 +440,8 @@ CREATE TABLE IF NOT EXISTS photos(ref TEXT PRIMARY KEY, data BLOB NOT NULL);";
     public static void SetFlag(string key, bool on) => Set(key, on ? "1" : "0");
 
     /// <summary>الإعدادات التي تنتقل مع نسخة JSON: القوائم المعدّلة والفنيون وقوالب الرسائل</summary>
-    public static bool IsCustomKey(string k) => k.StartsWith("list_") || k.StartsWith("tpl_") || k is "technicians" or "sup_warranty" or "lock_delivered" or "issue_terms" or "qc_required" or "stale_days";
+    public static bool IsCustomKey(string k) => k.StartsWith("list_") || k.StartsWith("tpl_") || k is "technicians" or "sup_warranty" or "lock_delivered" or "issue_terms" or "qc_required" or "stale_days"
+        or "ext_warranties" or "loyalty" or "referral_reward" or "google_review_url" or "auto_assign" or "suggest_message" or "box_opening";
     public static IEnumerable<KeyValuePair<string, string>> CustomSettings() => settings.Where(kv => IsCustomKey(kv.Key) && kv.Value != "").ToList();
 
     public static string ShopName => Get("shop_name", "ورشة الصيانة") is var n && n != "" ? n : "ورشة الصيانة";

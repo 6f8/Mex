@@ -27,6 +27,17 @@ public class OrderExtra
     public double ShipFee;
     public List<Inst> Plan = new();
     public string Branch = "";
+    /// <summary>رقم الفاتورة المتسلسل (يُعطى عند أول طباعة للفاتورة أو عند التسليم)</summary>
+    public string InvoiceNo = "";
+    /// <summary>قرار الضمان لطلب رجع بالضمان: covered أو rejected، مع السبب</summary>
+    public string WarrantyDecision = "", WarrantyReason = "", WarrantyDecidedAt = "";
+    /// <summary>ضمان ممتد مباع للزبون (المدة ورسمها)</summary>
+    public string ExtWarranty = "";
+    public double ExtWarrantyFee;
+    /// <summary>الزبون الذي أحاله (اسمه وهاتفه)</summary>
+    public string ReferredBy = "", ReferredPhone = "";
+    /// <summary>طلب ملأه الزبون من استمارة التابلت، ولم يراجعه الموظف بعد</summary>
+    public bool Kiosk, KioskReviewed;
 }
 
 public class WorkSpan { public string Start, End, Tech = ""; }
@@ -51,6 +62,7 @@ public static class Extra
             x.QC ??= new(); x.Work ??= new(); x.Marks ??= new(); x.Items ??= new(); x.Chat ??= new(); x.Plan ??= new();
             x.SealNo ??= ""; x.Source ??= ""; x.Area ??= ""; x.Service ??= "shop"; x.Address ??= ""; x.VisitAt ??= "";
             x.ShipCompany ??= ""; x.ShipTracking ??= ""; x.ShipStatus ??= ""; x.Branch ??= "";
+            x.InvoiceNo ??= ""; x.WarrantyDecision ??= ""; x.WarrantyReason ??= ""; x.WarrantyDecidedAt ??= ""; x.ExtWarranty ??= ""; x.ReferredBy ??= ""; x.ReferredPhone ??= "";
             return x;
         }
         catch { return new OrderExtra(); }
@@ -114,7 +126,8 @@ public static class WorkTimer
 public static class Credits
 {
     public static double Balance(string customerKey) =>
-        -Store.Orders.Where(o => Calc.CustomerKey(o) == customerKey).SelectMany(o => o.PaymentHistory).Where(p => p.IsCredit).Sum(p => p.Amount);
+        -Store.Orders.Where(o => Calc.CustomerKey(o) == customerKey).SelectMany(o => o.PaymentHistory).Where(p => p.IsCredit).Sum(p => p.Amount)
+        + Grants.For(customerKey).Sum(g => g.Amount);
 
     public static double Balance(Order o) => Balance(Calc.CustomerKey(o));
 

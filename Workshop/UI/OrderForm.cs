@@ -203,8 +203,11 @@ public partial class OrderForm : DialogShell
         var partBtns = Row();
         var bPick = W.Btn("من قائمة القطع", "package-search", BtnKind.Soft, 150);
         var bAddPart = W.Btn("قطعة", "plus", BtnKind.Secondary, 100);
+        var bCons = W.Btn("مواد مستهلكة", "pill", BtnKind.Ghost, 130);
         partBtns.Controls.Add(bPick);
         partBtns.Controls.Add(bAddPart);
+        partBtns.Controls.Add(bCons);
+        bCons.Click += (s, e) => PickPart(true);
         bAddPart.Click += (s, e) => { int i = parts.Rows.Add("", "", "", "", null, ""); parts.CurrentCell = parts.Rows[i].Cells["name"]; parts.BeginEdit(true); };
         bPick.Click += (s, e) => PickPart();
         parts.CellContentClick += (s, e) =>
@@ -432,10 +435,10 @@ public partial class OrderForm : DialogShell
         Serial = Convert.ToString(r.Cells["serial"].Value)?.Trim() ?? ""
     }).Where(p => p.Name != "" || p.Cost > 0).ToList();
 
-    void PickPart()
+    void PickPart(bool consumables = false)
     {
         parts.EndEdit();
-        using var d = new PickPartDialog(tDevice.Text.Trim());
+        using var d = new PickPartDialog(tDevice.Text.Trim(), consumables);
         if (d.ShowModal() != DialogResult.OK || d.Item == null) return;
         var i = d.Item;
         if (i.Qty != null)
@@ -453,7 +456,8 @@ public partial class OrderForm : DialogShell
         var acc = SelectedAccount;
         double sale = Accounts.PriceFor(acc, i.SalePrice);
         string who = acc != null && acc.Discount > 0 ? $" (سعر {acc.Name} بخصم {Txt.Num(acc.Discount)}%)" : "";
-        if (nPrice.Value == 0 && sale > 0) { W.Set(nPrice, sale); Toast.Show($"أُضيفت {i.Name} وضُبط السعر {Txt.Money(sale)}{who}"); }
+        if (i.Consumable) Toast.Show($"أُضيفت {i.Name} — تُحسب تكلفتها من ربح الطلب ولا تُضاف للسعر");
+        else if (nPrice.Value == 0 && sale > 0) { W.Set(nPrice, sale); Toast.Show($"أُضيفت {i.Name} وضُبط السعر {Txt.Money(sale)}{who}"); }
         else Toast.Show($"أُضيفت {i.Name}. سعر البيع المقترح {Txt.Money(sale)}{who}");
         UpdateMoney();
     }
@@ -728,6 +732,8 @@ public partial class OrderForm : DialogShell
             else { if (existing?.PhotoRef != null) Store.RemovePhoto(existing.PhotoRef); o.PhotoRef = null; }
         }
         ApplyExtras(o);
+        if (existing == null && o.Technician == "" && AutoAssign.On && K.OpenStatuses.Contains(status)) o.Technician = AutoAssign.Pick(o.IssueType);
+        if (o.X.Kiosk && !o.X.KioskReviewed) o.X.KioskReviewed = true;
         // فحص الجودة قبل أن يصبح الجهاز جاهزاً
         if (status == K.Ready && existing?.Status != K.Ready && QC.Required && !QC.Done(o) && !QcDialog.Run(o)) return;
         var oldIds = existing?.PaymentHistory.Select(p => p.Id).ToHashSet() ?? new HashSet<string>();
@@ -746,6 +752,7 @@ public partial class OrderForm : DialogShell
         DialogResult = DialogResult.OK;
         bool isNew = existing == null, label = tgLabel.Checked;
         bool wasFull = existing?.PaymentStatus == K.PayFull;
+        string prevStatus = existing?.Status ?? "";
         if (isNew) Store.SetFlag("label_after_save", label);
         Close();
         Store.NotifyChanged();
@@ -756,6 +763,8 @@ public partial class OrderForm : DialogShell
             if (ranOut.Count > 0) Toast.Show("نفدت من المخزون: " + string.Join("، ", ranOut), Tone.Warning);
             if (isNew && label) Printer.Label(o);
             if (o.PaymentStatus == K.PayFull && Calc.ChargeOf(o) > 0 && !wasFull) Acts.OfferReceipt(o);
+            if (isNew && o.Technician != "" && existing == null && AutoAssign.On) Toast.Show($"وُزّع على الفني: {o.Technician}", Tone.Info);
+            AfterStatus.Run(o.Id, prevStatus);
         });
     }
 }
@@ -768,9 +777,14 @@ public class PickPartDialog : DialogShell
     List<InvItem> shown = new();
     public InvItem Item { get; private set; }
 
-    public PickPartDialog(string device) : base("اختيار قطعة من القائمة", 900, 640, "package-search")
+    readonly string device;
+    readonly bool consumables;
+
+    public PickPartDialog(string device, bool consumables = false) : base(consumables ? "مواد مستهلكة (معجون، لاصق، كحول...)" : "اختيار قطعة من القائمة", 900, 640, consumables ? "pill" : "package-search")
     {
-        search.Text = device;
+        this.device = device;
+        this.consumables = consumables;
+        search.Text = consumables ? "" : device;
         var top = new Panel { Dock = DockStyle.Top, Height = 54, BackColor = Theme.Surface };
         var box = new InputBox(search, 600, "search") { Location = new Point(0, 6), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         top.Controls.Add(box);
@@ -798,9 +812,13 @@ public class PickPartDialog : DialogShell
     void Render()
     {
         var q = Txt.Fold(search.Text);
-        var list = Store.Inventory.Where(i => Txt.Matches(string.Join(" ", i.Name, i.Compatible, i.Supplier, i.Category), q)).ToList();
-        if (list.Count == 0 && q != "") list = Store.Inventory.ToList();
-        shown = list.OrderBy(i => i.Compatible == "" ? "ي" : i.Compatible, StringComparer.CurrentCulture).ThenBy(i => i.Name, StringComparer.CurrentCulture).ToList();
+        var pool = Store.Inventory.Where(i => i.Consumable == consumables).ToList();
+        if (consumables && pool.Count == 0) pool = Store.Inventory.ToList();
+        var list = pool.Where(i => Txt.Matches(string.Join(" ", i.Name, i.Compatible, i.Supplier, i.Category), q)).ToList();
+        // قطعة تناسب عدة موديلات («A10 / A10s / M10») تظهر عند البحث بأي منها
+        if (list.Count == 0 && q != "") list = pool.Where(i => Compat.Of(i).Any(m => Txt.Matches(m, q))).ToList();
+        if (list.Count == 0 && q != "") list = pool;
+        shown = list.OrderByDescending(i => device != "" && Compat.Fits(i, device)).ThenBy(i => i.Compatible == "" ? "ي" : i.Compatible, StringComparer.CurrentCulture).ThenBy(i => i.Name, StringComparer.CurrentCulture).ToList();
         grid.Rows.Clear();
         foreach (var i in shown)
             grid.Rows.Add(i.Compatible == "" ? "قطع عامة" : i.Compatible, i.Name, i.Category, i.Supplier == "" ? "بدون مورد" : i.Supplier, Txt.Num(i.Cost),

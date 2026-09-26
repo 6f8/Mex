@@ -442,6 +442,15 @@ public class PaletteDialog : BaseForm
             new("أوامر", "تعديل القوائم (الأعطال، الملحقات، الضمان...)", null, "list", () => SettingsDialog.Open("lists")),
             new("أوامر", "تعديل رسائل واتساب", null, "message-circle", () => SettingsDialog.Open("messages")),
             new("أوامر", "نسخة احتياطية الآن", null, "database", () => main?.BackupNow()),
+            new("أوامر", "الصناديق والمسحوبات", null, "wallet-cards", () => main?.Go("boxes")),
+            new("أوامر", "تحويل بين صندوقين", null, "arrow-left-right", MoneyDialog.Transfer),
+            new("أوامر", "مسحوبات صاحب المحل", null, "log-out", MoneyDialog.Withdraw),
+            new("أوامر", "رقم الدور وشاشة الانتظار", null, "list-ordered", QueueDialog.Open),
+            new("أوامر", "استيراد قائمة أسعار المورد", null, "download", PriceImportDialog.Open),
+            new("أوامر", "أجهزة القطع (سكراب)", null, "boxes", ScrapDialog.Open),
+            new("أوامر", "أدوات الورشة وصيانتها", null, "wrench", ToolsDialog.Open),
+            new("أوامر", "نقاط الولاء والإحالات والضمان الممتد", null, "gift", () => SettingsDialog.Open("sales")),
+            new("أوامر", "الهاتف: لوحة صاحب المحل وشاشة الزبون", null, "smartphone", () => SettingsDialog.Open("web")),
             new("أوامر", "الإعدادات", null, "settings", SettingsDialog.Open),
         }.Where(c => f == "" || Txt.Fold(c.Title).Contains(f)).ToList();
         var res = new List<Item>();

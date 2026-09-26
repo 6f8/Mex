@@ -82,7 +82,11 @@ public class Payment
     public double Amount;
     /// <summary>استعمال رصيد الزبون أو تحويل زائد إلى رصيده: ليس نقداً داخلاً أو خارجاً من الصندوق</summary>
     public bool IsCredit => Method == Lists.Credit;
-    public bool IsRefund => Amount < 0 && !IsCredit;
+    /// <summary>دفع بنقاط الولاء: خصم لا يدخل الصندوق</summary>
+    public bool IsPoints => Method == Lists.Points;
+    /// <summary>ليس نقداً داخلاً أو خارجاً (رصيد الزبون أو نقاط الولاء)</summary>
+    public bool IsNonCash => IsCredit || IsPoints;
+    public bool IsRefund => Amount < 0 && !IsNonCash;
 }
 
 /// <summary>سطر في سجل تعديلات الطلب (تعديل طلب مُسلَّم، إرجاع مبلغ...)</summary>
@@ -135,12 +139,18 @@ public class InvItem
     public int? Qty, MinQty;
     /// <summary>ضمان المورد على هذه القطعة بالأيام</summary>
     public int? SupWarranty;
+    /// <summary>مادة استهلاكية (لاصق، قصدير، حماية...): تُضاف للطلب بتكلفة الاستعمال</summary>
+    public bool Consumable;
+    /// <summary>تُقترح على الزبون عند التسليم (حماية شاشة، كفر...)، لأنواع أعطال محددة أو للكل</summary>
+    public bool Upsell;
+    public string UpsellFor = "";
 }
 
-public class Expense { public string Id, Description = "مصروف", Date; public double Amount; }
+/// <summary>مصروف، من أي صندوق دُفع (افتراضياً النقد)</summary>
+public class Expense { public string Id, Description = "مصروف", Date, Box = Lists.Cash; public double Amount; }
 
 /// <summary>حركة مورد: شراء بالدَّين، دفعة، أو مرتجع قطعة معيبة (يُخصم من حسابه)</summary>
-public class SupplierTx { public string Id, Supplier = "", Type = "purchase", Date, Note = "", DueDate = ""; public double Amount; }
+public class SupplierTx { public string Id, Supplier = "", Type = "purchase", Date, Note = "", DueDate = "", Box = Lists.Cash; public double Amount; }
 
 public class Driver { public string Id, Printer = "", Brand = "", Os = "", Url = "", Note = "", UpdatedAt; }
 
@@ -283,14 +293,16 @@ public static class Json
             Compatible = S(i, "compatible"), Supplier = S(i, "supplier"),
             Cost = Math.Max(0, M(i, "cost")), SalePrice = Math.Max(0, M(i, "salePrice")),
             Qty = i["qty"] is JsonValue q ? Txt.OptInt(q.ToString()) : null, MinQty = i["minQty"] is JsonValue mq ? Txt.OptInt(mq.ToString()) : null,
-            Notes = S(i, "notes"), UpdatedAt = OrNull(S(i, "updatedAt")) ?? Txt.Now, SupWarranty = Days(i, "supWarranty")
+            Notes = S(i, "notes"), UpdatedAt = OrNull(S(i, "updatedAt")) ?? Txt.Now, SupWarranty = Days(i, "supWarranty"),
+            Consumable = B(i, "consumable"), Upsell = B(i, "upsell"), UpsellFor = S(i, "upsellFor")
         };
     }
 
     public static JsonObject ToJson(InvItem i) => new()
     {
         ["id"] = i.Id, ["name"] = i.Name, ["category"] = i.Category, ["compatible"] = i.Compatible, ["supplier"] = i.Supplier,
-        ["cost"] = i.Cost, ["salePrice"] = i.SalePrice, ["qty"] = i.Qty, ["minQty"] = i.MinQty, ["notes"] = i.Notes, ["updatedAt"] = i.UpdatedAt, ["supWarranty"] = i.SupWarranty
+        ["cost"] = i.Cost, ["salePrice"] = i.SalePrice, ["qty"] = i.Qty, ["minQty"] = i.MinQty, ["notes"] = i.Notes, ["updatedAt"] = i.UpdatedAt, ["supWarranty"] = i.SupWarranty,
+        ["consumable"] = i.Consumable, ["upsell"] = i.Upsell, ["upsellFor"] = i.UpsellFor
     };
 
     public static Expense Expense(JsonNode e)
@@ -298,10 +310,10 @@ public static class Json
         if (e is not JsonObject) return null;
         double a = M(e, "amount");
         if (a <= 0) return null;
-        return new Expense { Id = OrNull(S(e, "id")) ?? Txt.Uid("e"), Description = OrNull(S(e, "description")) ?? "مصروف", Amount = a, Date = OrNull(Txt.Cut10(S(e, "date"))) ?? Txt.Today };
+        return new Expense { Id = OrNull(S(e, "id")) ?? Txt.Uid("e"), Description = OrNull(S(e, "description")) ?? "مصروف", Amount = a, Date = OrNull(Txt.Cut10(S(e, "date"))) ?? Txt.Today, Box = OrNull(S(e, "box")) ?? Lists.Cash };
     }
 
-    public static JsonObject ToJson(Expense e) => new() { ["id"] = e.Id, ["description"] = e.Description, ["amount"] = e.Amount, ["date"] = e.Date };
+    public static JsonObject ToJson(Expense e) => new() { ["id"] = e.Id, ["description"] = e.Description, ["amount"] = e.Amount, ["date"] = e.Date, ["box"] = e.Box };
 
     public static SupplierTx Stx(JsonNode t)
     {
@@ -311,11 +323,11 @@ public static class Json
         return new SupplierTx
         {
             Id = OrNull(S(t, "id")) ?? Txt.Uid("st"), Supplier = S(t, "supplier"), Type = S(t, "type") is "payment" or "return" ? S(t, "type") : "purchase",
-            Amount = a, Date = OrNull(Txt.Cut10(S(t, "date"))) ?? Txt.Today, Note = S(t, "note"), DueDate = Txt.Cut10(S(t, "dueDate"))
+            Amount = a, Date = OrNull(Txt.Cut10(S(t, "date"))) ?? Txt.Today, Note = S(t, "note"), DueDate = Txt.Cut10(S(t, "dueDate")), Box = OrNull(S(t, "box")) ?? Lists.Cash
         };
     }
 
-    public static JsonObject ToJson(SupplierTx t) => new() { ["id"] = t.Id, ["supplier"] = t.Supplier, ["type"] = t.Type, ["amount"] = t.Amount, ["date"] = t.Date, ["note"] = t.Note, ["dueDate"] = t.DueDate };
+    public static JsonObject ToJson(SupplierTx t) => new() { ["id"] = t.Id, ["supplier"] = t.Supplier, ["type"] = t.Type, ["amount"] = t.Amount, ["date"] = t.Date, ["note"] = t.Note, ["dueDate"] = t.DueDate, ["box"] = t.Box };
 
     public static Driver Driver(JsonNode d)
     {

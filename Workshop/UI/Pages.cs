@@ -188,6 +188,13 @@ public class DashboardPage : StackPage
         var overdue = Installments.Overdue();
         if (overdue.Count > 0)
             list.Add(new(2, "calendar", $"{overdue.Count} طلب عليه أقساط متأخرة", overdue.Take(6).Select(o => Item(o, $"  (باقي {Txt.Money(Calc.RemainingOf(o))})")).ToList()));
+        var kiosk = Store.Orders.Where(o => o.X.Kiosk && !o.X.KioskReviewed && Calc.IsOpen(o)).ToList();
+        if (kiosk.Count > 0)
+            list.Insert(0, new(2, "file-plus", $"{kiosk.Count} طلب من شاشة الزبون بانتظار المراجعة", kiosk.Take(6).Select(o => new AlertsPanel.Item($"{o.CustomerName} — {o.Device}  ({o.RefNo})", () => Acts.Edit(o))).ToList(),
+                "افتح الطلب، تأكد من البيانات وحالة الجهاز، ثم احفظ."));
+        var toolsDue = Tools.Due();
+        if (toolsDue.Count > 0)
+            list.Add(new(1, "wrench", $"{toolsDue.Count} أداة تحتاج صيانة", toolsDue.Take(6).Select(t => new AlertsPanel.Item($"{t.Name} — {Txt.FmtShortDate(Tools.NextService(t))}", ToolsDialog.Open)).ToList()));
         var stale = Stale.List();
         if (stale.Count > 0)
             list.Add(new(1, "clock", $"{stale.Count} طلب بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر", stale.Take(6).Select(o => Item(o, $"  ({Calc.StatusDays(o)} يوم)")).ToList(),

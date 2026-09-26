@@ -33,7 +33,7 @@ public static class Calc
     public static string WarrantyEnd(Order o)
     {
         if (o.Status != K.Done || o.DateDelivered == "") return "";
-        int days = WarrantyDays(o.Warranty);
+        int days = WarrantyDays(o.Warranty) + (o.X.ExtWarranty != "" ? WarrantyDays(o.X.ExtWarranty) : 0);
         if (days == 0 || Txt.ParseDate(o.DateDelivered) is not DateTime d) return "";
         return Txt.Iso(d.AddDays(days));
     }
@@ -85,7 +85,7 @@ public static class Calc
     /// <summary>المقبوض فعلًا في فترة: الدفعات المؤرخة، وأي مبلغ قديم بلا تاريخ يُنسب ليوم الاستلام</summary>
     public static double PaymentsInRange(Order o, Func<string, bool> test)
     {
-        double sum = o.PaymentHistory.Where(p => !p.IsCredit && test(p.Date)).Sum(p => p.Amount);
+        double sum = o.PaymentHistory.Where(p => !p.IsNonCash && test(p.Date)).Sum(p => p.Amount);
         double undated = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
         if (undated > 0 && test(o.DateReceived)) sum += undated;
         return sum;
@@ -96,7 +96,7 @@ public static class Calc
         var m = K.PayMethods.ToDictionary(x => x, _ => 0.0);
         foreach (var o in Store.Orders)
         {
-            foreach (var p in o.PaymentHistory.Where(p => !p.IsCredit && test(p.Date)))
+            foreach (var p in o.PaymentHistory.Where(p => !p.IsNonCash && test(p.Date)))
                 m[p.Method ?? Lists.Cash] = m.GetValueOrDefault(p.Method ?? Lists.Cash) + p.Amount;
             double undated = o.Paid - o.PaymentHistory.Sum(p => p.Amount);
             if (undated > 0 && test(o.DateReceived)) m[Lists.Cash] = m.GetValueOrDefault(Lists.Cash) + undated;
@@ -289,7 +289,7 @@ public static class Calc
     {
         public string D;
         public Dictionary<string, double> Methods;
-        public double CashIn, ExpTotal, SupPaid, Revenue, Parts, Loss, NewDebt, Profit, Drawer, RefundTotal;
+        public double CashIn, ExpTotal, SupPaid, Revenue, Parts, Loss, NewDebt, Profit, Drawer, RefundTotal, Withdrawn;
         public List<Expense> Exps;
         public List<Order> Received, Delivered, Cancelled;
         public List<(Order O, Payment P)> Payments, Refunds;
@@ -311,12 +311,19 @@ public static class Calc
         c.Parts = c.Delivered.Sum(PartsCost);
         c.Loss = c.Cancelled.Sum(PartsCost);
         c.NewDebt = closed.Where(o => o.AccountId == null).Sum(RemainingOf);
-        var all = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d && !p.IsCredit).Select(p => (o, p))).ToList();
+        var all = Store.Orders.SelectMany(o => o.PaymentHistory.Where(p => p.Date == d && !p.IsNonCash).Select(p => (o, p))).ToList();
         c.Payments = all.Where(x => !x.p.IsRefund).OrderByDescending(x => x.p.Amount).ToList();
         c.Refunds = all.Where(x => x.p.IsRefund).ToList();
         c.RefundTotal = -c.Refunds.Sum(x => x.P.Amount);
         c.Profit = c.Revenue - c.Parts - c.ExpTotal - c.Loss;
-        c.Drawer = c.Methods.GetValueOrDefault(Lists.Cash) - c.ExpTotal - c.SupPaid;
+        // الدرج: النقد فقط — المصاريف ودفعات الموردين من صناديق أخرى (بنك، زين كاش) لا تنقصه
+        c.Withdrawn = Boxes.Withdrawals().Where(w => w.Date == d).Sum(w => w.Amount);
+        var tr = Boxes.Transfers().Where(t => t.Date == d).ToList();
+        c.Drawer = c.Methods.GetValueOrDefault(Lists.Cash)
+            - c.Exps.Where(e => e.Box == Lists.Cash).Sum(e => e.Amount)
+            - Store.SupplierTx.Where(t => t.Type == "payment" && t.Date == d && t.Box == Lists.Cash).Sum(t => t.Amount)
+            - Boxes.Withdrawals().Where(w => w.Date == d && w.Box == Lists.Cash).Sum(w => w.Amount)
+            - tr.Where(t => t.From == Lists.Cash).Sum(t => t.Amount) + tr.Where(t => t.To == Lists.Cash).Sum(t => t.Amount);
         return c;
     }
 

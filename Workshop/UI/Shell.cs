@@ -50,6 +50,7 @@ public class MainForm : BaseForm
         new("inventory", "قطع الغيار والأسعار", "package", Amber, () => new InventoryPage()),
         new("suppliers", "حسابات الموردين", "store", Teal, () => new SuppliersPage()),
         new("accounts", "التجار والشركات", "briefcase", Violet, () => new AccountsPage()),
+        new("boxes", "الصناديق والمسحوبات", "wallet-cards", Green, () => new BoxesPage()),
         new("reports", "التقارير والمصاريف", "chart-column", Green, () => new ReportsPage()),
         new("staff", "الموظفون والرواتب", "id-card", Slate, () => new StaffPage()),
     };
@@ -62,7 +63,7 @@ public class MainForm : BaseForm
     readonly TopBar top;
     readonly Panel logo;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 30_000 };
-    NavBtn trashBtn, defectsBtn, remindersBtn;
+    NavBtn trashBtn, defectsBtn, remindersBtn, toolsBtn;
     string current;
     bool reloadQueued;
 
@@ -118,6 +119,9 @@ public class MainForm : BaseForm
         remindersBtn.BadgeColor = Red;
         defectsBtn = Tool("القطع المعيبة", "triangle-alert", Amber, DefectsDialog.Open);
         defectsBtn.BadgeColor = Amber;
+        Tool("رقم الدور", "list-ordered", Blue, QueueDialog.Open);
+        toolsBtn = Tool("أدوات الورشة", "wrench", Slate, ToolsDialog.Open);
+        toolsBtn.BadgeColor = Amber;
         Tool("تعريفات الطابعات", "printer", Slate, DriversDialog.Open);
         trashBtn = Tool("المحذوفات", "trash-2", Red, TrashDialog.Open);
         Tool("الإعدادات", "settings", Slate, SettingsDialog.Open);
@@ -283,6 +287,7 @@ public class MainForm : BaseForm
         trashBtn.Count = Store.Trash.Count;
         defectsBtn.Count = Defects.PendingCount;
         remindersBtn.Count = Reminders.DueCount;
+        toolsBtn.Count = Tools.Due().Count;
         nav["accounts"].Count = Store.Accounts.Count(a => Accounts.Due(a) > 0);
     }
 

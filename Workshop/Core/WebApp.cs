@@ -16,13 +16,15 @@ public static class WebApp
     public static bool Enabled => Store.Flag("web_on");
     public static int Port => int.TryParse(Store.Get("web_port", "8095"), out var p) && p is > 1024 and < 65535 ? p : 8095;
     public static string Pin => Store.Get("web_pin");
+    /// <summary>رمز صاحب المحل: يفتح لوحة الأرقام (الإيراد، الربح، الصناديق) إضافة لصفحة الفني</summary>
+    public static string OwnerPin => Store.Get("web_owner_pin");
     public static bool Running => listener != null;
     public static string LastError { get; private set; } = "";
 
     static TcpListener listener;
     static CancellationTokenSource cts;
     static SynchronizationContext ui;
-    static readonly HashSet<string> tokens = new();
+    static readonly Dictionary<string, string> tokens = new();   // الرمز ← الدور: tech / owner / kiosk
     static readonly Dictionary<string, (int Fails, DateTime Until)> guard = new();
 
     public static void Start(SynchronizationContext context)
@@ -158,12 +160,12 @@ public static class WebApp
         if (r.Path == "/login" && r.Method == "POST")
         {
             lock (guard) if (guard.TryGetValue(r.Ip, out var g) && g.Until > DateTime.Now) return Html(Page("الدخول", LoginForm("محاولات كثيرة — انتظر خمس دقائق")));
-            if (r.Form.GetValueOrDefault("pin") == Pin)
+            var pin = r.Form.GetValueOrDefault("pin");
+            string role = pin == null || pin == "" ? null : OwnerPin.Length >= 4 && pin == OwnerPin ? "owner" : pin == Pin ? "tech" : null;
+            if (role != null)
             {
                 lock (guard) guard.Remove(r.Ip);
-                var t = Convert.ToHexString(RandomNumberGenerator.GetBytes(18));
-                lock (tokens) tokens.Add(t);
-                return Redirect("/", $"Set-Cookie: wt={t}; HttpOnly; Path=/; Max-Age=2592000\r\n");
+                return Redirect(role == "owner" ? "/owner" : "/", Cookie(role));
             }
             lock (guard)
             {
@@ -172,10 +174,29 @@ public static class WebApp
             }
             return Html(Page("الدخول", LoginForm("الرمز غير صحيح")));
         }
-        bool authed;
-        lock (tokens) authed = r.Cookie("wt") is string tk && tokens.Contains(tk);
-        if (!authed) return Html(Page("الدخول", LoginForm("")));
+        string who = null;
+        lock (tokens) if (r.Cookie("wt") is string tk) tokens.TryGetValue(tk, out who);
+        if (who == null) return Html(Page("الدخول", LoginForm("")));
+
+        // شاشة الزبون: لا يرى الزبون غير نموذج التسجيل، والخروج منها يحتاج رمز الدخول
+        if (who == "kiosk")
+        {
+            if (r.Path == "/kiosk" && r.Method == "POST")
+            {
+                if (r.Form.ContainsKey("exit"))
+                {
+                    if (r.Form.GetValueOrDefault("pin") is string ep && ep != "" && (ep == Pin || ep == OwnerPin)) { lock (tokens) tokens.Remove(r.Cookie("wt")); return Redirect("/"); }
+                    return Html(KioskPage("", "الرمز غير صحيح"));
+                }
+                var (ok, text) = OnUi(() => KioskSubmit(r.Form));
+                return Html(KioskPage(ok ? text : "", ok ? "" : text, ok ? null : r.Form));
+            }
+            return Html(KioskPage("", ""));
+        }
         if (r.Path == "/logout") { lock (tokens) tokens.Remove(r.Cookie("wt")); return Redirect("/"); }
+        if (r.Path == "/kiosk") { lock (tokens) tokens.Remove(r.Cookie("wt")); return Redirect("/kiosk", Cookie("kiosk")); }
+        if (r.Path == "/owner")
+            return who == "owner" ? Html(OnUi(OwnerPage)) : Html(Page("غير مسموح", "<div class=card>هذه الصفحة لصاحب المحل فقط — ادخل برمز صاحب المحل.</div>"));
 
         if (r.Path == "/" && r.Method == "GET") return Html(OnUi(() => ListPage(r.Query.GetValueOrDefault("q", ""), r.Query.GetValueOrDefault("tech", ""))));
         var parts = r.Path.Trim('/').Split('/');
@@ -190,6 +211,102 @@ public static class WebApp
             }
         }
         return ("404 Not Found", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("غير موجود"), "");
+    }
+
+    static string Cookie(string role)
+    {
+        var t = Convert.ToHexString(RandomNumberGenerator.GetBytes(18));
+        lock (tokens) tokens[t] = role;
+        return $"Set-Cookie: wt={t}; HttpOnly; Path=/; Max-Age=2592000\r\n";
+    }
+
+    // ---------------- لوحة صاحب المحل ----------------
+    static string OwnerPage()
+    {
+        var today = Txt.Today;
+        var month = today[..7] + "-01";
+        var d = Calc.Summarize(today, today);
+        var m = Calc.Summarize(month, today);
+        var c = Calc.Close(today);
+        var open = Store.Orders.Where(Calc.IsOpen).ToList();
+        double debts = Calc.GetDebts().Sum(x => x.Debt);
+        string Box(string k, string v, string color = "#172033", string sub = "") =>
+            $"<div class=card style=\"margin:0\"><div class=k>{E(k)}</div><div style=\"font-size:20px;font-weight:700;color:{color}\">{E(v)}</div>{(sub != "" ? $"<div class=k>{E(sub)}</div>" : "")}</div>";
+        var sb = new StringBuilder($"<h3>اليوم — {E(Txt.FmtDate(today))}</h3><div class=grid>");
+        sb.Append(Box("المقبوض اليوم", Txt.Money(d.Cash), "#1D8657"));
+        sb.Append(Box("في الدرج (نقداً)", Txt.Money(c.Drawer), "#2B55C9", c.Withdrawn > 0 ? "بعد مسحوبات " + Txt.Money(c.Withdrawn) : ""));
+        sb.Append(Box("مُسلّم اليوم", d.Active.Count.ToString(), "#172033", "ربح " + Txt.Money(d.Profit)));
+        sb.Append(Box("مُستلم اليوم", d.Received.Count.ToString()));
+        sb.Append("</div><h3>هذا الشهر</h3><div class=grid>");
+        sb.Append(Box("الإيراد", Txt.Money(m.Revenue), "#2B55C9"));
+        sb.Append(Box("صافي الربح", Txt.Money(m.Profit), m.Profit >= 0 ? "#1D8657" : "#C43F2C"));
+        sb.Append(Box("المسحوبات", Txt.Money(Boxes.WithdrawnIn(month, today)), "#5E6A7E"));
+        sb.Append(Box("المصاريف", Txt.Money(m.Expenses), "#C43F2C"));
+        sb.Append("</div><h3>الآن</h3><div class=grid>");
+        sb.Append(Box("أجهزة في الورشة", open.Count.ToString(), "#172033", $"متأخر {open.Count(Calc.IsLate)} — جاهز {open.Count(o => o.Status == K.Ready)}"));
+        sb.Append(Box("ديون الزبائن", Txt.Money(debts), debts > 0 ? "#C43F2C" : "#1D8657"));
+        foreach (var (box, bal) in Boxes.Balances().Where(kv => Math.Abs(kv.Value) > 0.001).Select(kv => (kv.Key, kv.Value)))
+            sb.Append(Box("صندوق " + box, Txt.Money(bal), "#0D7C86"));
+        sb.Append("</div>");
+        int kiosk = Store.Orders.Count(o => o.X.Kiosk && !o.X.KioskReviewed);
+        if (kiosk > 0) sb.Append($"<div class=card style=\"margin-top:10px\">📝 {kiosk} طلب من شاشة الزبون بانتظار المراجعة</div>");
+        var last = Store.Orders.Where(o => o.Status == K.Done && o.DateDelivered == today).OrderByDescending(o => o.CompletedAt, StringComparer.Ordinal).Take(10).ToList();
+        if (last.Count > 0)
+        {
+            sb.Append("<h3>تسليمات اليوم</h3>");
+            foreach (var o in last) sb.Append($"<div class=card><div class=row><b>{E(o.Device)}</b><span>{E(Txt.Money(o.Price))}</span></div><div class=k>{E(o.CustomerName)} — {E(o.Technician)}</div></div>");
+        }
+        sb.Append("<p><a class=btn href=\"/\">الأجهزة</a> <a class=btn href=\"/owner\">تحديث</a></p>");
+        return Page("لوحة صاحب المحل", sb.ToString());
+    }
+
+    // ---------------- شاشة الزبون (تابلت عند الاستقبال) ----------------
+    static string KioskPage(string done, string err, Dictionary<string, string> keep = null)
+    {
+        string V(string k) => E(keep?.GetValueOrDefault(k, "") ?? "");
+        var types = string.Concat(K.IssueTypes.Select(t => $"<option{(keep?.GetValueOrDefault("type") == t ? " selected" : "")}>{E(t)}</option>"));
+        var sb = new StringBuilder();
+        if (done != "") sb.Append($"<div class=msg style=\"font-size:18px;text-align:center\">{E(done)}</div>");
+        if (err != "") sb.Append($"<div class=card><p class=late>{E(err)}</p></div>");
+        sb.Append($@"<form class=card method=post action=/kiosk><h3>تسجيل جهاز للصيانة</h3><p class=k>املأ بياناتك وسيراجعها الموظف ويعطيك وصل الاستلام.</p>
+<input name=name required placeholder=""الاسم *"" value=""{V("name")}""><input name=phone required inputmode=tel placeholder=""رقم الهاتف *"" value=""{V("phone")}"">
+<input name=device required placeholder=""الجهاز والموديل * (مثل: iPhone 13 Pro)"" value=""{V("device")}""><select name=type>{types}</select>
+<textarea name=issue rows=3 required placeholder=""ما المشكلة؟ *"">{V("issue")}</textarea>
+<input name=ref placeholder=""من أرسلك إلينا؟ (اختياري)"" value=""{V("ref")}"">
+<button class=p style=""width:100%;font-size:18px"">إرسال</button></form>
+<details class=card><summary class=k>للموظف: خروج من شاشة الزبون</summary><form method=post action=/kiosk><input type=hidden name=exit value=1><input name=pin type=password inputmode=numeric placeholder=""رمز الدخول""><button>خروج</button></form></details>");
+        return Page("تسجيل جهاز", sb.ToString());
+    }
+
+    /// <summary>ينشئ الطلب من نموذج شاشة الزبون (قيد الفحص، بانتظار مراجعة الموظف)</summary>
+    static (bool, string) KioskSubmit(Dictionary<string, string> f)
+    {
+        string name = f.GetValueOrDefault("name", "").Trim(), phone = Txt.LatinDigits(f.GetValueOrDefault("phone", "").Trim()), device = f.GetValueOrDefault("device", "").Trim(), issue = f.GetValueOrDefault("issue", "").Trim();
+        if (name == "" || phone == "" || device == "" || issue == "") return (false, "أكمل الحقول المطلوبة");
+        if (name.Length > 80 || device.Length > 80 || issue.Length > 600) return (false, "النص طويل جداً");
+        var type = f.GetValueOrDefault("type", "");
+        var now = Txt.Now;
+        var o = new Order
+        {
+            Id = Txt.Uid(), RefNo = Txt.GenRef(Calc.UsedRefs()), CustomerName = name, Phone = phone, Device = Models.Similar(device) ?? device,
+            IssueType = K.IssueTypes.Contains(type) ? type : K.IssueTypes.LastOrDefault() ?? "أخرى", Issue = issue, Status = K.Check,
+            DateReceived = Txt.Today, CreatedAt = now, StartedAt = now, StatusAt = now, UpdatedAt = now, Warranty = K.Warranties.FirstOrDefault() ?? "",
+            PaymentStatus = K.PayNone,
+        };
+        o.X.Kiosk = true;
+        o.X.Source = "شاشة الزبون";
+        o.X.Branch = Branches.Current;
+        var rf = f.GetValueOrDefault("ref", "").Trim();
+        if (rf != "" && Txt.Fold(rf) != Txt.Fold(name))
+        {
+            o.X.ReferredBy = rf;
+            o.X.ReferredPhone = Store.Orders.Where(p => Txt.Fold(p.CustomerName) == Txt.Fold(rf) && p.Phone != "").Select(p => p.Phone).FirstOrDefault() ?? "";
+        }
+        if (AutoAssign.On) o.Technician = AutoAssign.Pick(o.IssueType);
+        Store.SaveOrder(o);
+        Store.NotifyChanged();
+        Notify.Alert("kiosk", $"📝 طلب جديد من شاشة الزبون\n{o.RefNo} — {name} ({phone})\n{o.Device} — {o.IssueType}");
+        return (true, $"شكراً {name}! رقم طلبك {o.RefNo} — تفضّل عند الموظف لتسليم الجهاز.");
     }
 
     // ---------------- الإجراءات (داخل البرنامج) ----------------
@@ -273,7 +390,7 @@ header a{{color:#fff;text-decoration:none}} main{{padding:12px;max-width:720px;m
 button,.btn{{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:#E9EDF3;color:#172033;margin:3px 0}} .p{{background:#2B55C9;color:#fff}} .g{{background:#1D8657;color:#fff}} .r{{background:#C43F2C;color:#fff}}
 input,select,textarea{{font:inherit;width:100%;padding:10px;border:1px solid #CDD3DF;border-radius:10px;margin:4px 0}} .msg{{background:#E1F3EA;color:#1D8657;padding:10px;border-radius:10px;margin-bottom:10px}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:6px}} h3{{margin:6px 0}} img{{max-width:100%;border-radius:10px}}
-</style></head><body><header><a href=""/"">🔧 {E(Store.ShopName)}</a><a href=""/logout"" style=""font-size:13px"">خروج</a></header><main>{body}</main></body></html>";
+</style></head><body><header><a href=""/"">🔧 {E(Store.ShopName)}</a><span style=""font-size:13px""><a href=""/kiosk"">شاشة الزبون</a> · <a href=""/logout"">خروج</a></span></header><main>{body}</main></body></html>";
 
     static string LoginForm(string err) => $@"<div class=""card""><h3>صفحة الفني</h3>{(err != "" ? $"<p class=late>{E(err)}</p>" : "")}
 <form method=post action=/login><input name=pin type=password inputmode=numeric placeholder=""رمز الدخول (PIN)"" autofocus><button class=p style=""width:100%"">دخول</button></form></div>";

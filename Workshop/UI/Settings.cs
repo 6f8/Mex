@@ -29,12 +29,13 @@ public partial class SettingsDialog : DialogShell
         tabs.Add("القوائم", ListsTab(), "list");
         tabs.Add("سير العمل", WorkflowTab(), "wrench");
         tabs.Add("الفنيون", TechsTab(), "wrench");
+        tabs.Add("المبيعات والولاء", SalesTab(), "gift", "المبيعات");
         tabs.Add("رسائل واتساب", MessagesTab(), "message-circle", "الرسائل");
         tabs.Add("التقرير اليومي والتنبيهات", NotifyTab(), "send", "التنبيهات");
         tabs.Add("الهاتف والرسائل", PhoneTab(), "smartphone", "الهاتف");
         tabs.Add("الخصوصية والحماية", PrivacyTab(), "shield-check", "الحماية");
         tabs.Add("النسخ الاحتياطي والبيانات", DataTab(), "database", "البيانات");
-        tabs.SelectedIndex = page switch { "lists" => 2, "workflow" => 3, "techs" => 4, "messages" => 5, "notify" => 6, _ => 0 };
+        tabs.SelectedIndex = page switch { "lists" => 2, "workflow" => 3, "techs" => 4, "sales" => 5, "messages" => 6, "notify" => 7, "web" => 8, _ => 0 };
         Body.Controls.Add(tabs);
 
         AddButton("حفظ", DialogResult.None, BtnKind.Primary, "save").Click += (s, e) => Save();
@@ -238,6 +239,7 @@ public partial class SettingsDialog : DialogShell
         Store.SetFlag("lock_delivered", lockDelivered.Checked);
         SaveNotify();
         SaveWorkflow();
+        SaveSales();
         SavePhone();
         if (SaveZoom()) themeChanged = true;
         foreach (var (k, t) in dash) Store.SetFlag("dash_" + k, t.Checked);

@@ -20,7 +20,37 @@ public partial class OrderView
             g.Controls.Add(KV("سقف الزبون", Txt.Money(b) + (o.Price > b ? "  — ⚠ السعر تجاوزه" : ""), 440, o.Price > b ? Pal.Bad : null));
         if (x.SealNo != "") g.Controls.Add(KV("رقم ملصق الضمان", x.SealNo));
         if (x.Branch != "" && x.Branch != Branches.Current) g.Controls.Add(KV("الفرع", x.Branch));
+        if (x.InvoiceNo != "") g.Controls.Add(KV("رقم الفاتورة", x.InvoiceNo));
+        if (x.ExtWarranty != "") g.Controls.Add(KV("ضمان ممتد", $"{x.ExtWarranty} — {Txt.Money(x.ExtWarrantyFee)}"));
+        if (x.ReferredBy != "") g.Controls.Add(KV("أحاله", x.ReferredBy + (x.ReferredPhone != "" ? " — " + x.ReferredPhone : "")));
+        if (x.Kiosk) g.Controls.Add(KV("سُجّل من", x.KioskReviewed ? "شاشة الزبون (رُوجع)" : "شاشة الزبون — لم يُراجع بعد", 440, x.KioskReviewed ? null : Pal.Amber));
         if (g.Controls.Count > 0) flow.Controls.Add(g);
+
+        // ---------- قرار الضمان ----------
+        if (o.WarrantyOf != null)
+        {
+            flow.Controls.Add(W.Head("قرار الضمان", 900));
+            var src = Calc.Find(o.WarrantyOf);
+            if (src != null)
+                flow.Controls.Add(Line($"الإصلاح الأصلي {src.RefNo} — {src.IssueType} — سُلّم {Txt.FmtDate(src.DateDelivered)}",
+                    Calc.InWarranty(src, Txt.Cut10(o.CreatedAt ?? Txt.Today)) ? "كان ضمن الضمان عند الاستلام" : "انتهى ضمانه عند الاستلام", Calc.InWarranty(src, Txt.Cut10(o.CreatedAt ?? Txt.Today)) ? Pal.Good : Pal.Bad));
+            var wr = W.Flow(false);
+            if (x.WarrantyDecision != "")
+                flow.Controls.Add(Line((x.WarrantyDecision == "covered" ? "✓ يشمله الضمان — " : "✕ لا يشمله الضمان — ") + x.WarrantyReason, Txt.FmtShortDate(Txt.Cut10(x.WarrantyDecidedAt)), x.WarrantyDecision == "covered" ? Pal.Good : Pal.Bad));
+            var bYes = W.Btn("يشمله الضمان", "badge-check", BtnKind.Success, 130);
+            var bNo = W.Btn("لا يشمله (مع السبب)", "ban", BtnKind.Danger, 160);
+            bYes.Click += (_, _) => { if (Calc.Find(id) is Order cur) WarrantyDecision.Decide(cur, true); };
+            bNo.Click += (_, _) => { if (Calc.Find(id) is Order cur) WarrantyDecision.Decide(cur, false); };
+            wr.Controls.Add(bYes);
+            wr.Controls.Add(bNo);
+            if (x.WarrantyDecision != "")
+            {
+                var bLetter = W.Btn("طباعة خطاب القرار", "printer", BtnKind.Soft, 150);
+                bLetter.Click += (_, _) => { if (Calc.Find(id) is Order cur) Printer.WarrantyLetter(cur); };
+                wr.Controls.Add(bLetter);
+            }
+            flow.Controls.Add(wr);
+        }
 
         if (x.Marks.Count > 0)
         {
@@ -61,6 +91,14 @@ public partial class OrderView
         var bTimer = W.Btn(running ? "إيقاف" : "بدء العمل", running ? "square" : "clock", running ? BtnKind.Danger : BtnKind.Success, 120);
         bTimer.Click += (_, _) => { if (Calc.Find(id) is Order cur) { WorkTimer.Toggle(cur, cur.Technician); Store.NotifyChanged(); } };
         flow.Controls.Add(bTimer);
+
+        // جهاز تركه صاحبه: يتحول إلى جهاز قطع
+        if (o.Status == K.Cancelled || (o.Status == K.Ready && Txt.ParseTime(o.ReadyAt) is DateTime ra && (DateTime.Now - ra).TotalDays > 60))
+        {
+            var bScrap = W.Btn("تحويل إلى جهاز قطع", "boxes", BtnKind.Ghost, 160);
+            bScrap.Click += (_, _) => { if (Calc.Find(id) is Order cur) ScrapDialog.FromOrder(cur); };
+            flow.Controls.Add(bScrap);
+        }
     }
 
     void BuildAfterPayments(FlowLayoutPanel flow, Order o)

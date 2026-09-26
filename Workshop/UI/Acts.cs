@@ -68,7 +68,7 @@ public static class Acts
             Notify.Alert("debt", $"⚠️ سُلّم جهاز وعليه دين\n{n.RefNo} — {n.CustomerName} ({n.Phone})\n{n.Device}\nالمتبقي: {Txt.Money(rem)} من {Txt.Money(n.Price)}");
         bool overpaid = status == K.Cancelled && n.Paid > Calc.ChargeOf(n);
         if (overpaid) Dialogs.Warn($"{n.Device}: أُلغي وعليه دفعات {Txt.Money(n.Paid)}.\nافتح الطلب واكتب أجرة الفحص، أو سجّل المبلغ الذي أرجعته للزبون بزر «إرجاع مبلغ».");
-        else Toast.Show(rem > 0 ? $"{n.Device}: سُلّم وعليه متبقٍ {Txt.Money(rem)}" : $"{n.Device}: {status}", rem > 0 ? Tone.Warning : Tone.Success);
+        else Toast.Show(rem > 0 ? $"{n.Device}: سُلّم وعليه متبقٍ {Txt.Money(rem)}" : $"{n.Device}: {status}", rem > 0 ? Tone.Warning : Tone.Success);        AfterStatus.Run(n.Id, prev);
     }
 
     public static bool Delete(Order o)
@@ -118,7 +118,7 @@ public static class Acts
     {
         if (o == null) return;
         var t = Templates(o);
-        string want = o.Status == K.Ready ? "ready" : o.Status == K.Approval ? "quote" : o.Status == K.Done ? (Calc.RemainingOf(o) > 0 ? "debt" : "thanks") : o.Status == K.Check ? "received" : "progress";
+        string want = o.Status == K.Ready ? "ready" : o.Status == K.Approval ? "quote" : o.Status == K.Done ? (Calc.RemainingOf(o) > 0 ? "debt" : Store.Get("google_review_url") != "" ? "review" : "thanks") : o.Status == K.Check ? "received" : "progress";
         using var d = new WaDialog(o.CustomerName, o.Phone, t, Math.Max(0, t.FindIndex(x => x.Id == want)));
         d.ShowModal();
     }

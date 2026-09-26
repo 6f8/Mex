@@ -13,6 +13,8 @@ public static class Lists
     public const string Cash = "نقد";
     /// <summary>طريقة خاصة: استعمال رصيد الزبون (لا تدخل الصندوق)</summary>
     public const string Credit = "رصيد الزبون";
+    /// <summary>طريقة خاصة: الدفع بنقاط الولاء (لا تدخل الصندوق)</summary>
+    public const string Points = "نقاط الولاء";
     public static readonly (string Key, string Title)[] DefChecks =
     {
         ("screen", "الشاشة واللمس"), ("faceid", "Face ID / البصمة"), ("camF", "الكاميرا الأمامية"), ("camB", "الكاميرا الخلفية"),
@@ -55,7 +57,7 @@ public static class Lists
             try { items = (JsonNode.Parse(raw) as JsonArray)?.Select(x => Txt.Str(x?.ToString())).Where(x => x != "").Distinct().ToArray(); }
             catch { items = null; }
         if (items == null || items.Length == 0) items = Find(key).Defaults;
-        if (key == "pay_methods") items = new[] { Cash }.Concat(items.Where(x => x != Cash && x != Credit)).ToArray();
+        if (key == "pay_methods") items = new[] { Cash }.Concat(items.Where(x => x != Cash && x != Credit && x != Points)).ToArray();
         cache[key] = (raw, items);
         return items;
     }
@@ -88,6 +90,8 @@ public static class Lists
 public class Tech
 {
     public string Name = "";
+    /// <summary>أنواع الأعطال التي يتقنها (للتوزيع التلقائي). فارغة = كل الأنواع</summary>
+    public List<string> Skills = new();
     /// <summary>profit: نسبة من ربح الطلب، price: نسبة من سعره، fixed: مبلغ ثابت لكل جهاز مُسلَّم</summary>
     public string Basis = "profit";
     public double Value;
@@ -116,7 +120,11 @@ public static class Techs
                         var name = Txt.Str(n["name"]?.ToString());
                         if (name == "" || list.Any(t => Txt.Fold(t.Name) == Txt.Fold(name))) continue;
                         var basis = n["basis"]?.ToString();
-                        list.Add(new Tech { Name = name, Basis = Bases.Any(b => b.Key == basis) ? basis : "profit", Value = Math.Max(0, Txt.ParseMoney(n["value"]?.ToString())) });
+                        list.Add(new Tech
+                        {
+                            Name = name, Basis = Bases.Any(b => b.Key == basis) ? basis : "profit", Value = Math.Max(0, Txt.ParseMoney(n["value"]?.ToString())),
+                            Skills = (n["skills"] as JsonArray)?.Select(x => Txt.Str(x?.ToString())).Where(x => x != "").ToList() ?? new(),
+                        });
                     }
             }
             catch { }
@@ -128,7 +136,7 @@ public static class Techs
 
     public static void Save(IEnumerable<Tech> techs) =>
         Store.Set("technicians", new JsonArray(techs.Where(t => Txt.Str(t.Name) != "").Select(t => (JsonNode)new JsonObject
-        { ["name"] = Txt.Str(t.Name), ["basis"] = t.Basis, ["value"] = t.Value }).ToArray()).ToJsonString());
+        { ["name"] = Txt.Str(t.Name), ["basis"] = t.Basis, ["value"] = t.Value, ["skills"] = new JsonArray(t.Skills.Select(x => (JsonNode)x).ToArray()) }).ToArray()).ToJsonString());
 
     public static Tech Find(string name) => string.IsNullOrWhiteSpace(name) ? null : All.FirstOrDefault(t => Txt.Fold(t.Name) == Txt.Fold(name));
 
@@ -347,6 +355,7 @@ public static class Msg
         new("debt", "تذكير بالمتبقي", "مرحباً {الزبون}،\nنذكّرك بمبلغ متبقٍ قدره {المتبقي} عن صيانة جهازك ({الجهاز}) — المرجع {المرجع}.\nنشكر تعاونك.\n\n{التوقيع}"),
         new("thanks", "شكر بعد التسليم", "مرحباً {الزبون}،\nشكراً لاختيارك ورشتنا لصيانة جهازك ({الجهاز}).\nالضمان: {الضمان}\nساري حتى {نهاية_الضمان}\nاحتفظ بالرقم المرجعي {المرجع} لأي مراجعة.\nلأي ملاحظة لا تتردد بمراسلتنا.\n\n{التوقيع}"),
         new("stale", "إلغاء لعدم الرد على السعر", "مرحباً {الزبون}،\nلم يصلنا ردك على عرض سعر إصلاح جهازك ({الجهاز}) — المرجع {المرجع}.\nألغينا الطلب، ويمكنك استلام جهازك في أي وقت.\nأجرة الفحص: {أجرة_الفحص}\nإذا رغبت بالإصلاح لاحقاً يسعدنا ذلك.\n\n{التوقيع}"),
+        new("review", "طلب تقييم على Google", "مرحباً {الزبون}،\nشكراً لثقتك بنا في صيانة جهازك ({الجهاز}).\nإذا أعجبتك خدمتنا يسعدنا تقييمك لنا على Google — دقيقة واحدة تساعدنا كثيراً:\n{رابط_التقييم}\n{النقاط}\n\n{التوقيع}"),
         new("debts", "تذكير بكل ديون الزبون", "مرحباً {الزبون}،\nنذكّرك بالمبالغ المتبقية لدينا:\n{قائمة_الديون}\nالمجموع: {المجموع}\nنشكر تعاونك.\n\n{التوقيع}"),
     };
 
@@ -356,6 +365,7 @@ public static class Msg
         ("السعر", "سعر الإصلاح"), ("المدفوع", "ما دُفع"), ("المتبقي", "المتبقي (فارغ إذا مسدد)"), ("مسدد", "«المبلغ مسدد بالكامل» إذا لا يوجد متبقٍ"),
         ("الموعد", "التسليم المتوقع"), ("أجرة_الفحص", "أجرة الفحص إن وُجدت"), ("الضمان", "مدة الضمان"), ("نهاية_الضمان", "تاريخ انتهاء الضمان"),
         ("ملاحظة_الحالة", "جملة حسب الحالة"), ("الفني", "اسم الفني"), ("المحل", "اسم المحل"), ("هاتف_المحل", "هاتف المحل"), ("التوقيع", "اسم المحل — هاتفه"),
+        ("رابط_التقييم", "رابط التقييم على Google (من الإعدادات)"), ("النقاط", "رصيد نقاط الولاء إن وُجد"), ("رقم_الفاتورة", "رقم الفاتورة المتسلسل"),
         ("قائمة_الديون", "أجهزة الزبون المدينة (رسالة الديون)"), ("المجموع", "مجموع الديون (رسالة الديون)"),
     };
 
@@ -364,7 +374,7 @@ public static class Msg
 
     static Dictionary<string, string> Common() => new()
     {
-        ["المحل"] = Store.ShopName, ["هاتف_المحل"] = Store.ShopPhone,
+        ["المحل"] = Store.ShopName, ["هاتف_المحل"] = Store.ShopPhone, ["رابط_التقييم"] = Store.Get("google_review_url"),
         ["التوقيع"] = Store.ShopName + (Store.ShopPhone != "" ? " — " + Store.ShopPhone : ""),
     };
 
@@ -381,6 +391,9 @@ public static class Msg
         v["ملاحظة_الحالة"] = o.Status == K.Part ? "ننتظر وصول القطعة المطلوبة وسنكمل العمل فور وصولها." : "نعمل عليه وسنبلغك عند جاهزيته.";
         v["الفني"] = o.Technician;
         v["البنود"] = string.Join("\n", o.X.Items.Select(i => $"- {i.Desc}: {Txt.Money(i.Price)}"));
+        v["رقم_الفاتورة"] = o.X.InvoiceNo;
+        int pts = o.AccountId == null ? Loyalty.Balance(Calc.CustomerKey(o)) : 0;
+        v["النقاط"] = pts > 0 ? $"رصيد نقاطك: {pts} نقطة" + (pts >= Loyalty.MinRedeem ? $" (تساوي {Txt.Money(Loyalty.Worth(pts))})" : "") : "";
         return v;
     }
 

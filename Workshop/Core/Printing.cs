@@ -111,10 +111,12 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
     // ---------- فاتورة الصيانة ----------
     public static void Invoice(Order o)
     {
+        if (o.Status == K.Done) o = InvoiceNumbers.Ensure(o);
         double rem = Calc.RemainingOf(o);
         var we = Calc.WarrantyEnd(o);
         var src = Calc.Find(o.WarrantyOf);
-        var sb = new StringBuilder(Header("فاتورة صيانة", o.RefNo));
+        var sb = new StringBuilder(Header("فاتورة صيانة", o.X.InvoiceNo != "" ? o.X.InvoiceNo : o.RefNo));
+        if (o.X.InvoiceNo != "") sb.Append($"<div class=\"k\" style=\"text-align:left;margin:-6px 0 6px\">رقم الطلب: <b dir=\"ltr\">{Esc(o.RefNo)}</b></div>");
         sb.Append($@"<div class=""grid"">
 <div><span class=""k"">الزبون: </span><b>{Esc(o.CustomerName)}</b></div><div><span class=""k"">الهاتف: </span><b dir=""ltr"">{Esc(o.Phone == "" ? "—" : o.Phone)}</b></div>
 <div><span class=""k"">الجهاز: </span><b>{Esc(o.Device)}</b></div><div><span class=""k"">نوع العطل: </span><b>{Esc(o.IssueType)}</b></div>
@@ -135,6 +137,7 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
         if (QC.Done(o)) sb.Append(Row("فحص الجودة قبل التسليم", QC.Passed(o) ? "✓ كل البنود تعمل" : "لا يعمل: " + string.Join("، ", o.X.QC.Where(q => q.Value == "bad").Select(q => q.Key)), QC.Passed(o) ? "good" : "bad"));
         if (o.Accessories.Count > 0) sb.Append(Row("الملحقات المستلمة", string.Join("، ", o.Accessories)).Replace("<b class=\"\">", "<span>").Replace("</b></div>", "</span></div>"));
         sb.Append(Row("الضمان", o.Warranty + (we != "" ? " — حتى " + FmtDate(we) : "")));
+        if (o.X.ExtWarranty != "") sb.Append(Row("ضمان ممتد", $"{o.X.ExtWarranty} — {Money(o.X.ExtWarrantyFee)}"));
         if (src != null) sb.Append(Row("طلب ضمان", "للطلب " + src.RefNo));
         sb.Append(Row(o.Status == K.Cancelled ? "أجرة الفحص (الطلب ملغى)" : "مبلغ الصيانة", Money(Calc.ChargeOf(o))));
         if (o.Status != K.Cancelled && o.CheckFee > 0) sb.Append(Row("أجرة الفحص", "لا تُضاف — مشمولة بسعر الإصلاح"));
@@ -144,9 +147,16 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
         sb.Append($"<div class=\"row total\"><span>المتبقي</span><span class=\"{(rem > 0 ? "bad" : "good")}\">{(rem > 0 ? Esc(Money(rem)) : "مسدد بالكامل")}</span></div>");
         var terms = string.Join("\n", new[] { Store.Terms, IssueTerms.For(o.IssueType) }.Where(t => t != ""));
         if (terms != "") sb.Append($"<div class=\"foot\" style=\"white-space:pre-line\">{Esc(terms)}</div>");
+        if (Loyalty.On && o.AccountId == null && o.Phone != "")
+        {
+            int pts = Loyalty.Balance(Calc.CustomerKey(o));
+            sb.Append($"<div class=\"box\" style=\"text-align:center\">نقاط الولاء: <b>{pts}</b> نقطة{(pts >= Loyalty.MinRedeem ? $" — تساوي {Esc(Money(Loyalty.Worth(pts)))} تستعملها في زيارتك القادمة" : "")}</div>");
+        }
+        var review = Store.Get("google_review_url");
+        if (review != "" && o.Status == K.Done) sb.Append($"<div class=\"foot\" style=\"text-align:center\">رأيك يهمنا — قيّمنا على Google: <span dir=\"ltr\">{Esc(review)}</span></div>");
         sb.Append("<div class=\"thanks\">شكراً لثقتكم</div>");
         sb.Append($"<div style=\"margin-top:14px\">{Code128Svg(o.RefNo, 40, 2, 320)}</div>");
-        Doc(sb.ToString(), "فاتورة " + o.RefNo);
+        Doc(sb.ToString(), "فاتورة " + (o.X.InvoiceNo != "" ? o.X.InvoiceNo : o.RefNo));
     }
 
     // ---------- ملصق الجهاز (يُلصق على الجهاز داخل الورشة) ----------
@@ -221,6 +231,23 @@ table.t td{{border-bottom:1px solid #DCE1EA;padding:6px}}
             $"<div style=\"text-align:center;margin-top:10px\">{Code128Svg(o.RefNo, 34, 1.6, 240)}</div>" +
             $"<div style=\"text-align:center;font-size:11px;color:#5A6478;margin-top:4px\">{Esc(Store.ShopPhone)}</div></div>";
         Doc(body, "ضمان " + o.RefNo, "420px");
+    }
+
+    // ---------- خطاب قرار الضمان ----------
+    public static void WarrantyLetter(Order o)
+    {
+        var src = Calc.Find(o.WarrantyOf);
+        bool ok = o.X.WarrantyDecision == "covered";
+        var sb = new StringBuilder(Header(ok ? "قبول طلب ضمان" : "رفض طلب ضمان", o.RefNo));
+        sb.Append($"<div class=\"grid\"><div><span class=\"k\">الزبون: </span><b>{Esc(o.CustomerName)}</b></div><div><span class=\"k\">الجهاز: </span><b>{Esc(o.Device)}</b></div>" +
+                  (src != null ? $"<div><span class=\"k\">الإصلاح الأصلي: </span><b>{Esc(src.RefNo)} — {FmtDate(src.DateDelivered)}</b></div><div><span class=\"k\">الضمان: </span><b>{Esc(src.Warranty)} حتى {FmtDate(Calc.WarrantyEnd(src))}</b></div>" : "") + "</div>");
+        sb.Append($"<div class=\"box\"><span class=\"k\">الشكوى: </span>{Esc(o.Issue == "" ? o.IssueType : o.Issue)}</div>");
+        sb.Append($"<div class=\"box\" style=\"font-size:15px;border-color:{(ok ? "#1D8657" : "#C8374A")}\"><b style=\"color:{(ok ? "#1D8657" : "#C8374A")}\">{(ok ? "القرار: يشمله الضمان — يُصلح دون مقابل" : "القرار: لا يشمله الضمان")}</b><br>" +
+                  $"<span class=\"k\">السبب: </span>{Esc(o.X.WarrantyReason)}</div>");
+        if (!ok) sb.Append("<div class=\"foot\">يمكننا إصلاح الجهاز بأجرة عادية بعد موافقتكم على السعر.</div>");
+        if (Store.Terms != "") sb.Append($"<div class=\"foot\" style=\"white-space:pre-line\">{Esc(Store.Terms)}</div>");
+        sb.Append($"<div style=\"display:flex;justify-content:space-between;margin-top:40px\"><div>توقيع المحل: ..................</div><div>توقيع الزبون: ..................</div></div>");
+        Doc(sb.ToString(), "قرار ضمان " + o.RefNo, "620px");
     }
 
     // ---------- ملف الزبون الكامل ----------

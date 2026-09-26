@@ -8,7 +8,7 @@ public partial class SettingsDialog
 {
     // نسخ عمل تُحفظ فقط عند الضغط على «حفظ»
     readonly Dictionary<string, List<string>> listEdits = Lists.All.ToDictionary(d => d.Key, d => Lists.Get(d.Key).ToList());
-    readonly List<Tech> techEdits = Techs.All.Select(t => new Tech { Name = t.Name, Basis = t.Basis, Value = t.Value }).ToList();
+    readonly List<Tech> techEdits = Techs.All.Select(t => new Tech { Name = t.Name, Basis = t.Basis, Value = t.Value, Skills = t.Skills.ToList() }).ToList();
     readonly Dictionary<string, string> msgEdits = Msg.All.ToDictionary(t => t.Id, t => Msg.Text(t.Id));
 
     // ---------------- القوائم ----------------
@@ -134,6 +134,8 @@ public partial class SettingsDialog
         var valBox = W.Labeled("النسبة %", nTechVal);
         techValLabel = valBox.Controls.OfType<Label>().First();
         form.Controls.Add(valBox);
+        clSkills.Items.AddRange(K.IssueTypes.Cast<object>().ToArray());
+        form.Controls.Add(W.Labeled("يتقن (للتوزيع التلقائي — لا شيء = الكل)", clSkills, "wrench"));
         var bSave = W.Btn("إضافة / حفظ الفني", "user-plus", BtnKind.Primary, 180);
         var bNew = W.Btn("فني جديد", "plus", BtnKind.Ghost, 180);
         var bDel = W.Btn("حذف الفني", "trash-2", BtnKind.Danger, 180);
@@ -150,8 +152,9 @@ public partial class SettingsDialog
             tTech.Text = t.Name;
             cbBasis.SelectedIndex = Math.Max(0, Array.FindIndex(Techs.Bases, b => b.Key == t.Basis));
             nTechVal.Value = (decimal)Math.Min((double)nTechVal.Maximum, t.Value);
+            for (int k = 0; k < clSkills.Items.Count; k++) clSkills.SetItemChecked(k, t.Skills.Contains((string)clSkills.Items[k]));
         };
-        bNew.Click += (s, e) => { lbTechs.ClearSelected(); tTech.Clear(); cbBasis.SelectedIndex = 0; nTechVal.Value = 0; tTech.Focus(); };
+        bNew.Click += (s, e) => { lbTechs.ClearSelected(); tTech.Clear(); cbBasis.SelectedIndex = 0; nTechVal.Value = 0; for (int k = 0; k < clSkills.Items.Count; k++) clSkills.SetItemChecked(k, false); tTech.Focus(); };
         bSave.Click += (s, e) => SaveTech();
         bDel.Click += (s, e) =>
         {
@@ -166,11 +169,14 @@ public partial class SettingsDialog
         return p;
     }
 
+    readonly CheckedListBox clSkills = new() { Width = 300, Height = 150, CheckOnClick = true, Font = Theme.F(10), BorderStyle = BorderStyle.FixedSingle };
+    List<string> Skills() => clSkills.CheckedItems.Cast<string>().ToList();
+
     void RenderTechs(int select = -1)
     {
         lbTechs.BeginUpdate();
         lbTechs.Items.Clear();
-        foreach (var t in techEdits) lbTechs.Items.Add($"{t.Name}   —   {Techs.BasisText(t)}");
+        foreach (var t in techEdits) lbTechs.Items.Add($"{t.Name}   —   {Techs.BasisText(t)}{(t.Skills.Count > 0 ? "   —   " + string.Join("، ", t.Skills) : "")}");
         lbTechs.EndUpdate();
         if (select >= 0 && select < lbTechs.Items.Count) lbTechs.SelectedIndex = select;
     }
@@ -188,11 +194,11 @@ public partial class SettingsDialog
         if (sel >= 0 && sel < techEdits.Count)
         {
             var old = techEdits[sel].Name;
-            techEdits[sel] = new Tech { Name = name, Basis = basis, Value = v };
+            techEdits[sel] = new Tech { Name = name, Basis = basis, Value = v, Skills = Skills() };
             if (Txt.Fold(old) != Txt.Fold(name) && Store.Orders.Any(o => Txt.Fold(o.Technician) == Txt.Fold(old)))
                 Toast.Show($"الطلبات السابقة تبقى باسم «{old}»", Tone.Info);
         }
-        else { techEdits.Add(new Tech { Name = name, Basis = basis, Value = v }); sel = techEdits.Count - 1; }
+        else { techEdits.Add(new Tech { Name = name, Basis = basis, Value = v, Skills = Skills() }); sel = techEdits.Count - 1; }
         RenderTechs(sel);
         Toast.Show("اضغط «حفظ» أسفل النافذة لاعتماد التغييرات", Tone.Info);
     }
@@ -512,6 +518,7 @@ public partial class SettingsDialog
 {
     readonly Toggle tgWeb = new() { Text = "تفعيل صفحة الفني على الهاتف (داخل شبكة المحل)", Width = 700 };
     readonly TextBox tWebPin = new() { Width = 160, PlaceholderText = "4 أرقام أو أكثر" }, tWebPort = new() { Width = 100 };
+    readonly TextBox tOwnerPin = new() { Width = 160, PlaceholderText = "اختياري — مختلف عن رمز الفني" };
     readonly Label webInfo = W.Note("", 780, 66);
     readonly TextBox tSmsUrl = new() { Width = 760, PlaceholderText = "https://api.provider.com/send?to={phone_intl}&msg={text}&key=..." };
     readonly ComboBox cbSmsMethod = W.Combo(120, new[] { "GET", "POST" });
@@ -529,8 +536,10 @@ public partial class SettingsDialog
         var r = W.Flow(false);
         r.Controls.Add(W.Labeled("رمز الدخول (PIN)", tWebPin, "key-round"));
         r.Controls.Add(W.Labeled("المنفذ", tWebPort));
+        r.Controls.Add(W.Labeled("رمز صاحب المحل", tOwnerPin, "lock"));
         p.Controls.Add(r);
         p.Controls.Add(webInfo);
+        p.Controls.Add(W.Note("• برمز صاحب المحل تفتح «لوحة صاحب المحل»: المقبوض اليوم، ما في الدرج، الربح، الصناديق والديون — من أي مكان داخل شبكة المحل.\n• «شاشة الزبون»: افتح الصفحة على تابلت عند الاستقبال واضغط «شاشة الزبون» في الأعلى؛ يملأ الزبون بياناته ويظهر الطلب في البرنامج بعلامة «من شاشة الزبون» لتراجعه. الخروج منها يحتاج الرمز.", 780, 80));
 
         p.Controls.Add(W.Head("رسائل SMS", 780));
         p.Controls.Add(W.Note("بدون مزوّد: زر «SMS» في نافذة الرسالة يفتح تطبيق الرسائل في ويندوز (Phone Link) إن كان مربوطاً بهاتفك.\nمع مزوّد رسائل: الصق رابط الإرسال الذي يعطيك إياه، واكتب فيه {phone} أو {phone_intl} و{text}.", 780, 60));
@@ -545,6 +554,7 @@ public partial class SettingsDialog
 
         tgWeb.Checked = WebApp.Enabled;
         tWebPin.Text = WebApp.Pin;
+        tOwnerPin.Text = WebApp.OwnerPin;
         tWebPort.Text = WebApp.Port.ToString();
         tSmsUrl.Text = Sms.Url;
         W.Pick(cbSmsMethod, Sms.Post ? "POST" : "GET");
@@ -576,6 +586,9 @@ public partial class SettingsDialog
         if (tgWeb.Checked && pin.Length < 4) { Toast.Show("رمز الدخول 4 أرقام على الأقل — لم تُفعَّل صفحة الهاتف", Tone.Warning); tgWeb.Checked = false; }
         Store.SetFlag("web_on", tgWeb.Checked);
         Store.Set("web_pin", pin);
+        var opin = new string(Txt.LatinDigits(tOwnerPin.Text).Where(char.IsDigit).ToArray());
+        if (opin != "" && (opin.Length < 4 || opin == pin)) { Toast.Show("رمز صاحب المحل 4 أرقام على الأقل ومختلف عن رمز الفني — لم يُحفظ", Tone.Warning); opin = WebApp.OwnerPin; }
+        Store.Set("web_owner_pin", opin);
         Store.Set("web_port", int.TryParse(Txt.LatinDigits(tWebPort.Text), out var port) && port is > 1024 and < 65535 ? port.ToString() : "8095");
         Store.Set("sms_url", tSmsUrl.Text.Trim());
         Store.Set("sms_method", cbSmsMethod.Text);

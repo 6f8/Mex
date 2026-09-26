@@ -25,6 +25,10 @@ public partial class OrderForm
     readonly TextBox tSeal = new() { Width = 180, PlaceholderText = "رقم الملصق" };
     readonly Label lblBudget = W.Note("", 500, 22), lblPlan = W.Note("", 600, 22), lblCredit = W.Note("", 600, 22);
     readonly ModernButton bUseCredit = W.Btn("استعمال رصيد الزبون", "wallet", BtnKind.Soft, 170), bKeepCredit = W.Btn("حفظ الزائد رصيداً", "wallet", BtnKind.Ghost, 150);
+    readonly TextBox tReferrer = new() { Width = 220, PlaceholderText = "اسم الزبون الذي أرسله" };
+    readonly ComboBox cbExt = W.Combo(220, Array.Empty<string>());
+    readonly ModernButton bUsePoints = W.Btn("استعمال النقاط", "gift", BtnKind.Soft, 150);
+    List<(string Name, double Price)> extOpts = new();
     double lastFees;
     bool fillingExtras;
 
@@ -34,10 +38,12 @@ public partial class OrderForm
         var r = W.Flow(false);
         r.Controls.Add(W.Labeled("كيف عرف بالمحل؟", cbSource));
         r.Controls.Add(W.Labeled("المنطقة", tArea, "pin"));
+        r.Controls.Add(W.Labeled("أحاله زبون؟", tReferrer, "users"));
         lblPhone.Margin = new Padding(6, 30, 6, 0);
         r.Controls.Add(lblPhone);
         flow.Controls.Add(r);
         W.Suggest(tArea, Store.Orders.Select(o => o.X.Area));
+        W.Suggest(tReferrer, Store.Orders.Select(o => o.CustomerName));
 
         flow.Controls.Add(W.Head("الخدمة والتوصيل", 960));
         svc.Margin = new Padding(6, 2, 6, 4);
@@ -133,11 +139,19 @@ public partial class OrderForm
         var r = W.Flow(false);
         r.Controls.Add(W.Labeled("سقف السعر المسموح (اختياري)", nBudget));
         r.Controls.Add(W.Labeled("رقم ملصق الضمان", tSeal, "tag"));
+        extOpts = ExtWarranty.Options();
+        cbExt.Items.Add("بدون");
+        cbExt.Items.AddRange(extOpts.Select(e => (object)$"{e.Name} — {Txt.Money(e.Price)}").ToArray());
+        cbExt.SelectedIndex = 0;
+        if (extOpts.Count > 0) r.Controls.Add(W.Labeled("ضمان ممتد (يُباع)", cbExt, "shield-check"));
+        cbExt.SelectedIndexChanged += (s, e) => FeesChanged();
         var bPlan = W.Btn("خطة تقسيط", "calendar", BtnKind.Secondary, 120); bPlan.Margin = new Padding(4, 27, 4, 4);
         r.Controls.Add(bPlan);
         bUseCredit.Margin = bKeepCredit.Margin = new Padding(4, 27, 4, 4);
         r.Controls.Add(bUseCredit);
         r.Controls.Add(bKeepCredit);
+        bUsePoints.Margin = new Padding(4, 27, 4, 4);
+        r.Controls.Add(bUsePoints);
         flow.Controls.Add(r);
         foreach (var l in new[] { lblBudget, lblPlan, lblCredit }) { l.Margin = new Padding(6, 0, 6, 0); flow.Controls.Add(l); }
         flow.Controls.Add(W.Note("أجرة الفحص تُستحق فقط إذا أُلغي الإصلاح؛ إذا وافق الزبون لا تُضاف على السعر، وما دفعه مقدّماً يُحسب من السعر.", 960, 22));
@@ -158,6 +172,17 @@ public partial class OrderForm
             double use = Math.Min(avail, due);
             if (use <= 0) { Toast.Show(avail <= 0 ? "لا يوجد رصيد لهذا الزبون" : "لا يوجد مبلغ متبقٍ", Tone.Info); return; }
             payments.Add(new Payment { Id = Txt.Uid("cr"), Amount = use, Date = Txt.Today, Method = Lists.Credit, Note = "من رصيد الزبون" });
+            RenderPayments();
+            CreditInfo();
+        };
+        bUsePoints.Click += (s, e) =>
+        {
+            int pts = AvailablePoints();
+            double due = (double)nPrice.Value - FormPaid, use = Math.Min(Loyalty.Worth(pts), due);
+            if (pts < Loyalty.MinRedeem) { Toast.Show($"رصيده {pts} نقطة — أقل من الحد الأدنى للاستبدال ({Loyalty.MinRedeem})", Tone.Info); return; }
+            if (use <= 0) { Toast.Show("لا يوجد مبلغ متبقٍ", Tone.Info); return; }
+            int spend = (int)Math.Ceiling(use / Loyalty.PointValue);
+            payments.Add(new Payment { Id = Txt.Uid("pt"), Amount = use, Date = Txt.Today, Method = Lists.Points, Note = $"استبدال {spend} نقطة" });
             RenderPayments();
             CreditInfo();
         };
@@ -191,6 +216,11 @@ public partial class OrderForm
         foreach (var i in x.Items) items.Rows.Add(i.Desc, i.Price > 0 ? Txt.Num(i.Price) : "", i.Approved);
         if (x.MaxBudget is double b) W.Set(nBudget, b);
         tSeal.Text = x.SealNo;
+        tReferrer.Text = x.ReferredBy;
+        int ei = extOpts.FindIndex(e => e.Name == x.ExtWarranty);
+        if (ei < 0 && x.ExtWarranty != "") { extOpts.Add((x.ExtWarranty, x.ExtWarrantyFee)); cbExt.Items.Add($"{x.ExtWarranty} — {Txt.Money(x.ExtWarrantyFee)}"); ei = extOpts.Count - 1; }
+        cbExt.SelectedIndex = ei + 1;
+        lastFees = Fees;
         fillingExtras = false;
         ServiceVisibility();
         ItemsChanged(false);
@@ -201,7 +231,7 @@ public partial class OrderForm
     }
 
     string ExtrasSnapshot() => string.Join("|", cbSource.Text, tArea.Text, svc.Value, tAddress.Text, dVisit.Checked ? dVisit.Value.ToString("s") : "", nSvcFee.Value, nShipFee.Value,
-        tShipCo.Text, tShipNo.Text, cbShipState.Text, nBudget.Value, tSeal.Text, string.Join(";", damage.Marks.Select(m => $"{m.Side}{m.X}{m.Y}{m.Note}")),
+        tShipCo.Text, tShipNo.Text, cbShipState.Text, nBudget.Value, tSeal.Text, tReferrer.Text, cbExt.SelectedIndex, string.Join(";", damage.Marks.Select(m => $"{m.Side}{m.X}{m.Y}{m.Note}")),
         string.Join(";", FormItems().Select(i => $"{i.Desc}/{i.Price}/{i.Approved}")), string.Join(";", x.Plan.Select(p => p.Date + p.Amount)));
 
     List<JobItem> FormItems() => items.Rows.Cast<DataGridViewRow>().Select(r => new JobItem
@@ -212,7 +242,8 @@ public partial class OrderForm
     }).Where(i => i.Desc != "" || i.Price > 0).ToList();
 
     // ---------------- الحسابات ----------------
-    double Fees => (double)nSvcFee.Value + (double)nShipFee.Value;
+    double ExtFee => cbExt.SelectedIndex > 0 && cbExt.SelectedIndex <= extOpts.Count ? extOpts[cbExt.SelectedIndex - 1].Price : 0;
+    double Fees => (double)nSvcFee.Value + (double)nShipFee.Value + ExtFee;
 
     void FeesChanged()
     {
@@ -254,7 +285,18 @@ public partial class OrderForm
         var key = CustomerKeyNow;
         double others = -Store.Orders.Where(o => o.Id != existing?.Id && Calc.CustomerKey(o) == key).SelectMany(o => o.PaymentHistory).Where(p => p.IsCredit).Sum(p => p.Amount);
         double here = -payments.Where(p => p.IsCredit).Sum(p => p.Amount);
-        return Math.Round(others + here, 2);
+        double granted = Grants.For(key).Sum(g => g.Amount);   // مكافآت الإحالة وما شابه
+        return Math.Round(others + here + granted, 2);
+    }
+
+    /// <summary>نقاط الزبون المتاحة: المكتسبة ناقص المستعملة في طلباته الأخرى وفي هذا النموذج</summary>
+    int AvailablePoints()
+    {
+        if (!Loyalty.On) return 0;
+        var key = CustomerKeyNow;
+        double used = Store.Orders.Where(o => o.Id != existing?.Id && Calc.CustomerKey(o) == key).SelectMany(o => o.PaymentHistory).Where(p => p.IsPoints).Sum(p => p.Amount)
+                      + payments.Where(p => p.IsPoints).Sum(p => p.Amount);
+        return Math.Max(0, Loyalty.Earned(key) - (int)Math.Round(used / Loyalty.PointValue));
     }
 
     void CreditInfo()
@@ -265,7 +307,11 @@ public partial class OrderForm
         bUseCredit.FitWidth(170);
         double due = Cancelling ? (double)nFee.Value : (double)nPrice.Value;
         bKeepCredit.Visible = FormPaid - due > 0.001;
-        lblCredit.Text = c > 0 ? $"💳 لهذا الزبون رصيد {Txt.Money(c)} من طلبات سابقة" : "";
+        int pts = tName.Text.Trim() == "" || SelectedAccount != null ? 0 : AvailablePoints();
+        bUsePoints.Visible = Loyalty.On && pts >= Loyalty.MinRedeem;
+        bUsePoints.Text = $"استعمال النقاط ({pts} = {Txt.Money(Loyalty.Worth(pts))})";
+        bUsePoints.FitWidth(150);
+        lblCredit.Text = string.Join("   ", new[] { c > 0 ? $"💳 لهذا الزبون رصيد {Txt.Money(c)} من طلبات سابقة" : "", Loyalty.On && pts > 0 ? $"🎁 نقاط الولاء: {pts}" : "" }.Where(t => t != ""));
         lblCredit.ForeColor = Pal.Good;
     }
 
@@ -317,6 +363,12 @@ public partial class OrderForm
         x.Items = FormItems();
         x.MaxBudget = nBudget.Value > 0 ? (double)nBudget.Value : null;
         x.SealNo = tSeal.Text.Trim();
+        x.ReferredBy = tReferrer.Text.Trim();
+        if (x.ReferredBy != "" && Txt.Fold(x.ReferredBy) != Txt.Fold(o.CustomerName))
+            x.ReferredPhone = Store.Orders.Where(p => Txt.Fold(p.CustomerName) == Txt.Fold(x.ReferredBy) && p.Phone != "").OrderByDescending(p => p.DateReceived, StringComparer.Ordinal).FirstOrDefault()?.Phone ?? x.ReferredPhone;
+        else { x.ReferredBy = ""; x.ReferredPhone = ""; }
+        x.ExtWarranty = cbExt.SelectedIndex > 0 && cbExt.SelectedIndex <= extOpts.Count ? extOpts[cbExt.SelectedIndex - 1].Name : "";
+        x.ExtWarrantyFee = x.ExtWarranty != "" ? ExtFee : 0;
         if (x.Branch == "") x.Branch = Branches.Current;
         o.X = x;
     }

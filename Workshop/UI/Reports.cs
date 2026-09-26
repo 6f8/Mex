@@ -21,7 +21,9 @@ public class ReportsPage : StackPage
     readonly DataGridView exps = W.Grid();
     readonly Box expBox;
     readonly MeterList types = new(), devices = new(), methods = new(), sources = new(), areas = new();
-    readonly Ledger forecast = new() { MinCell = 170 };
+    readonly Ledger forecast = new() { MinCell = 170 }, realCost = new() { MinCell = 170 };
+    readonly DataGridView realGrid = W.Grid();
+    readonly ComboBox cbExpBox = W.Combo(140, Array.Empty<string>());
     readonly DataGridView peak = W.Grid();
     readonly Label retText = new() { Dock = DockStyle.Top, Height = 96, Font = Theme.F(9.5f), ForeColor = Theme.Text2, BackColor = Theme.Surface, TextAlign = ContentAlignment.TopLeft };
     readonly DataGridView quality = W.Grid(), suppliers = W.Grid(), techs = W.Grid();
@@ -64,6 +66,7 @@ public class ReportsPage : StackPage
         add.Controls.Add(W.Labeled("المصروف", tDesc));
         add.Controls.Add(W.Labeled("المبلغ", nAmount));
         add.Controls.Add(W.Labeled("التاريخ", dExp));
+        add.Controls.Add(W.Labeled("من صندوق", cbExpBox));
         var bAdd = W.Btn("إضافة", "plus", BtnKind.Primary, 80); bAdd.Margin = new Padding(4, 26, 4, 4);
         add.Controls.Add(bAdd);
         exps.Columns.Add("desc", "المصروف");
@@ -157,6 +160,13 @@ public class ReportsPage : StackPage
         Stack.Controls.Add(c2b);
         Stack.Controls.Add(c3);
         Stack.Controls.Add(techBox);
+        Stack.Controls.Add(new Box("التكلفة الحقيقية والمبيعات الإضافية", realCost, "calculator", "المصاريف الثابتة (إيجار، رواتب، كهرباء...) موزعة على الأجهزة حسب ساعات العمل"));
+        foreach (var (n, h) in new[] { ("ref", "المرجع"), ("dev", "الجهاز"), ("hrs", "ساعات العمل"), ("profit", "الربح الظاهر"), ("oh", "حصته من المصاريف"), ("real", "الربح الحقيقي") }) realGrid.Columns.Add(n, h);
+        realGrid.CellFormatting += (s, e) => { if (e.RowIndex >= 0 && realGrid.Columns[e.ColumnIndex].Name == "real" && e.Value is string v && v.StartsWith("-")) e.CellStyle.ForeColor = Pal.Bad; };
+        realGrid.CellDoubleClick += (s, e) => { if (e.RowIndex >= 0 && realGrid.Rows[e.RowIndex].Tag is Order ro) Acts.View(ro); };
+        var realHost = new Panel { Height = 300, BackColor = Theme.Surface };
+        realHost.Controls.Add(realGrid);
+        Stack.Controls.Add(new Box("أقل الإصلاحات ربحاً فعلياً", realHost, "trending-down", "بعد خصم حصة كل جهاز من المصاريف — انقر مرتين لفتح الطلب"));
         Stack.Controls.Add(new Box("توقع السيولة — الثلاثون يوماً القادمة", forecast, "wallet", "ما يُتوقع قبضه مقابل ما يجب دفعه (الرواتب ومتوسط المصاريف الشهرية مشمولة)"));
         var peakHost = new Panel { Height = 300, BackColor = Theme.Surface };
         peak.Columns.Add("day", "اليوم");
@@ -218,6 +228,10 @@ public class ReportsPage : StackPage
     public override void Reload()
     {
         MainForm.Instance?.UpdateTitle(this);
+        var keepBox = cbExpBox.Text;
+        cbExpBox.Items.Clear();
+        cbExpBox.Items.AddRange(Boxes.Names().Cast<object>().ToArray());
+        W.Pick(cbExpBox, keepBox != "" ? keepBox : Lists.Cash);
         var (a, b) = Period();
         var S1 = Calc.Summarize(a, b);
         string margin = S1.Revenue != 0 ? (S1.Profit / S1.Revenue * 100).ToString("0.0") + "%" : "—";
@@ -301,6 +315,30 @@ public class ReportsPage : StackPage
             if (pct > 10) quality.Rows[i].DefaultCellStyle.ForeColor = Pal.Bad;
         }
 
+        // التكلفة الحقيقية، المسحوبات، الضمان الممتد، الإحالات، النقاط
+        var trc = TrueCost.For(a, b);
+        int refCount = S1.Received.Count(o => o.X.ReferredBy != "");
+        double refRewards = Grants.All().Where(g => g.OrderId != "" && Calc.InRange(g.Date, a, b)).Sum(g => g.Amount);
+        double pointsUsed = S1.List.SelectMany(o => o.PaymentHistory).Where(p => p.IsPoints && Calc.InRange(p.Date, a, b)).Sum(p => p.Amount);
+        double withdrawn = Boxes.WithdrawnIn(a, b);
+        realCost.Set(new[]
+        {
+            new Ledger.Cell("كلفة ساعة العمل", trc.Hours > 0 ? Txt.Money(trc.RatePerHour) : "—", trc.Hours > 0 ? $"{Math.Round(trc.Hours, 1)} ساعة عمل مسجّلة" : "شغّل مؤقت العمل على الأجهزة لتظهر", Pal.Primary),
+            new Ledger.Cell("متوسط المصاريف على كل جهاز", S1.Active.Count > 0 ? Txt.Money(trc.Overhead / S1.Active.Count) : "—", "الإصلاح الأقل من هذا يخسر فعلياً", Pal.Amber),
+            new Ledger.Cell("مواد مستهلكة", Txt.Money(trc.Consumables), "معجون، لاصق، كحول... ضمن تكلفة القطع", Pal.Slate),
+            new Ledger.Cell("مسحوبات صاحب المحل", Txt.Money(withdrawn), "ليست مصروفاً — من الربح", Pal.Slate, withdrawn > S1.Profit && withdrawn > 0 ? -1 : 0),
+            new Ledger.Cell("الضمان الممتد المباع", Txt.Money(ExtWarranty.SoldIn(a, b)), null, Pal.Good),
+            new Ledger.Cell("زبائن بالإحالة", refCount.ToString(), refRewards > 0 ? "مكافآت " + Txt.Money(refRewards) : null, Pal.Good),
+            new Ledger.Cell("نقاط الولاء المستبدلة", Txt.Money(pointsUsed), Loyalty.On ? null : "نظام النقاط متوقف", Pal.Slate),
+        });
+        realGrid.Rows.Clear();
+        foreach (var r in trc.Rows.OrderBy(r => r.RealProfit).Take(15))
+        {
+            int i = realGrid.Rows.Add(r.O.RefNo, r.O.Device, r.Hours > 0.05 ? Math.Round(r.Hours, 1).ToString() : "—", Txt.Money(Calc.ProfitOf(r.O)), Txt.Money(r.Overhead),
+                (r.RealProfit < 0 ? "-" : "") + Txt.Money(Math.Abs(r.RealProfit)));
+            realGrid.Rows[i].Tag = r.O;
+        }
+
         // توقع السيولة
         var fc = Forecast.Next30();
         forecast.Set(new[]
@@ -366,7 +404,7 @@ public class ReportsPage : StackPage
         double amount = (double)nAmount.Value;
         if (desc == "") { tDesc.Focus(); Toast.Show("اكتب وصف المصروف.", Tone.Warning); return; }
         if (amount <= 0) { nAmount.Focus(); Toast.Show("اكتب مبلغ المصروف.", Tone.Warning); return; }
-        Store.AddExpense(new Expense { Id = Txt.Uid("e"), Description = desc, Amount = amount, Date = Txt.Iso(dExp.Value) });
+        Store.AddExpense(new Expense { Id = Txt.Uid("e"), Description = desc, Amount = amount, Date = Txt.Iso(dExp.Value), Box = cbExpBox.Text != "" ? cbExpBox.Text : Lists.Cash });
         tDesc.Clear();
         W.Set(nAmount, 0);
         Store.NotifyChanged();

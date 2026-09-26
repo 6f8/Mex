@@ -274,6 +274,7 @@ public static class Notify
     public static readonly (string Key, string Title)[] Alerts =
     {
         ("delete", "حذف طلب"), ("debt", "تسليم جهاز وعليه دين"), ("refund", "إرجاع مبلغ لزبون"), ("locked", "تعديل طلب مُسلَّم أو ملغى"),
+        ("kiosk", "طلب جديد من شاشة الزبون"),
     };
 
     static readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -398,6 +399,10 @@ public static class Notify
         if (overdue.Count > 0) L.Add($"📅 طلبات عليها أقساط متأخرة: {overdue.Count}");
         var sd = SupplierDues.Alerts();
         if (sd.Count > 0) L.Add($"🏪 مستحقات موردين متأخرة أو خلال 3 أيام: {Txt.Money(sd.Sum(d => d.Left))}");
+        var tools = Tools.Due();
+        if (tools.Count > 0) L.Add($"🛠 أدوات تحتاج صيانة: {string.Join("، ", tools.Take(4).Select(t => t.Name))}");
+        double wd = Boxes.Withdrawals().Where(w => w.Date == day).Sum(w => w.Amount);
+        if (wd > 0) L.Add($"👤 مسحوبات صاحب المحل اليوم: {Txt.Money(wd)}");
         if (Stale.List().Count is int st && st > 0) L.Add($"⏳ بانتظار موافقة الزبون منذ {Stale.Days} أيام أو أكثر: {st}");
         double debts = Calc.GetDebts().Sum(x => x.Debt), acc = Store.Accounts.Sum(Accounts.Due);
         if (debts > 0 || acc > 0) L.Add($"📒 ديون الزبائن: {Txt.Money(debts)}{(acc > 0 ? $" — حسابات التجار: {Txt.Money(acc)}" : "")}");
