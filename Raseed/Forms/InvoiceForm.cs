@@ -15,22 +15,26 @@ public class InvoiceForm : BaseForm
     readonly string type;
     readonly ComboBox cbParty = Ui.Combo(250), cbWh = Ui.Combo(170), cbLevel = Ui.Combo(110),
                       cbBox = Ui.Combo(200), cbCC = Ui.Combo(150), cbDel = Ui.Combo(170);
-    readonly DateTimePicker dtDate = new() { Width = 170, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm" };
+    readonly DateTimePicker dtDate = new() { Width = 150, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd" };
+    readonly ComboBox cbDiscType = Ui.Combo(120);
     readonly NumericUpDown nDisc = Ui.Num(130), nPaid = Ui.Num(150), nFee = Ui.Num(100), nQtyIn = Ui.Num(90, 2), nPriceIn = Ui.Num(130, 2);
-    readonly TextBox txtFind = new() { Width = 340, PlaceholderText = "الباركود أو اسم المادة ثم Enter" }, txtNotes = new() { Width = 220 },
+    readonly TextBox txtFind = new() { Width = 300, PlaceholderText = "اسم المادة ثم Enter" }, txtNotes = new() { Width = 260 },
+                     tBarcode = new() { Width = 240, PlaceholderText = "امسح الباركود" },
                      tNo = new() { Width = 90, ReadOnly = true, TextAlign = HorizontalAlignment.Center },
                      tAddress = new() { Width = 180, ReadOnly = true }, tPhone = new() { Width = 140, ReadOnly = true },
                      tSumIn = new() { Width = 130, ReadOnly = true, TextAlign = HorizontalAlignment.Center };
     readonly Toggle chkPrint = new() { Text = "طباعة", Width = 110, Height = 34 }, chkInst = new() { Text = "تقسيط القائمة", Width = 190, Height = 34 };
     readonly DataGridView grid = Ui.NewGrid(false);
-    readonly StatLabel lblTotal = new(), lblNet = new() { ValueColor = Theme.Brand, ValueSize = 17 }, lblRemain = new() { ValueColor = Theme.Danger },
-                       lblPrev = new(), lblAfter = new() { ValueColor = Theme.BrandDark };
-    readonly Label lblInfo = new() { Dock = DockStyle.Fill, Padding = new Padding(2), Font = Theme.F(10), ForeColor = Theme.Text2 };
+    readonly TotalsBox box = new();
+    // سطر معلومات المادة أسفل الجدول (الرصيد، أقرب صلاحية، الأسعار)
+    readonly Label lblInfo = new() { Dock = DockStyle.Bottom, Height = 28, Font = Theme.F(9.5f), ForeColor = Theme.Text2, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(4, 0, 4, 0) };
+    readonly ToolTip infoTip = new();
     DataTable items;
     bool busy, paidTouched, settingFind;
     long editId, lastId, guarantorId;
     double oldEffect;     // أثر القائمة القديمة على رصيد الحساب (عند التعديل)
     double prevBalance;   // رصيد الحساب قبل هذه القائمة
+    bool prevOver;        // الرصيد السابق تجاوز سقف الذمة
     DataRow pending;      // مادة اختيرت بالاسم وتنتظر العدد والسعر
 
     bool IsOut => InvoiceOps.IsOut(type);
@@ -51,13 +55,6 @@ public class InvoiceForm : BaseForm
 
     record Line(long ItemId, string Name, double Len, double Wid, double Qty, double Price, string Expiry, string Serials, string Note);
 
-    static Control Stat(string caption, StatLabel value, int width = 150)
-    {
-        value.Caption = caption;
-        value.Size = new Size(width, 64);
-        value.Margin = new Padding(8, 2, 8, 2);
-        return value;
-    }
 
     string PriceCaption => CostDoc ? "الكلفة" : type is "Purchase" or "PurchaseReturn" ? "سعر الشراء" : "سعر البيع";
 
@@ -68,61 +65,93 @@ public class InvoiceForm : BaseForm
         Text = Ui.DocTitle(type);
         KeyPreview = true;
 
-        // ---------- الترويسة: الحساب وعنوانه وهاتفه، المخزن، نوع السعر، التاريخ ورقم القائمة ----------
-        var head = Theme.Bar();
+        // ================= الترتيب المألوف: العنوان بجانب الحقل، لوحة المواد والجدول، والمجاميع أسفل اليسار =================
+        var root = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(10, 4, 10, 8) };
+
+        // ---------- الترويسة (سطران، والحقول الإضافية في سطر ثالث يُطوى) ----------
+        var head = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Theme.Surface, Padding = new Padding(0, 2, 0, 6) };
+        var rowList = headRow1;   // السطر الحالي من الترويسة (للتصغير المتناسب)
+        void H(Control c) { head.Controls.Add(c); if (c is InlineField f) rowList?.Add(f); }
         if (HasParty)
         {
             string kind = SaleSide ? "عميل" : "مورد";
             Ui.FillCombo(cbParty, "SELECT id,name,price_level,phone,credit_limit,address FROM parties WHERE kind=@p0 OR kind='عميل ومورد' ORDER BY name",
                 true, SaleSide ? "زبون نقدي" : "— بدون مورد —", kind);
             Ui.MakeSearchable(cbParty);
-            head.Controls.Add(Ui.Labeled("الحساب", cbParty));
-            head.Controls.Add(More(Ui.Labeled("العنوان", tAddress)));
-            head.Controls.Add(Ui.Labeled("الهاتف", tPhone));
+            H(new InlineField("الحساب", cbParty, 230));
+            H(new InlineField("العنوان", tAddress, 150));
         }
         Ui.FillCombo(cbWh, "SELECT id,name FROM warehouses ORDER BY id");
         Ui.SelectId(cbWh, Ui.DefaultWarehouse());
-        head.Controls.Add(Ui.Labeled("المخزن", cbWh));
+        H(new InlineField("المخزن", cbWh, 150));
+        dtDate.Value = DateTime.Now;
+        H(new InlineField("التأريخ", dtDate, 130));
+        var noField = new InlineField(Ui.IsStockDoc(type) ? "رقم السند" : "رقم القائمة", tNo, 80);
+        H(noField);
+        head.SetFlowBreak(noField, true);
+        rowList = headRow2;
+
+        H(new InlineField("الباركود", tBarcode, 230));
+        if (HasParty) H(new InlineField("الهاتف", tPhone, 150));
+        if (HasPayment)
+        {
+            Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
+            H(new InlineField("الصندوق", cbBox, 190));
+        }
         if (SaleSide)
         {
             cbLevel.Items.AddRange(new object[] { "مفرد", "جملة", "خاص" });
             cbLevel.SelectedIndex = 0;
-            if (Features.On("feat_three_prices")) head.Controls.Add(Ui.Labeled("نوع السعر", cbLevel));
+            if (Features.On("feat_three_prices")) H(new InlineField("نوع السعر", cbLevel, 110));
         }
-        if (HasPayment)
-        {
-            Ui.FillCombo(cbBox, "SELECT id, name||' ('||currency||')' FROM cashboxes ORDER BY id");
-            head.Controls.Add(Ui.Labeled("الصندوق", cbBox));
-        }
+        var who = new Label { Text = $"المستخدم: {Session.UserName}", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.F(9), Margin = new Padding(14, 15, 6, 0) };
+        H(who);
+
         Ui.FillCombo(cbCC, "SELECT id,name FROM cost_centers ORDER BY id", true);
-        if (!IsQuote) head.Controls.Add(More(Ui.Labeled("مركز الكلفة", cbCC)));
         if (type == "Sale")
         {
             Ui.FillCombo(cbDel, "SELECT id,name,fee FROM delivery_companies ORDER BY name", true, "— بدون توصيل —");
-            head.Controls.Add(More(Ui.Labeled("شركة التوصيل", cbDel)));
-            head.Controls.Add(More(Ui.Labeled("أجور التوصيل", nFee)));
             cbDel.SelectedIndexChanged += (s, e) => { var r = Ui.GetRow(cbDel); Ui.SetNum(nFee, r == null ? 0 : Db.D(r["fee"])); };
         }
-        head.Controls.Add(More(Ui.Labeled("ملاحظات", txtNotes)));
-        dtDate.Value = DateTime.Now;
-        head.Controls.Add(Ui.Labeled("التأريخ", dtDate));
-        head.Controls.Add(Ui.Labeled(Ui.IsStockDoc(type) ? "رقم السند" : "رقم القائمة", tNo));
         // زر «المزيد»: الحقول الثانوية تُطوى تلقائيًا في الشاشات القصيرة لتبقى مساحة كافية لأسطر القائمة
-        var bMore = new ModernButton { Kind = BtnKind.Ghost, IconName = "chevron-down", Size = new Size(42, 42), Margin = new Padding(6, 24, 4, 3), TabStop = false };
-        new ToolTip().SetToolTip(bMore, "إظهار / إخفاء الحقول الإضافية (العنوان، مركز الكلفة، التوصيل، الملاحظات)");
+        var bMore = new ModernButton { Kind = BtnKind.Ghost, IconName = "chevron-down", Size = new Size(40, 40), Margin = new Padding(6, 3, 4, 3), TabStop = false };
+        new ToolTip().SetToolTip(bMore, "إظهار / إخفاء الحقول الإضافية (مركز الكلفة، التوصيل، الملاحظات)");
         bMore.Click += (s, e) => { moreManual = !(moreManual ?? MoreVisible); ShowMore(moreManual.Value); bMore.IconName = moreManual.Value ? "chevron-up" : "chevron-down"; bMore.Invalidate(); };
-        if (moreFields.Count > 0) head.Controls.Add(bMore);
+        H(bMore);
+        head.SetFlowBreak(bMore, true);
+        headExtras = new Control[] { who, bMore };
+        // حقول الترويسة تصغر بالتناسب ليبقى كل سطر في سطر واحد مهما ضاقت الشاشة
+        head.Resize += (s, e) => FitHeader();
+        rowList = null;   // الحقول الإضافية (السطر المطوي) تبقى بأحجامها
+        if (!IsQuote) H(More(new InlineField("مركز الكلفة", cbCC, 160)));
+        if (type == "Sale")
+        {
+            H(More(new InlineField("شركة التوصيل", cbDel, 170)));
+            H(More(new InlineField("أجور التوصيل", nFee, 110)));
+        }
+        H(More(new InlineField("ملاحظات", txtNotes, 260)));
+        tBarcode.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ScanBarcode(); } };
 
-        // ---------- سطر إدخال المادة ----------
-        var entry = Theme.Bar();
-        var findBox = new InputBox(txtFind, 350, "scan-barcode");
-        entry.Controls.Add(Ui.Labeled("المادة / الباركود", findBox));
+        // ---------- لوحة المواد: سطر الإدخال ثم الجدول ----------
+        var panel = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, Padding = new Padding(10, 6, 10, 4) };
+        var entry = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Theme.Panel };
+        var bAdd = new ModernButton { Kind = BtnKind.Ghost, IconName = "arrow-left-right", Size = new Size(50, 44), Dock = DockStyle.Left, TabStop = false };
+        new ToolTip().SetToolTip(bAdd, "إضافة المادة إلى القائمة (Enter)");
+        var entryFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Panel, Padding = new Padding(0, 2, 0, 0) };
+        var findField = new InlineField("المادة", txtFind, 300);
         nQtyIn.Minimum = 0; nQtyIn.Value = 1;
-        entry.Controls.Add(Ui.Labeled("العدد", nQtyIn));
-        entry.Controls.Add(Ui.Labeled(PriceCaption, nPriceIn));
-        entry.Controls.Add(Ui.Labeled("المجموع", tSumIn));
-        var bAdd = new ModernButton { Text = "إضافة", IconName = "plus", Kind = BtnKind.Success, Height = 42, Margin = new Padding(6, 24, 4, 3) };
-        bAdd.FitWidth(100);
+        entryFlow.Controls.Add(findField);
+        entryFlow.Controls.Add(new InlineField("العدد", nQtyIn, 80));
+        entryFlow.Controls.Add(new InlineField(PriceCaption, nPriceIn, 120));
+        entryFlow.Controls.Add(new InlineField("المجموع", tSumIn, 130));
+        // حقل المادة يأخذ ما يتبقى من العرض (الشاشات الضيقة والعريضة)
+        entryFlow.Resize += (s, e) =>
+        {
+            int others = entryFlow.Controls.Cast<Control>().Where(c => c != findField).Sum(c => c.Width + c.Margin.Horizontal);
+            int w = Math.Clamp(entryFlow.ClientSize.Width - others - findField.Margin.Horizontal - Dpi.S(8), Dpi.S(220), Dpi.S(520));
+            if (findField.Width != w) findField.Width = w;
+        };
+        entry.Controls.Add(entryFlow);
         entry.Controls.Add(bAdd);
         bAdd.Click += (s, e) => { if (pending != null) AddPending(); else FindAndAdd(); };
         txtFind.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; FindAndAdd(); } };
@@ -134,138 +163,232 @@ public class InvoiceForm : BaseForm
         nPriceIn.Enabled = Session.Can("edit_price") && type is not ("Damage" or "StockOut");
 
         // ---------- جدول الأسطر ----------
-        grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        AddCol("no", "ت", true, 28);
+        grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        grid.BackgroundColor = Theme.Surface;
+        grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
+        grid.GridColor = Theme.Border;
+        grid.ColumnHeadersDefaultCellStyle.BackColor = grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Theme.Surface;
+        grid.ColumnHeadersDefaultCellStyle.ForeColor = grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Theme.Ink;
+        grid.ColumnHeadersDefaultCellStyle.Font = Theme.FS(10.5f);
+        grid.DefaultCellStyle.Font = Theme.F(10.5f);
+        grid.DefaultCellStyle.SelectionBackColor = Theme.BrandDark;
+        grid.DefaultCellStyle.SelectionForeColor = Color.White;
+        AddCol("no", "ت", true, 22);
         AddCol("item_id", "", true, 10, false);
         AddCol("measure", "", true, 10, false);
-        AddCol("code", "الرمز", true, 55);
-        AddCol("name", "المادة", true, 200);
-        AddCol("unit", "الوحدة", true, 50);
+        AddCol("code", "الرمز", true, 55, false);
+        AddCol("name", "المادة", true, 320);
+        AddCol("unit", "الوحدة", true, 50, false);
         AddCol("len", "الطول", false, 55, false);
         AddCol("wid", "العرض", false, 55, false);
-        AddCol("qty", "العدد", false, 60);
+        AddCol("qty", "العدد", false, 50);
+        AddCol("wh", "المخزن", true, 110, Features.On("feat_warehouses"));
         AddCol("price", PriceCaption, !Session.Can("edit_price") || type is "Damage" or "StockOut", 75);
-        AddCol("expiry", "الصلاحية (yyyy-mm-dd)", false, 95, UsesExpiry);
-        AddCol("total", "المجموع", true, 85);
-        AddCol("serials", "الرقم التسلسلي", true, 110, type is "Sale" or "SaleReturn" && Features.On("feat_serials"));   // الأرقام الممسوحة لهذا السطر
-        AddCol("note", "الملاحظة", false, 110);
+        AddCol("total", "المجموع", true, 80);
+        // تاريخ الصلاحية: يُدخل في الشراء والإرجاع وإدخال المخزن، ويُعرض (أقرب صلاحية) في البيع والإخراج
+        AddCol("expiry", "تأريخ الصلاحية", !UsesExpiry, 80);
+        AddCol("serials", "الرقم التسلسلي", true, 90, type is "Sale" or "SaleReturn" && Features.On("feat_serials"));   // الأرقام الممسوحة لهذا السطر
+        AddCol("note", "الملاحظة", false, 80);
         grid.Columns["note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
-        grid.Columns.Add(new DataGridViewButtonColumn
+        foreach (var c in new[] { "price", "total" }) grid.Columns[c].DefaultCellStyle.Format = "#,0.##' د.ع'";
+        // الأرقام تُكتب بلا فواصل أو عملة؛ نزيلها عند التعديل حتى لا تُرفض القيمة
+        grid.CellParsing += (s, e) =>
         {
-            Name = "del", HeaderText = "حذف", Text = "حذف", UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat, FillWeight = 40, MinimumWidth = Dpi.S(64),
-            DefaultCellStyle = { BackColor = Theme.DangerSoft, ForeColor = Theme.Danger, SelectionBackColor = Theme.DangerSoft, SelectionForeColor = Theme.Danger }
-        });
-        grid.CellContentClick += (s, e) =>
-        {
-            if (e.RowIndex < 0 || e.ColumnIndex < 0 || grid.Columns[e.ColumnIndex].Name != "del") return;
-            // الحذف بعد انتهاء حدث النقر: حذف السطر من داخل حدث الخلية نفسها قد يوقف البرنامج
-            var row = grid.Rows[e.RowIndex];
-            BeginInvoke(() => RemoveLine(row));
+            if (e.ColumnIndex < 0 || grid.Columns[e.ColumnIndex].Name is not ("qty" or "price" or "len" or "wid") || e.Value is not string str) return;
+            var clean = new string(str.Where(ch => ch is >= '0' and <= '9' or '.' or '-').ToArray());
+            if (double.TryParse(clean, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+            { e.Value = d; e.ParsingApplied = true; }
         };
         grid.RowsAdded += (s, e) => Renumber();
         grid.RowsRemoved += (s, e) => Renumber();
         grid.CellEndEdit += (s, e) => { RecalcRow(e.RowIndex); Totals(); };
         grid.SelectionChanged += (s, e) => { if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false); };
         grid.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete && grid.CurrentRow != null && !grid.IsCurrentCellInEditMode) { var row = grid.CurrentRow; e.Handled = true; BeginInvoke(() => RemoveLine(row)); } };
+        // النقر بالزر الأيمن على سطر: حذفه بعد التأكيد (الحذف بعد انتهاء حدث النقر)
+        grid.CellMouseUp += (s, e) =>
+        {
+            if (e.Button != MouseButtons.Right || e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count) return;
+            var row = grid.Rows[e.RowIndex];
+            BeginInvoke(() => { if (Ui.Confirm($"حذف السطر «{row.Cells["name"].Value}» من القائمة؟")) RemoveLine(row); });
+        };
+        panel.Controls.Add(grid);
+        panel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Theme.Panel });
+        panel.Controls.Add(entry);
+        panel.Controls.Add(lblInfo);
+        lblInfo.BackColor = Theme.Panel;
 
-        // ---------- لوحة معلومات المادة ----------
-        var info = new CardPanel { Dock = DockStyle.Right, Width = 270, Title = "معلومات المادة", IconName = "info" };
-        infoCard = info;
-        info.Controls.Add(lblInfo);
-
-        // ---------- التذييل ----------
-        var footCard = new CardPanel { Dock = DockStyle.Bottom, Height = 152, Padding = new Padding(14, 8, 14, 8) };
-        var stats = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, WrapContents = false, BackColor = Theme.Surface };
-        stats.Controls.Add(Stat("مجموع القائمة", lblTotal, 140));
+        // ---------- التذييل: الخصم والواصل، الأزرار، ولوحة المجاميع في اليسار ----------
+        var foot = new Panel { Dock = DockStyle.Bottom, Height = 124, BackColor = Theme.Surface };
+        var rowA = new FlowLayoutPanel { WrapContents = true, BackColor = Theme.Surface, Padding = new Padding(0, 4, 0, 0) };
+        var rowB = new FlowLayoutPanel { WrapContents = true, BackColor = Theme.Surface, Padding = new Padding(0, 4, 0, 0) };
+        // خيارا «طباعة» و«تقسيط»: بجانب الأزرار إن اتسع السطر، وإلا فوق لوحة المجاميع
+        var toggles = new FlowLayoutPanel { WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(0, 2, 0, 0) };
+        cbDiscType.Items.AddRange(new object[] { "مقطوعة", "نسبة %" });
+        cbDiscType.SelectedIndex = 0;
         if (HasParty)
         {
-            nDisc.Enabled = Session.Can("discount");
-            stats.Controls.Add(Ui.Labeled("الخصم", nDisc));
-            stats.Controls.Add(Stat("المجموع بعد الخصم", lblNet, 160));
+            nDisc.Enabled = cbDiscType.Enabled = Session.Can("discount");
+            rowA.Controls.Add(new InlineField("نوع الخصم", cbDiscType, 120));
+            rowA.Controls.Add(new InlineField("الخصم", nDisc, 120));
         }
         if (HasPayment)
         {
-            stats.Controls.Add(Ui.Labeled("الواصل", nPaid));
-            stats.Controls.Add(Stat("الباقي", lblRemain, 130));
-            stats.Controls.Add(Stat("الرصيد السابق", lblPrev, 140));
-            stats.Controls.Add(Stat("الرصيد الحالي", lblAfter, 140));
+            rowA.Controls.Add(new InlineField("الواصل", nPaid, 140));
         }
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = Theme.Surface };
-        var toggles = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Surface, Padding = new Padding(0, 12, 0, 0) };
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Left, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = Theme.Surface, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, 6, 0, 0) };
-        bottom.Controls.Add(toggles);
-        bottom.Controls.Add(actions);
-        footCard.Controls.Add(bottom);
-        footCard.Controls.Add(stats);
-
-        chkPrint.Checked = Session.Can("print") && Settings.Get("print_after_save", "2") == "1";
-        chkPrint.Visible = Session.Can("print");
-        toggles.Controls.Add(chkPrint);
-        if (type == "Sale" && Features.On("feat_installments")) toggles.Controls.Add(chkInst);
+        box.Define(HasPayment ? new[] { "مجموع القائمة", "بعد الخصم", "الباقي", "الرصيد السابق", "الرصيد الحالي" }
+                   : HasParty ? new[] { "مجموع القائمة", "المجموع بعد الخصم" } : new[] { "مجموع القائمة" });
 
         bool stockDoc = Ui.IsStockDoc(type);
-        var bNew = new ModernButton { Text = "جديد", IconName = "plus", Height = 44, Margin = new Padding(0, 0, 8, 0) }; bNew.FitWidth(120);
-        var bSave = new ModernButton { Text = "حفظ", IconName = "save", Height = 44, Margin = new Padding(0, 0, 8, 0) }; bSave.FitWidth(130);
-        var bDel = new ModernButton { Text = "حذف", IconName = "trash-2", Kind = BtnKind.Coral, Height = 44, Margin = new Padding(0, 0, 8, 0) }; bDel.FitWidth(110);
-        var bPrint = new ModernButton { Text = stockDoc ? "طباعة آخر سند" : "طباعة آخر قائمة", IconName = "printer", Kind = BtnKind.Secondary, Height = 44, Margin = new Padding(0, 0, 8, 0) }; bPrint.FitWidth(150);
-        // RightToLeft: الأول يظهر في أقصى اليسار
-        if (Session.Can("print")) actions.Controls.Add(bPrint);
+        ModernButton Big(string text, BtnKind kind)
+        {
+            var b = new ModernButton { Text = text, Kind = kind, Font = Theme.FS(12), Size = new Size(104, 46), Margin = new Padding(0, 2, 8, 2), Radius = 6 };
+            rowB.Controls.Add(b);
+            return b;
+        }
+        var bNew = Big("جديد", BtnKind.Primary);
+        var bSave = Big("حفظ", BtnKind.Primary);
+        var bDel = Big("حذف", BtnKind.Coral);
+        var bPrint = Big("طباعة", BtnKind.Amber);
+        bPrint.Visible = Session.Can("print");
+        new ToolTip().SetToolTip(bPrint, stockDoc ? "طباعة السند المفتوح أو آخر سند محفوظ" : "طباعة القائمة المفتوحة أو آخر قائمة محفوظة");
         if (IsQuote)
         {
-            var bConvert = new ModernButton { Text = "تحويل إلى قائمة بيع", IconName = "repeat", Kind = BtnKind.Accent, Height = 44, Margin = new Padding(0, 0, 8, 0) };
-            bConvert.FitWidth(170);
+            var bConvert = Big("تحويل", BtnKind.Primary);
+            new ToolTip().SetToolTip(bConvert, "تحويل عرض السعر إلى قائمة بيع");
             bConvert.Click += (s, e) => ConvertToSale();
-            actions.Controls.Add(bConvert);
         }
-        actions.Controls.Add(bDel);
-        actions.Controls.Add(bSave);
-        actions.Controls.Add(bNew);
+        chkPrint.Checked = Session.Can("print") && Settings.Get("print_after_save", "2") == "1";
+        chkPrint.Visible = Session.Can("print");
+        chkPrint.Margin = chkInst.Margin = new Padding(8, 8, 4, 0);
+        chkPrint.Width = 96;
+        chkInst.Text = "تقسيط";
+        chkInst.Width = 130;
+        toggles.Controls.Add(chkPrint);
+        if (type == "Sale" && Features.On("feat_installments")) toggles.Controls.Add(chkInst);
         bSave.Click += (s, e) => Save();
         bNew.Click += (s, e) => { if (ConfirmClose()) { editId = 0; Reset(); } };
         bDel.Click += (s, e) => DeleteCurrent();
-        bPrint.Click += (s, e) => { if (lastId > 0) InvoiceOps.BuildPrint(lastId)?.Print(); else Ui.Warn("لم تُحفظ أي قائمة بعد في هذه الشاشة."); };
+        bPrint.Click += (s, e) =>
+        {
+            long pid = editId > 0 ? editId : lastId;
+            if (pid > 0) InvoiceOps.BuildPrint(pid)?.Print(); else Ui.Warn("لم تُحفظ أي قائمة بعد في هذه الشاشة.");
+        };
+        foot.Controls.Add(rowA);
+        foot.Controls.Add(rowB);
+        foot.Controls.Add(toggles);
+        foot.Controls.Add(box);
+        // ترتيب التذييل يدويًا: المجاميع في اليسار، والسطران في اليمين يلتفان عند الضيق ويكبر التذييل معهما
+        bool arranging = false;
+        foot.Layout += (s, e) =>
+        {
+            if (arranging) return;
+            arranging = true;
+            try
+            {
+                int W = foot.ClientSize.Width, gap = Dpi.S(16);
+                int bw = Math.Min(box.PreferredWidth, W * 42 / 100), ra = Math.Max(Dpi.S(200), W - bw - gap);
+                // حقول الخصم والواصل تصغر بالتناسب لتبقى في سطر واحد
+                InlineField.FitRow(rowA.Controls.OfType<InlineField>().ToList(), ra - rowA.Padding.Horizontal, Dpi.S(88));
+                int ha = rowA.Controls.Count == 0 ? 0 : rowA.GetPreferredSize(new Size(ra, 0)).Height;
+                int hb = rowB.GetPreferredSize(new Size(ra, 0)).Height;
+                int bh = Dpi.S(88), top = Dpi.S(8);
+                var ts = toggles.GetPreferredSize(Size.Empty);
+                int nb = rowB.GetPreferredSize(Size.Empty).Width;
+                bool beside = toggles.Controls.Cast<Control>().All(c => !c.Visible) || nb + ts.Width <= ra;
+                int h = Math.Max(ha + hb, bh + (beside ? 0 : ts.Height)) + top + Dpi.S(4);
+                rowA.SetBounds(W - ra, top, ra, ha);
+                rowB.SetBounds(W - ra, top + ha, ra, hb);
+                box.SetBounds(0, h - bh - Dpi.S(4), bw, bh);
+                if (beside)
+                {
+                    rowB.SetBounds(W - Math.Min(ra, nb), top + ha, Math.Min(ra, nb), hb);
+                    toggles.SetBounds(Math.Max(0, W - nb - ts.Width), top + ha + (hb - ts.Height) / 2, ts.Width, ts.Height);
+                }
+                else toggles.SetBounds(0, h - bh - Dpi.S(4) - ts.Height, Math.Min(bw, ts.Width), ts.Height);
+                // تغيير ارتفاع التذييل أثناء ترتيبه يترك موضعه قديمًا؛ يُؤجَّل حتى ينتهي الترتيب الحالي
+                if (foot.Height != h)
+                {
+                    if (foot.IsHandleCreated) foot.BeginInvoke(() => { if (!foot.IsDisposed && foot.Height != h) foot.Height = h; });
+                    else foot.Height = h;
+                }
+            }
+            finally { arranging = false; }
+        };
 
-        Controls.Add(grid);
-        Controls.Add(new Panel { Dock = DockStyle.Right, Width = 14 });
-        Controls.Add(info);
-        Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 12 });
-        Controls.Add(footCard);
-        Controls.Add(entry);
-        Controls.Add(head);
-        headBar = head; entryBar = entry; footBar = footCard;
+        root.Controls.Add(panel);
+        root.Controls.Add(foot);
+        root.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Theme.Surface });
+        root.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Theme.Border });
+        root.Controls.Add(head);
+        Controls.Add(root);
+        headBar = head;
         Resize += (s, e) => FitHeight();
 
         // ---------- الأحداث ----------
         nDisc.ValueChanged += (s, e) => Totals();
+        cbDiscType.SelectedIndexChanged += (s, e) =>
+        {
+            // نسبة مئوية: حتى 100 بمنزلتين عشريتين؛ مقطوعة: مبلغ
+            bool pct = DiscPercent;
+            nDisc.Value = 0;
+            nDisc.DecimalPlaces = pct ? 2 : 0;
+            nDisc.Maximum = pct ? 100 : 1_000_000_000_000m;
+            Totals();
+        };
         nFee.ValueChanged += (s, e) => Totals();
         nPaid.ValueChanged += (s, e) => { if (!busy) { paidTouched = true; Totals(); } };
         // سعر الأقساط يختلف عن السعر النقدي إن وُجد
         chkInst.CheckedChanged += (s, e) => { if (!busy) { paidTouched = false; Reprice(); } };
         cbParty.SelectedIndexChanged += (s, e) => PartyChanged();
         cbLevel.SelectedIndexChanged += (s, e) => Reprice();
-        cbWh.SelectedIndexChanged += (s, e) => { if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false); };
+        cbWh.SelectedIndexChanged += (s, e) =>
+        {
+            foreach (DataGridViewRow g in grid.Rows) g.Cells["wh"].Value = cbWh.Text;
+            if (grid.CurrentRow != null) ShowInfo(ItemRow(Db.L(grid.CurrentRow.Cells["item_id"].Value)), false);
+        };
         KeyDown += (s, e) =>
         {
-            if (e.KeyCode == Keys.F2) { txtFind.Focus(); e.Handled = true; }
+            if (e.KeyCode == Keys.F2) { tBarcode.Focus(); e.Handled = true; }
+            if (e.KeyCode == Keys.F3) { txtFind.Focus(); e.Handled = true; }
             if (e.KeyCode == Keys.F10) { Save(); e.Handled = true; }
         };
 
         LoadItems();
-        lblInfo.Text = "اكتب اسم المادة أو امسح الباركود في «المادة / الباركود».\n\nالباركود يُضاف مباشرة، والاسم ينقلك إلى العدد ثم السعر (Enter).";
+        lblInfo.Text = "امسح الباركود في «الباركود» (F2) فتُضاف المادة مباشرة، أو اكتب اسمها في «المادة» (F3) ثم العدد والسعر و Enter.  •  الزر الأيمن على السطر لحذفه.";
         ShowNumber();
         PartyChanged();
         Totals();
         if (editId > 0) LoadInvoice(editId);
-        Shown += (s, e) => txtFind.Focus();
+        Shown += (s, e) => tBarcode.Focus();
     }
 
     // ---------- التكيف مع حجم الشاشة ----------
     readonly List<Control> moreFields = new();
     bool? moreManual;
-    Control headBar, entryBar, footBar, infoCard;
+    Control headBar;
     bool MoreVisible => moreFields.Count > 0 && moreFields[0].Visible;
 
     Control More(Control c) { moreFields.Add(c); return c; }
+
+    readonly List<InlineField> headRow1 = new(), headRow2 = new();
+    Control[] headExtras = Array.Empty<Control>();
+
+    /// <summary>يصغّر حقول كل سطر من الترويسة بالتناسب (العناوين كما هي) حتى يتسع السطر دون التفاف</summary>
+    void FitHeader()
+    {
+        if (headBar == null) return;
+        int avail = headBar.ClientSize.Width - headBar.Padding.Horizontal - Dpi.S(6);
+        InlineField.FitRow(headRow1, avail, Dpi.S(96));
+        // اسم المستخدم معلومة ثانوية: يُخفى إن لم يتسع له السطر الثاني (حتى لا ينزل زر «المزيد» لسطر وحده)
+        if (headExtras.Length > 1)
+        {
+            int need = headRow2.Sum(f => f.CaptionWidth + f.Margin.Horizontal + Math.Min(Dpi.S(96), f.NaturalField)) + Dpi.S(10);
+            var who = headExtras[0];
+            bool fits = need + headExtras.Sum(c => c.PreferredSize.Width + c.Margin.Horizontal) <= avail;
+            if (who.Visible != fits) who.Visible = fits;
+        }
+        InlineField.FitRow(headRow2, avail - headExtras.Where(c => c.Visible).Sum(c => c.Width + c.Margin.Horizontal), Dpi.S(96));
+    }
 
 
     void ShowMore(bool on)
@@ -284,7 +407,6 @@ public class InvoiceForm : BaseForm
     {
         if (headBar == null) return;
         if (moreManual == null) ShowMore(ClientSize.Height >= Dpi.S(760));
-        infoCard.Visible = ClientSize.Width >= Dpi.S(1080);
     }
 
     void AddCol(string name, string header, bool readOnly, int weight, bool visible = true)
@@ -293,7 +415,7 @@ public class InvoiceForm : BaseForm
         {
             Name = name, HeaderText = header, ReadOnly = readOnly, Visible = visible, FillWeight = weight,
             MinimumWidth = Math.Max(Dpi.S(name == "no" ? 40 : 60), TextRenderer.MeasureText(header, Theme.FS(9.5f)).Width + Dpi.S(26)),
-            DefaultCellStyle = { Format = "#,0.##", BackColor = readOnly ? Theme.SurfaceAlt : Theme.Surface, Alignment = name is "name" ? DataGridViewContentAlignment.MiddleLeft : DataGridViewContentAlignment.MiddleCenter }
+            DefaultCellStyle = { Format = "#,0.##", BackColor = Theme.Surface, Alignment = name is "name" ? DataGridViewContentAlignment.MiddleLeft : DataGridViewContentAlignment.MiddleCenter }
         });
     }
 
@@ -483,12 +605,31 @@ public class InvoiceForm : BaseForm
         g.Cells["wid"].Value = wid;
         g.Cells["qty"].Value = qty;
         g.Cells["price"].Value = price;
-        g.Cells["expiry"].Value = expiry ?? "";
+        g.Cells["expiry"].Value = !UsesExpiry && string.IsNullOrEmpty(expiry) ? NearestExpiry(Db.L(r["id"])) : expiry ?? "";
+        g.Cells["wh"].Value = cbWh.Text;
         g.Cells["note"].Value = note ?? "";
         if (!measure) { g.Cells["len"].ReadOnly = true; g.Cells["wid"].ReadOnly = true; }
         else g.Cells["qty"].ReadOnly = true;
         RecalcRow(i);
         return g;
+    }
+
+    /// <summary>أقرب تاريخ صلاحية متوفر للمادة في المخزن المختار (للعرض في البيع والإخراج)</summary>
+    string NearestExpiry(long itemId) =>
+        Db.S(Db.Scalar("SELECT MIN(expiry) FROM batches WHERE item_id=@p0 AND warehouse_id=@p1 AND qty>0 AND expiry IS NOT NULL AND expiry<>''", itemId, Ui.GetId(cbWh)));
+
+    /// <summary>حقل «الباركود» في الترويسة: المسح يضيف المادة مباشرة (أو الرقم التسلسلي أو باركود الميزان)</summary>
+    void ScanBarcode()
+    {
+        var t = tBarcode.Text.Trim();
+        if (t == "") return;
+        settingFind = true;
+        txtFind.Text = t;
+        settingFind = false;
+        FindAndAdd();
+        tBarcode.Clear();
+        // أُضيفت المادة: يبقى المؤشر في الباركود للمسح التالي؛ وإن كان اسمًا فينتقل إلى العدد
+        if (pending == null) tBarcode.Focus();
     }
 
     /// <summary>تحميل قائمة محفوظة للتعديل</summary>
@@ -511,6 +652,7 @@ public class InvoiceForm : BaseForm
         txtNotes.Text = Db.S(v["notes"]);
         busy = false;
         AddLinesFrom(id, keepPrices: true);
+        cbDiscType.SelectedIndex = 0;
         Ui.SetNum(nDisc, Db.D(v["discount"]));
         oldEffect = HasPayment ? Sign * (Db.D(v["net"]) - Db.D(v["paid"])) : 0;
         paidTouched = true;
@@ -553,6 +695,7 @@ public class InvoiceForm : BaseForm
         int li = f.cbLevel.Items.IndexOf(Db.S(v.Rows[0]["price_level"])); if (li >= 0) f.cbLevel.SelectedIndex = li;
         f.busy = false;
         f.AddLinesFrom(quoteId, keepPrices: true);
+        f.cbDiscType.SelectedIndex = 0;
         Ui.SetNum(f.nDisc, Db.D(v.Rows[0]["discount"]));
         f.txtNotes.Text = $"من عرض السعر رقم {quoteId}";
         f.PartyChanged(keepLevel: true);
@@ -623,23 +766,26 @@ public class InvoiceForm : BaseForm
     }
 
     double Total => grid.Rows.Cast<DataGridViewRow>().Sum(g => Ui.V(g.Cells["total"].Value));
-    double Net => Total - (double)nDisc.Value + (double)nFee.Value;
+    bool DiscPercent => cbDiscType.SelectedIndex == 1;
+    /// <summary>الخصم بالمبلغ: مقطوع كما كُتب، أو نسبة من مجموع القائمة</summary>
+    double Disc => DiscPercent ? Math.Round(Total * (double)nDisc.Value / 100.0, 2) : (double)nDisc.Value;
+    double Net => Total - Disc + (double)nFee.Value;
+    static string Money(double v) => Ui.M(v) + " د.ع";
 
     void Totals()
     {
         bool was = busy;
         busy = true;
-        lblTotal.Value = Ui.M(Total);
-        lblNet.Value = Ui.M(Net);
+        box.Set(0, Money(Total));
+        if (HasParty) box.Set(1, Money(Net), null, true);
         if (HasPayment)
         {
             // الواصل = كامل المبلغ ما لم يغيّره المستخدم (والمقدّم صفر عند التقسيط)
             if (!paidTouched) Ui.SetNum(nPaid, chkInst.Checked ? 0 : Math.Max(0, Net));
             double remain = Net - (double)nPaid.Value;
-            lblRemain.Value = Ui.M(remain);
-            lblRemain.ValueColor = remain > 0.005 ? Theme.Danger : remain < -0.005 ? Theme.Warning : Theme.Success;
-            lblPrev.Value = Ui.M(prevBalance);
-            lblAfter.Value = Ui.M(prevBalance + Sign * remain);
+            box.Set(2, Money(remain), remain > 0.005 ? Theme.Danger : remain < -0.005 ? Theme.Warning : Theme.Success);
+            box.Set(3, Money(prevBalance), prevOver ? Theme.Danger : null);
+            box.Set(4, Money(prevBalance + Sign * remain), Theme.BrandDark);
         }
         busy = was;
     }
@@ -656,7 +802,7 @@ public class InvoiceForm : BaseForm
             if (i >= 0) cbLevel.SelectedIndex = i;
         }
         double lim = r == null || !Credit.Enabled ? 0 : Credit.Of(Db.L(r["id"])).Limit;
-        lblPrev.ValueColor = lim > 0 && prevBalance > lim ? Theme.Danger : Theme.Ink;
+        prevOver = lim > 0 && prevBalance > lim;
         Totals();
     }
 
@@ -667,13 +813,10 @@ public class InvoiceForm : BaseForm
         double stock = Db.D(Db.Scalar("SELECT IFNULL(SUM(qty),0) FROM batches WHERE item_id=@p0 AND warehouse_id=@p1", id, wh));
         var exp = Db.S(Db.Scalar("SELECT MIN(expiry) FROM batches WHERE item_id=@p0 AND warehouse_id=@p1 AND qty>0 AND expiry IS NOT NULL AND expiry<>''", id, wh));
         string med = Db.S(r["medical_info"]), note = Db.S(r["alert_note"]);
-        lblInfo.Text =
-            $"{Db.S(r["name"])}\n\n" +
-            $"الرصيد في المخزن: {Ui.M(stock)} {Db.S(r["unit"])}\n" +
-            $"أقرب صلاحية: {(exp == "" ? "—" : exp)}\n\n" +
-            $"مفرد: {Ui.M(Db.D(r["price_retail"]))}\nجملة: {Ui.M(Db.D(r["price_wholesale"]))}\nخاص: {Ui.M(Db.D(r["price_special"]))}\n" +
-            (med != "" ? $"\n— البيانات الطبية —\n{med}\n" : "") +
-            (note != "" ? $"\n⚠ الملاحظة عند البيع:\n{note}" : "");
+        lblInfo.Text = $"{Db.S(r["name"])}   •   الرصيد في المخزن: {Ui.M(stock)} {Db.S(r["unit"])}   •   أقرب صلاحية: {(exp == "" ? "—" : exp)}" +
+                       $"   •   مفرد {Ui.M(Db.D(r["price_retail"]))}  /  جملة {Ui.M(Db.D(r["price_wholesale"]))}  /  خاص {Ui.M(Db.D(r["price_special"]))}" +
+                       (note != "" ? $"   •   ⚠ {note}" : "");
+        infoTip.SetToolTip(lblInfo, lblInfo.Text + (med != "" ? "\n\nالبيانات الطبية:\n" + med : ""));
         if (alert && note != "" && SaleSide)
             Dialogs.Message(note, "ملاحظة على المادة: " + Db.S(r["name"]), Tone.Warning);
         if (alert && exp != "" && DateTime.TryParse(exp, out var ed) && ed < DateTime.Today && IsOut)
@@ -685,7 +828,8 @@ public class InvoiceForm : BaseForm
         var list = new List<Line>();
         foreach (DataGridViewRow g in grid.Rows)
         {
-            string exp = Convert.ToString(g.Cells["expiry"].Value)?.Trim() ?? "";
+            // في البيع والإخراج يُعرض تاريخ أقرب وجبة للعلم فقط؛ الصرف الفعلي بطريقة FEFO عند الحفظ
+            string exp = UsesExpiry ? Convert.ToString(g.Cells["expiry"].Value)?.Trim() ?? "" : "";
             if (exp != "")
             {
                 if (!DateTime.TryParse(exp, out var d)) throw new Exception($"تاريخ صلاحية غير صحيح للمادة {g.Cells["name"].Value}: {exp}");
@@ -717,7 +861,7 @@ public class InvoiceForm : BaseForm
 
         long party = Ui.GetId(cbParty), wh = Ui.GetId(cbWh), box = Ui.GetId(cbBox), cc = Ui.GetId(cbCC), del = Ui.GetId(cbDel);
         string level = SaleSide ? Convert.ToString(cbLevel.SelectedItem) : "";
-        double total = Total, disc = (double)nDisc.Value, fee = (double)nFee.Value, net = Net, paid = HasPayment ? (double)nPaid.Value : 0;
+        double total = Total, disc = Disc, fee = (double)nFee.Value, net = Net, paid = HasPayment ? (double)nPaid.Value : 0;
         // طريقة الدفع من الواصل: كامل = نقدي، أقل = آجل (على الحساب)، أو أقساط عند «تقسيط القائمة»
         string pay = !HasPayment ? "" : chkInst.Checked && type == "Sale" ? "أقساط" : paid >= net - 0.001 ? "نقدي" : "آجل";
 
@@ -884,6 +1028,7 @@ public class InvoiceForm : BaseForm
         grid.Rows.Clear();
         busy = true;
         chkInst.Checked = false;
+        cbDiscType.SelectedIndex = 0;
         nDisc.Value = 0; nFee.Value = 0; nPaid.Value = 0;
         busy = false;
         paidTouched = false;
@@ -896,6 +1041,80 @@ public class InvoiceForm : BaseForm
         PartyChanged();
         lblInfo.Text = "";
         ClearEntry();
+    }
+}
+
+/// <summary>لوحة المجاميع أسفل القائمة: أعمدة بعنوان ملون وقيمة كبيرة (مجموع القائمة، بعد الخصم، الباقي، الرصيد)</summary>
+public class TotalsBox : Control
+{
+    readonly List<(string Caption, string Value, Color? Color, bool Big)> cols = new();
+
+    public TotalsBox()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    public void Define(params string[] captions)
+    {
+        cols.Clear();
+        foreach (var c in captions) cols.Add((c, "0", null, false));
+        Invalidate();
+    }
+
+    public void Set(int i, string value, Color? color = null, bool big = false)
+    {
+        if (i < 0 || i >= cols.Count) return;
+        cols[i] = (cols[i].Caption, value, color, big);
+        Invalidate();
+    }
+
+    static string Short(string c) => c switch
+    {
+        "مجموع القائمة" => "المجموع", "المجموع بعد الخصم" => "بعد الخصم", "الرصيد السابق" => "السابق", "الرصيد الحالي" => "الحالي", _ => c
+    };
+
+    /// <summary>العرض المناسب بالبكسل الفعلي</summary>
+    public int PreferredWidth => Math.Max(1, cols.Count) * Dpi.S(cols.Count > 3 ? 104 : 150);
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Gfx.OpaqueBack(this));
+        Gfx.Hq(g);
+        var bg = Gfx.Mix(Theme.Orange, Color.White, 0.86f);
+        var line = Gfx.Mix(Theme.Orange, Color.White, 0.55f);
+        var cap = Gfx.Mix(Theme.Orange, Color.Black, 0.12f);
+        var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        Gfx.FillRound(g, r, Dpi.S(6f), bg);
+        Gfx.DrawRound(g, r, Dpi.S(6f), line, Math.Max(1f, Dpi.S(1.2f)));
+        if (cols.Count == 0) return;
+        float cw = (float)Width / cols.Count;
+        // إن ضاق عمود عن عنوانه تُختصر العناوين كلها معًا (مظهر متناسق)
+        int capW = (int)cw - Dpi.S(8);
+        bool shortAll = cols.Any(c => TextRenderer.MeasureText(c.Caption, Theme.FS(9)).Width > capW);
+        for (int i = 0; i < cols.Count; i++)
+        {
+            // من اليمين: العمود الأول في أقصى اليمين
+            float x = Width - (i + 1) * cw;
+            if (i > 0)
+                using (var pen = new Pen(line, Math.Max(1f, Dpi.S(1f))))
+                    g.DrawLine(pen, x + cw, Dpi.S(12), x + cw, Height - Dpi.S(12));
+            var (caption, value, color, big) = cols[i];
+            var tr = new Rectangle((int)x + Dpi.S(4), Dpi.S(6), (int)cw - Dpi.S(8), Dpi.S(34));
+            // خط العنوان يصغر قليلًا إن ضاق العمود، ثم ينقسم على سطرين حتى يظهر كاملًا
+            var cf = Theme.FS(10);
+            foreach (var sz in new[] { 9.5f, 9f })
+                if (TextRenderer.MeasureText(caption, cf).Width > tr.Width) cf = Theme.FS(sz);
+            // عمود ضيق جدًا: العنوان المختصر (السابق، الحالي...)
+            if (shortAll) caption = Short(caption);
+            TextRenderer.DrawText(g, caption, cf, tr, cap,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.RightToLeft | TextFormatFlags.NoPadding);
+            var vr = new Rectangle((int)x + Dpi.S(2), Dpi.S(40), (int)cw - Dpi.S(4), Height - Dpi.S(46));
+            var vf = Theme.FS(big ? 14 : 13);
+            foreach (var sz in new[] { 12f, 11f, 10f, 9f })
+                if (TextRenderer.MeasureText(value, vf).Width > vr.Width) vf = Theme.FS(sz);
+            TextRenderer.DrawText(g, value, vf, vr, color ?? (big ? cap : Theme.Text2), Gfx.Center);
+        }
     }
 }
 
