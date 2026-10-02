@@ -249,3 +249,84 @@ public class FormColumns : Panel
         return h;
     }
 }
+
+/// <summary>
+/// حقل بعنوانه على يمينه في السطر نفسه (مثل «الحساب [.....]») — عرض العنوان حسب نصه، والحقل يأخذ الباقي.
+/// الأبعاد بالبكسل المنطقي وتُكبَّر مع الشاشة.
+/// </summary>
+public class InlineField : Panel
+{
+    public Label Caption { get; }
+    public Control Field { get; }
+    readonly int capW, fieldW;
+    bool busy;
+
+    /// <summary>العرض الطبيعي بالبكسل الفعلي، وعرض العنوان مع الفاصل</summary>
+    public int NaturalWidth => S(capW) + S(6) + S(fieldW);
+    public int CaptionWidth => S(capW) + S(6);
+    /// <summary>عرض الحقل الطبيعي بالبكسل الفعلي</summary>
+    public int NaturalField => S(fieldW);
+
+    /// <summary>
+    /// توزيع عرض السطر على حقوله: العناوين كما هي، والحقول تصغر بالتناسب، ومن يبلغ الحد الأدنى يثبت عنده
+    /// ويُعاد توزيع الباقي على غيره — فيبقى السطر في سطر واحد ما دام ذلك ممكنًا.
+    /// </summary>
+    public static void FitRow(IList<InlineField> row, int space, int minField)
+    {
+        if (row.Count == 0) return;
+        space -= S(10);   // هامش أمان لتقريب البكسلات في لوحة الترتيب
+        int budget = space - row.Sum(f => f.CaptionWidth + f.Margin.Horizontal);
+        int Min(InlineField f) => Math.Min(minField, f.NaturalField);
+        var free = row.ToList();
+        double k = 1;
+        for (int i = 0; i < row.Count; i++)
+        {
+            int pinned = row.Except(free).Sum(Min), nat = free.Sum(f => f.NaturalField);
+            k = nat <= 0 ? 1 : (double)(budget - pinned) / nat;
+            var under = free.Where(f => f.NaturalField * k < Min(f)).ToList();
+            if (under.Count == 0) break;
+            free = free.Except(under).ToList();
+        }
+        foreach (var f in row) f.FitField(free.Contains(f) ? k : 0, minField);
+    }
+
+    /// <summary>تصغير الحقل (لا العنوان) إلى نسبة من عرضه الطبيعي، بحد أدنى</summary>
+    public void FitField(double k, int minField)
+    {
+        int w = CaptionWidth + Math.Max(Math.Min(minField, NaturalField), (int)(NaturalField * Math.Min(1, k)));
+        if (Width != w) Width = w;
+    }
+
+    public InlineField(string caption, Control input, int fieldWidth, Font font = null)
+    {
+        BackColor = Color.Transparent;
+        font ??= Theme.FS(10.5f);
+        // عرض النص بالبكسل المنطقي (القياس يعطي بكسلًا فعليًا حسب دقة الشاشة)
+        capW = Dpi.U(TextRenderer.MeasureText(caption, font).Width) + 8;
+        fieldW = fieldWidth;
+        Caption = new Label { Text = caption, AutoSize = false, Font = font, ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.Transparent };
+        Field = input is TextBox or NumericUpDown or ComboBox or DateTimePicker ? Ui.Wrap(input) : input;
+        Field.Margin = new Padding(0);
+        Width = capW + 6 + fieldWidth;
+        Height = Math.Max(Field.Height, InputBox.StdHeight);
+        Margin = new Padding(6, 3, 6, 3);
+        Controls.Add(Field);
+        Controls.Add(Caption);
+    }
+
+    protected override void OnLayout(LayoutEventArgs e)
+    {
+        base.OnLayout(e);
+        if (busy) return;
+        busy = true;
+        try
+        {
+            int cw = S(capW), gap = S(6);
+            Caption.SetBounds(Width - cw, 0, cw, Height);
+            int fw = Math.Max(S(40), Width - cw - gap);
+            if (Field is ModernButton mb) mb.SetLayoutBounds(0, (Height - Field.Height) / 2, fw, Field.Height);
+            else Field.SetBounds(0, (Height - Field.Height) / 2, fw, Field.Height);
+        }
+        finally { busy = false; }
+    }
+}

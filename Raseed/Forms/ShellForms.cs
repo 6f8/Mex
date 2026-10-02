@@ -532,7 +532,9 @@ public class MainForm : BaseForm
         timer.Tick += (s, e) => { Scheduler.Tick(); RefreshAlerts(); };
         Shown += (s, e) =>
         {
-            if (Settings.Get("ui_sidebar_rail") == "1") SetRail(true, false);
+            // الشاشات الضيقة (مثل تكبير 150% على شاشة 1080): تبدأ القائمة مصغّرة ما لم يختر المستخدم غير ذلك
+            var railPref = Settings.Get("ui_sidebar_rail");
+            if (railPref == "1" || railPref == "" && ClientSize.Width < Dpi.S(1300)) SetRail(true, false);
             Navigate(Pages[0]);
             MobileApi.Start();
             timer.Start();

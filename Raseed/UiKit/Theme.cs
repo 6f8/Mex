@@ -27,6 +27,8 @@ public static class Theme
     public static Color Ink = C("#1B1F2A"), Text2 = C("#374151"), Muted = C("#6B6557"), Subtle = C("#A39B8B");
     /// <summary>شريط تبويبات الشاشات المفتوحة، وشريط الترحيب في الرئيسية ولون التحية فيه</summary>
     public static Color Strip = C("#E4DED2"), StripHover = C("#D9D2C4"), Hero1 = C("#2B3A8F"), Hero2 = C("#1E2A6E"), HeroAccent = C("#F7B52C");
+    /// <summary>لوحة إدخال المواد وجدولها في القوائم (الأصفر المألوف في المظهر الكلاسيكي)</summary>
+    public static Color Panel = C("#F5E17D");
 
     // ---- حالات (ثابتة في كل المظاهر لأن معناها ثابت) ----
     public static readonly Color Success = C("#16A34A"), SuccessSoft = C("#E8F7EE");
@@ -108,6 +110,7 @@ public static class Theme
         Hero1 = p.Hero1 != null ? C(p.Hero1) : Brand;
         Hero2 = p.Hero2 != null ? C(p.Hero2) : BrandDark;
         HeroAccent = p.HeroAccent != null ? C(p.HeroAccent) : Amber;
+        Panel = p.Key == "classic" ? C("#F5E17D") : Gfx.Mix(Amber, w, 0.55f);
         MonoSections = p.Mono;
     }
 
